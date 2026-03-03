@@ -60,12 +60,19 @@ function StripeCardInput({ onReady, containerStyle = {} }) {
 }
 
 // ─── PALETTE & FONTS ────────────────────────────────────────────────────────
-const G = {
+const LIGHT = {
   green: "#1B4332", greenMid: "#2D6A4F", greenLight: "#52B788", greenPale: "#D8F3DC",
   cream: "#FAFAF7", sand: "#F2EFE9", orange: "#E76F51", orangeLight: "#FDF0EC",
-  gold: "#F4A261", white: "#FFFFFF", text: "#111111", muted: "#1F2937", border: "#E8E4DC",
+  gold: "#F4A261", white: "#FFFFFF", text: "#111111", muted: "#4B5563", border: "#E8E4DC",
   red: "#E53E3E", redLight: "#FFF0F0", blue: "#3182CE", blueLight: "#EBF8FF",
 };
+const DARK = {
+  green: "#1B4332", greenMid: "#52B788", greenLight: "#74C69D", greenPale: "#1B4332",
+  cream: "#111827", sand: "#1F2937", orange: "#E76F51", orangeLight: "#2D1A12",
+  gold: "#F4A261", white: "#1F2937", text: "#F9FAFB", muted: "#9CA3AF", border: "#374151",
+  red: "#FC8181", redLight: "#2D1515", blue: "#63B3ED", blueLight: "#1A2D3D",
+};
+let G = { ...LIGHT };
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Outfit:wght@400;500;600;700&display=swap');
@@ -395,12 +402,18 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
         <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Timeline</div>
           {[
-            { icon:"💳", text:"Escrow funded", date:txn.createdAt, done:true },
-            { icon:"🔒", text:"Funds held", date:txn.createdAt, done:true },
-            { icon:"📅", text:`Scheduled: ${txn.scheduledDate||"–"}`, date:"", done:txn.status!=="held" },
-            ...(txn.posterConfirmed?[{icon:"✅",text:"Poster confirmed",date:"",done:true}]:[]),
-            ...(txn.workerConfirmed?[{icon:"✅",text:"Worker confirmed",date:"",done:true}]:[]),
-            { icon:txn.status==="released"?"✅":txn.status==="disputed"?"⚠️":txn.status==="refunded"?"↩️":"⏳",
+            { icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>, text:"Escrow funded", date:txn.createdAt, done:true },
+            { icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>, text:"Funds held", date:txn.createdAt, done:true },
+            { icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={txn.status!=="held"?G.greenMid:G.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>, text:`Scheduled: ${txn.scheduledDate||"–"}`, date:"", done:txn.status!=="held" },
+            ...(txn.posterConfirmed?[{icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,text:"Poster confirmed",date:"",done:true}]:[]),
+            ...(txn.workerConfirmed?[{icon:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,text:"Worker confirmed",date:"",done:true}]:[]),
+            { icon: txn.status==="released"
+                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : txn.status==="disputed"
+                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                : txn.status==="refunded"
+                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.gold} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
               text:txn.status==="released"?"Released to worker":txn.status==="disputed"?"Dispute opened":txn.status==="refunded"?"Refunded to poster":"Awaiting completion",
               date:txn.releasedAt||txn.disputedAt||txn.refundedAt||"Pending", done:txn.status!=="held" },
           ].map((t,i,arr)=>(
@@ -756,7 +769,24 @@ function CheckoutModal({ job, onClose, onComplete }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // SETTINGS SCREEN (with escrow wallet, account, payments, notifs, privacy)
 // ═══════════════════════════════════════════════════════════════════════════
-function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange }) {
+// Stable field component defined outside SettingsScreen so it never remounts on re-render
+function ProfileField({ label, value, onChange, type="text", rows, placeholder="" }) {
+  return (
+    <div style={{ marginBottom:14 }}>
+      <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:5, textTransform:"uppercase", letterSpacing:.5 }}>{label}</label>
+      {rows
+        ? <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.white, outline:"none", lineHeight:1.5, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+        : <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+      }
+    </div>
+  );
+}
+
+function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
+  const storedUser = currentUser || (() => { try { return JSON.parse(localStorage.getItem("chores_user")); } catch { return null; } })();
+  const fullName = storedUser ? `${storedUser.firstName} ${storedUser.lastName||""}`.trim() : "Jordan Davis";
+  const userEmail = storedUser?.email || "jordan@email.com";
+  const userZipCode = storedUser?.zip || "60647";
   const [tab, setTab] = useState("profile");
   const [subPage, setSubPage] = useState(null);
   const settingsRef = React.useRef(null);
@@ -813,7 +843,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [bankFields, setBankFields] = useState({ holder:"Jordan Davis", routing:"", account:"", bankName:"Chase", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first:"Jordan", last:"Davis", email:"jordan@email.com", phone:"(312) 555-0123", bio:"Hardworking college student available for odd jobs around the neighborhood. Reliable, punctual, and always happy to help.", age:"19", zip:"60647", photo:null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||"Jordan", last: storedUser?.lastName||"Davis", email: userEmail, phone: storedUser?.phone||"(312) 555-0123", bio:"Hardworking and reliable, available for jobs around the neighborhood.", age:"", zip: userZipCode, photo:null });
   const photoInputRef = React.useRef();
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(["lawn","cleaning","moving"]);
@@ -849,15 +879,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── EDIT PROFILE SUB-PAGE ──
   if (subPage==="editProfile") {
-    const Field = ({ label, value, onChange, type="text", rows, placeholder="" }) => (
-      <div style={{ marginBottom:14 }}>
-        <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:5, textTransform:"uppercase", letterSpacing:.5 }}>{label}</label>
-        {rows
-          ? <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.white, outline:"none", lineHeight:1.5, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-          : <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-        }
-      </div>
-    );
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
         {/* Header */}
@@ -891,24 +912,24 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Personal Info</div>
           <div style={{ display:"flex", gap:10 }}>
-            <div style={{ flex:1 }}><Field label="First Name" value={profile.first} onChange={e=>setProfile(p=>({...p,first:e.target.value}))} /></div>
-            <div style={{ flex:1 }}><Field label="Last Name" value={profile.last} onChange={e=>setProfile(p=>({...p,last:e.target.value}))} /></div>
+            <div style={{ flex:1 }}><ProfileField label="First Name" value={profile.first} onChange={e=>setProfile(p=>({...p,first:e.target.value}))} /></div>
+            <div style={{ flex:1 }}><ProfileField label="Last Name" value={profile.last} onChange={e=>setProfile(p=>({...p,last:e.target.value}))} /></div>
           </div>
-          <Field label="Age" value={profile.age} onChange={e=>setProfile(p=>({...p,age:e.target.value.replace(/\D/g,"").slice(0,2)}))} />
+          <ProfileField label="Age" value={profile.age} onChange={e=>setProfile(p=>({...p,age:e.target.value.replace(/\D/g,"").slice(0,2)}))} />
         </div>
 
         {/* Contact */}
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Contact</div>
-          <Field label="Email" type="email" value={profile.email} onChange={e=>setProfile(p=>({...p,email:e.target.value}))} />
-          <Field label="Phone" type="tel" value={profile.phone} onChange={e=>setProfile(p=>({...p,phone:e.target.value}))} />
-          <Field label="Zip Code" value={profile.zip} onChange={e=>setProfile(p=>({...p,zip:e.target.value.replace(/\D/g,"").slice(0,5)}))} />
+          <ProfileField label="Email" type="email" value={profile.email} onChange={e=>setProfile(p=>({...p,email:e.target.value}))} />
+          <ProfileField label="Phone" type="tel" value={profile.phone} onChange={e=>setProfile(p=>({...p,phone:e.target.value}))} />
+          <ProfileField label="Zip Code" value={profile.zip} onChange={e=>setProfile(p=>({...p,zip:e.target.value.replace(/\D/g,"").slice(0,5)}))} />
         </div>
 
         {/* Bio */}
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>About You</div>
-          <Field label="Bio" value={profile.bio} onChange={e=>setProfile(p=>({...p,bio:e.target.value.slice(0,200)}))} rows={4} placeholder="Tell neighbors a bit about yourself..." />
+          <ProfileField label="Bio" value={profile.bio} onChange={e=>setProfile(p=>({...p,bio:e.target.value.slice(0,200)}))} rows={4} placeholder="Tell neighbors a bit about yourself..." />
           <div style={{ textAlign:"right", fontSize:11, color:profile.bio.length>180?G.red:G.muted, marginTop:-8 }}>{profile.bio.length}/200</div>
         </div>
 
@@ -957,7 +978,23 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 Profile saved successfully!
               </div>
-            : <Btn onClick={()=>{setSaved(true);setTimeout(()=>{setSaved(false);setSubPage(null);},1400);}} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>Save Changes</Btn>
+            : <Btn onClick={()=>{
+                // Persist to localStorage so changes survive refresh
+                try {
+                  const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
+                  localStorage.setItem("chores_user", JSON.stringify({
+                    ...existing,
+                    firstName: profile.first,
+                    lastName: profile.last,
+                    email: profile.email,
+                    phone: profile.phone,
+                    zip: profile.zip,
+                  }));
+                } catch(e) {}
+                if (onUpdateZip) onUpdateZip(profile.zip);
+                setSaved(true);
+                setTimeout(()=>{setSaved(false);setSubPage(null);},1400);
+              }} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>Save Changes</Btn>
           }
         </div>
       </div>
@@ -2338,7 +2375,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             }
             <div>
               <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800 }}>{`${profile.first} ${profile.last}`}</div>
-              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>jordan@email.com · (404) 555-0123</div>
+              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>{profile.email} · {profile.phone}</div>
             </div>
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
@@ -2444,6 +2481,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         <div className="fade">
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, padding:"14px 0 6px" }}>General</div>
+            <SettingRow icon="🌙" label="Dark Mode" sub={darkMode?"On":"Off"} right={<Toggle on={darkMode} onChange={()=>onDarkMode&&onDarkMode(d=>!d)} />} />
             <SettingRow icon="📱" label="Push Notifications" sub={toggles.push?"Enabled":"All notifications silenced"} right={<Toggle on={toggles.push} onChange={()=>tog("push")} />} />
             <SettingRow icon="📳" label="Vibrate" sub={toggles.vibrate?"On":"Off"} right={<Toggle on={toggles.vibrate} onChange={()=>tog("vibrate")} />} last />
           </div>
@@ -2504,7 +2542,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             <SettingRow icon="💡" label="Suggest a Feature" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("suggestFeature")} />
             <SettingRow icon="⭐" label="Rate the App" sub="Leave a review" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>window.open("https://apps.apple.com","_blank")} />
             <SettingRow icon="📜" label="Terms of Service" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("terms")} />
-            <SettingRow icon="🛡️" label="Community Guidelines" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("guidelines")} last />
+            <SettingRow icon="🛡️" label="Community Guidelines" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("guidelines")} />
+            <SettingRow icon="⚙️" label="Admin Dashboard" sub="Developer tools" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>onAdmin&&onAdmin()} last />
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", textAlign:"center" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:800, color:G.green }}>Chores<span style={{ color:G.greenLight }}>.</span></div>
@@ -2694,6 +2733,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
   const [applyModal, setApplyModal] = useState(null);
   const [applyMsg, setApplyMsg] = useState("");
   const [applyStep, setApplyStep] = useState(0); // 0=form, 1=sending, 2=done
+  const [applyAvail, setApplyAvail] = useState([]);
   const discRef = React.useRef(null);
   React.useEffect(()=>{
     if(discRef.current){let p=discRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
@@ -2756,7 +2796,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Applying as</div>
           <div style={{ display:"flex", gap:12, alignItems:"center" }}>
             <Avatar name="Jordan Davis" size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
-            <div><div style={{ fontWeight:700, fontSize:14 }}>Jordan Davis</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
+            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=JSON.parse(localStorage.getItem("chores_user")); return u?`${u.firstName} ${u.lastName||""}`.trim():"Jordan Davis"; } catch { return "Jordan Davis"; } })()}</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
           </div>
         </div>
         {/* Message */}
@@ -2772,9 +2812,17 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:16 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Your Availability</div>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            {["Morning","Afternoon","Evening","Weekends","Flexible"].map(t=>(
-              <div key={t} className="tap chip" style={{ padding:"8px 14px", borderRadius:12, fontSize:12, fontWeight:600, background:G.sand, color:G.muted, border:`1.5px solid ${G.border}` }}>{t}</div>
-            ))}
+            {["Morning","Afternoon","Evening","Weekends","Flexible"].map(t=>{
+              const sel = applyAvail.includes(t);
+              return (
+                <div key={t} className="tap chip" onClick={()=>setApplyAvail(a=>sel?a.filter(x=>x!==t):[...a,t])}
+                  style={{ padding:"8px 14px", borderRadius:12, fontSize:12, fontWeight:600,
+                    background:sel?G.greenPale:G.sand,
+                    color:sel?G.green:G.muted,
+                    border:`1.5px solid ${sel?G.greenLight:G.border}`,
+                    transition:"all .15s ease" }}>{t}</div>
+              );
+            })}
           </div>
         </div>
         <Btn onClick={()=>{setApplyStep(1);setTimeout(()=>setApplyStep(2),1500);}} disabled={!applyMsg.trim()} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15, opacity:applyMsg.trim()?1:.5 }}>
@@ -2911,7 +2959,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           <div style={{ fontSize:12, color:G.red, fontWeight:600 }}>Your profile is hidden — posters can't see you. <span style={{ textDecoration:"underline" }}>Change in Settings → Privacy</span></div>
         </div>
       )}
-      <div style={{ background:G.green, padding:"14px 20px 16px" }}>
+      <div style={{ background:G.green, padding:"20px 20px 16px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:"#fff" }}>Discover Jobs <span style={{ fontSize:13, fontWeight:500, opacity:.7 }}>· Zip {userZip||"60647"}</span></div>
           {/* Filter icon — replaces gear dropdown, opens combined filter+sort panel */}
@@ -3300,19 +3348,7 @@ function OnboardingFlow({ onComplete }) {
           )}
         </div>
 
-        {/* Social sign up */}
-        <div style={{ display:"flex", alignItems:"center", gap:12, margin:"24px 0" }}>
-          <div style={{ flex:1, height:1, background:G.border }} />
-          <span style={{ fontSize:12, color:G.muted, fontWeight:600 }}>or continue with</span>
-          <div style={{ flex:1, height:1, background:G.border }} />
-        </div>
-        <div style={{ display:"flex", gap:10 }}>
-          {[{icon:"G", label:"Google", bg:"#fff"},{icon:"", label:"Apple", bg:"#000", color:"#fff"},{icon:"f", label:"Facebook", bg:"#1877F2", color:"#fff"}].map(s=>(
-            <button key={s.label} className="btn tap" style={{ flex:1, padding:"13px", borderRadius:14, background:s.bg, color:s.color||G.text, fontSize:14, fontWeight:700, border:`1.5px solid ${s.bg==="#fff"?G.border:s.bg}`, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-              <span style={{ fontSize:16 }}>{s.icon}</span> {s.label}
-            </button>
-          ))}
-        </div>
+        {/* Social sign up removed */}
       </div>
 
       <div style={{ padding:"0 32px 48px" }}>
@@ -3817,7 +3853,7 @@ function ReviewModal({ target, jobTitle, onSubmit, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // MAP SCREEN (full tab)
 // ═══════════════════════════════════════════════════════════════════════════
-function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist }) {
+function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist, userZip }) {
   const [mapZoom, setMapZoom] = useState(15);
   const [selectedPin, setSelectedPin] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -3827,6 +3863,21 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
   const [applyModal, setApplyModal] = useState(null);
   const [applyStep, setApplyStep] = useState(0);
   const [applyMsg, setApplyMsg] = useState("");
+  const [applyAvail, setApplyAvail] = useState([]);
+  const [mapCenter, setMapCenter] = useState({ lat: 41.883, lng: -87.627 });
+
+  // Geocode zip to lat/lng when zip changes
+  React.useEffect(() => {
+    if (!userZip) return;
+    fetch(`https://nominatim.openstreetmap.org/search?postalcode=${userZip}&country=US&format=json&limit=1`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && data[0]) {
+          setMapCenter({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) });
+        }
+      })
+      .catch(() => {}); // keep default if fails
+  }, [userZip]);
 
   // Job detail subpage
   if (selectedJob) {
@@ -3869,8 +3920,20 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
                 <>
                   <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, marginBottom:16 }}>Apply for {applyModal.title}</div>
                   <textarea value={applyMsg} onChange={e=>setApplyMsg(e.target.value)} placeholder="Introduce yourself and why you're a great fit..." rows={4} style={{ width:"100%", padding:14, borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:14, resize:"none", marginBottom:12 }}/>
+                  <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Your Availability</div>
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+                    {["Morning","Afternoon","Evening","Weekends","Flexible"].map(t=>{
+                      const sel = applyAvail.includes(t);
+                      return (
+                        <div key={t} className="tap" onClick={()=>setApplyAvail(a=>sel?a.filter(x=>x!==t):[...a,t])}
+                          style={{ padding:"8px 14px", borderRadius:12, fontSize:12, fontWeight:600,
+                            background:sel?G.greenPale:G.sand, color:sel?G.green:G.muted,
+                            border:`1.5px solid ${sel?G.greenLight:G.border}`, transition:"all .15s" }}>{t}</div>
+                      );
+                    })}
+                  </div>
                   <Btn onClick={()=>setApplyStep(1)} disabled={!applyMsg.trim()} style={{ width:"100%", padding:14, borderRadius:14 }}>Submit Application →</Btn>
-                  <Btn onClick={()=>{setApplyModal(null);setApplyMsg("");}} variant="ghost" style={{ width:"100%", padding:12, borderRadius:14, marginTop:8 }}>Cancel</Btn>
+                  <Btn onClick={()=>{setApplyModal(null);setApplyMsg("");setApplyAvail([]);}} variant="ghost" style={{ width:"100%", padding:12, borderRadius:14, marginTop:8 }}>Cancel</Btn>
                 </>
               ):(
                 <div style={{ textAlign:"center", padding:"20px 0" }}>
@@ -3902,17 +3965,19 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
         </div>
       </div>
 
-      {/* Filter dropdown - identical to Discover Jobs */}
-      <div style={{ padding:"10px 16px", background:G.cream, display:"flex", justifyContent:"flex-end", borderBottom:`1px solid ${G.border}` }}>
-        <div style={{ position:"relative" }}>
-          <div className="tap" onClick={()=>setShowMapFilter(s=>!s)} style={{ height:36, borderRadius:10, background:showMapFilter?G.green:"rgba(27,67,50,.1)", display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"0 12px", position:"relative" }}>
+      {/* Map fills remaining space */}
+      <div style={{ flex:1, position:"relative", overflow:"hidden", background:"#E8F0E9" }}>
+
+        {/* Floating filter button on top of map */}
+        <div style={{ position:"absolute", top:10, left:12, zIndex:15 }}>
+          <div className="tap" onClick={()=>setShowMapFilter(s=>!s)} style={{ height:36, borderRadius:10, background:showMapFilter?G.green:"rgba(255,255,255,.92)", display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"0 12px", boxShadow:"0 2px 8px rgba(0,0,0,.18)", position:"relative" }}>
             <span style={{ fontSize:12, fontWeight:600, color:showMapFilter?"#fff":G.green }}>Filter</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={showMapFilter?"#fff":G.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-            {activeCategory.length>0&&<div style={{ position:"absolute", top:-3, right:-3, width:8, height:8, borderRadius:"50%", background:G.greenLight, border:`1.5px solid ${G.cream}` }}/>}
+            {activeCategory.length>0&&<div style={{ position:"absolute", top:-3, right:-3, width:8, height:8, borderRadius:"50%", background:G.greenLight, border:"1.5px solid #fff" }}/>}
           </div>
           {showMapFilter&&<div onClick={()=>setShowMapFilter(false)} style={{ position:"fixed", inset:0, zIndex:19 }} />}
           {showMapFilter&&(
-            <div className="fade" style={{ position:"absolute", top:"calc(100% + 8px)", right:0, background:G.white, borderRadius:16, padding:8, boxShadow:"0 8px 30px rgba(0,0,0,.18)", border:`1px solid ${G.border}`, zIndex:20, width:190 }}>
+            <div className="fade" style={{ position:"absolute", top:"calc(100% + 8px)", left:0, background:G.white, borderRadius:16, padding:8, boxShadow:"0 8px 30px rgba(0,0,0,.18)", border:`1px solid ${G.border}`, zIndex:20, width:190 }}>
               <div style={{ fontSize:10, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, padding:"4px 10px 8px" }}>Category</div>
               {[{id:"all",label:"All Categories"},...CATEGORIES].map(c=>{
                 const active = c.id==="all" ? activeCategory.length===0 : activeCategory.includes(c.id);
@@ -3926,51 +3991,58 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             </div>
           )}
         </div>
-      </div>
-
-      {/* Map fills remaining space */}
-      <div style={{ flex:1, position:"relative", overflow:"hidden", background:"#E8F0E9" }}>
-        <iframe
-          title="Chores Map"
-          width="100%"
-          height="100%"
-          style={{ border:0, position:"absolute", inset:0 }}
-          loading="lazy"
-          allowFullScreen
-          referrerPolicy="no-referrer-when-downgrade"
-          src={`https://www.google.com/maps/embed/v1/view?key=AIzaSyCxNZrtOlBvANLudyc_ZCuo_JasYLIX5IA&center=41.883,-87.627&zoom=${mapZoom}&maptype=roadmap`}
-        />
-
-        {/* Job pins with SVG icons */}
-        {JOBS.filter(j=>(activeCategory.length===0||activeCategory.includes(j.category))&&j.dist<=maxDist).map(job=>{
-          const isSel=selectedPin?.id===job.id;
-          const cLat=41.883, cLng=-87.627;
-          const baseScale=58000;
-          const zoomFactor=Math.pow(2, mapZoom-15);
-          const scale=baseScale*zoomFactor;
-          const x=50+((job.lng-cLng)*scale*Math.cos(cLat*Math.PI/180))/430*100;
-          const y=50-((job.lat-cLat)*scale)/500*100;
-          if(x<-10||x>110||y<-10||y>110) return null;
-          const pinColor = isSel?"#fff":G.muted;
-          const catSvgs = {
-            lawn:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22V8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg>,
-            pets:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="4" cy="8" r="2"/></svg>,
-            cleaning:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 22h18"/><path d="M8 22V10c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v12"/></svg>,
-            babysitting:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>,
-            moving:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M10 8V6a2 2 0 0 1 4 0v2"/></svg>,
-            painting:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><path d="M12 11v5"/></svg>,
-            errands:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
-            windows:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={pinColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="3" y1="12" x2="21" y2="12"/></svg>,
-          };
+        {/* Use OpenStreetMap with markers baked into the URL so they never drift */}
+        {(() => {
+          const filtered = JOBS.filter(j=>(activeCategory.length===0||activeCategory.includes(j.category))&&j.dist<=maxDist);
+          const markers = filtered.map(j=>`${j.lat},${j.lng}`).join("|");
+          const osmSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.lng-0.03},${mapCenter.lat-0.02},${mapCenter.lng+0.03},${mapCenter.lat+0.02}&layer=mapnik&marker=${mapCenter.lat},${mapCenter.lng}`;
+          // Use Google Maps with markers embedded in the URL
+          const pinsList = filtered.map(j=>`markers=color:green%7Clabel:${j.pay}%7C${j.lat},${j.lng}`).join("&");
+          const staticSrc = `https://maps.googleapis.com/maps/api/staticmap?center=${mapCenter.lat},${mapCenter.lng}&zoom=${mapZoom}&size=430x600&maptype=roadmap&${pinsList}&key=AIzaSyCxNZrtOlBvANLudyc_ZCuo_JasYLIX5IA`;
           return (
-            <div key={job.id} className="tap map-pin" onClick={()=>setSelectedPin(isSel?null:job)} style={{ position:"absolute", left:`${Math.max(2,Math.min(98,x))}%`, top:`${Math.max(2,Math.min(92,y))}%`, zIndex:isSel?20:5, transform:"translate(-50%,-100%)", pointerEvents:"auto" }}>
-              <div style={{ background:isSel?G.green:G.white, borderRadius:"50% 50% 50% 0", width:36, height:36, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 3px 14px rgba(0,0,0,${isSel?.4:.2})`, border:`2px solid ${isSel?G.greenLight:G.border}`, transform:"rotate(-45deg)" }}>
-                <span style={{ transform:"rotate(45deg)", display:"flex", alignItems:"center", justifyContent:"center" }}>{catSvgs[job.category]||<span style={{ fontSize:12, fontWeight:800, color:pinColor }}>•</span>}</span>
-              </div>
-              <div style={{ position:"absolute", bottom:-10, left:"50%", transform:"translateX(-50%)", background:isSel?G.green:G.white, color:isSel?"#fff":G.greenMid, fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:6, whiteSpace:"nowrap", boxShadow:"0 2px 6px rgba(0,0,0,.12)", border:`1px solid ${isSel?G.greenLight:G.border}` }}>${job.pay}</div>
-            </div>
+            <>
+              {/* Interactive iframe for the base map */}
+              <iframe
+                title="Chores Map"
+                width="100%" height="100%"
+                style={{ border:0, position:"absolute", inset:0 }}
+                loading="lazy" allowFullScreen
+                referrerPolicy="no-referrer-when-downgrade"
+                src={`https://www.google.com/maps/embed/v1/view?key=AIzaSyCxNZrtOlBvANLudyc_ZCuo_JasYLIX5IA&center=${mapCenter.lat},${mapCenter.lng}&zoom=${mapZoom}&maptype=roadmap`}
+              />
+              {/* Static overlay image with hardcoded pins — sits on top of iframe, pointer-events none so map is still pannable */}
+              <img
+                src={staticSrc}
+                alt="job pins"
+                style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", pointerEvents:"none", opacity:0.92 }}
+              />
+              {/* Tap targets over each pin position — fixed math based on static map */}
+              {filtered.map(job => {
+                const mapW=430, mapH=600;
+                const latRad = mapCenter.lat * Math.PI / 180;
+                const scale = (256 * Math.pow(2, mapZoom)) / (2 * Math.PI);
+                const cx = scale * (mapCenter.lng * Math.PI/180 + Math.PI);
+                const cy = scale * (Math.PI - Math.log(Math.tan(Math.PI/4 + mapCenter.lat*Math.PI/360)));
+                const px = scale * (job.lng * Math.PI/180 + Math.PI);
+                const py = scale * (Math.PI - Math.log(Math.tan(Math.PI/4 + job.lat*Math.PI/360)));
+                const x = (mapW/2 + (px - cx));
+                const y = (mapH/2 + (py - cy));
+                const pct_x = (x / mapW) * 100;
+                const pct_y = (y / mapH) * 100;
+                if(pct_x<0||pct_x>100||pct_y<0||pct_y>100) return null;
+                const isSel = selectedPin?.id===job.id;
+                return (
+                  <div key={job.id} className="tap" onClick={()=>setSelectedPin(isSel?null:job)}
+                    style={{ position:"absolute", left:`${pct_x}%`, top:`${pct_y}%`, transform:"translate(-50%,-100%)", zIndex:isSel?20:10, pointerEvents:"auto" }}>
+                    <div style={{ background:isSel?G.green:"#fff", borderRadius:"50% 50% 50% 0", width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 3px 10px rgba(0,0,0,${isSel?.4:.25})`, border:`2px solid ${isSel?G.greenLight:G.border}`, transform:"rotate(-45deg)" }}>
+                      <span style={{ transform:"rotate(45deg)", fontSize:13, fontWeight:800, color:isSel?"#fff":G.greenMid }}>${job.pay}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           );
-        })}
+        })()}
 
         {/* Zoom controls */}
         <div style={{ position:"absolute", top:10, right:10, display:"flex", flexDirection:"column", gap:4, zIndex:10 }}>
@@ -3999,6 +4071,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
@@ -4008,8 +4081,14 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════
 export default function ChoresApp() {
-  const [appView, setAppView] = useState("onboarding");
-  const [role, setRole] = useState("worker");
+  const storedUser = (() => { try { return JSON.parse(localStorage.getItem("chores_user")); } catch { return null; } })();
+  const storedToken = localStorage.getItem("chores_token");
+  const [appView, setAppView] = useState((storedToken && storedUser) ? "user" : "onboarding");
+  const [role, setRole] = useState(storedUser?.role || "worker");
+  const [darkMode, setDarkMode] = useState(false);
+
+  // Keep G in sync with dark mode — re-render triggers downstream
+  if (darkMode) { Object.assign(G, DARK); } else { Object.assign(G, LIGHT); }
   const [view, setView] = useState("home");
   const [toast, setToast] = useState(null);
   const [userZip, setUserZip] = useState("60647");
@@ -4102,7 +4181,8 @@ export default function ChoresApp() {
   const handleDispute = (id) => { setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"}); };
   const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); };
 
-  if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);}} />;
+  if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");}} onBack={()=>setAppView("onboarding")} />;
+  if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);}} onShowLogin={()=>setAppView("login")} />;
 
   if (appView==="admin") return (
     <div style={{ maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)" }}>
@@ -4114,7 +4194,7 @@ export default function ChoresApp() {
   );
 
   return (
-    <div style={{ fontFamily:"'Outfit',sans-serif", background:appToggles.darkMode?"#111":G.cream, minHeight:"100vh", maxWidth:430, margin:"0 auto", position:"relative", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", transition:"background .3s" }}>
+    <div style={{ fontFamily:"'Outfit',sans-serif", background:darkMode?DARK.cream:LIGHT.cream, minHeight:"100vh", maxWidth:430, margin:"0 auto", position:"relative", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", transition:"background .3s" }}>
       <style>{CSS}</style>
       {toast&&<Toast notif={toast} onDismiss={()=>setToast(null)} />}
       {escrowModal&&<EscrowHoldModal job={escrowModal} onClose={()=>setEscrowModal(null)} onConfirm={handleFund} />}
@@ -4136,21 +4216,14 @@ export default function ChoresApp() {
         </div>
       )}
 
-      {/* Notch */}
-
-
       {/* Header */}
-      <div style={{ background:G.green, padding:"4px 20px 16px" }}>
+      <div style={{ background:G.green, padding:"20px 20px 16px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:"#fff", letterSpacing:.5, lineHeight:1.2 }}>Chores<span style={{ color:G.greenLight }}>.</span></div>
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <div className="tap" onClick={fireToast} style={{ background:"rgba(255,255,255,.12)", borderRadius:10, padding:"6px 10px", fontSize:11, color:"rgba(255,255,255,.8)", fontWeight:700 }}>🔔 Test</div>
-            <div className="tap" onClick={()=>setAppView("admin")} style={{ background:"rgba(255,255,255,.12)", borderRadius:10, padding:"6px 10px", fontSize:11, color:"rgba(255,255,255,.8)", fontWeight:700 }}>⚙️ Admin</div>
+          <div className="tap" onClick={()=>setView("home")}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:34, fontWeight:800, color:"#fff", letterSpacing:.5, lineHeight:1.2 }}>Chores<span style={{ color:G.greenLight }}>.</span></div>
           </div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:14 }}>
           <span style={{ fontSize:11, color:"rgba(255,255,255,.55)" }}>Worker</span>
           <div onClick={()=>setRole(r=>r==="worker"?"poster":"worker")} style={{ width:40, height:22, borderRadius:11, background:role==="poster"?G.greenLight:"rgba(255,255,255,.2)", position:"relative", cursor:"pointer", transition:"background .2s" }}>
             <div style={{ position:"absolute", top:3, left:role==="poster"?21:3, width:16, height:16, borderRadius:"50%", background:"#fff", transition:"left .2s" }}/>
@@ -4162,7 +4235,7 @@ export default function ChoresApp() {
       {/* Content */}
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
         {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} />}
-        {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} />}
+        {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
           <div className="fade">
@@ -4203,7 +4276,7 @@ export default function ChoresApp() {
             )}
           </div>
         )}
-        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} />}
+        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={storedUser} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
 
       {/* POST JOB MODAL */}
