@@ -63,7 +63,7 @@ function StripeCardInput({ onReady, containerStyle = {} }) {
 const G = {
   green: "#1B4332", greenMid: "#2D6A4F", greenLight: "#52B788", greenPale: "#D8F3DC",
   cream: "#FAFAF7", sand: "#F2EFE9", orange: "#E76F51", orangeLight: "#FDF0EC",
-  gold: "#F4A261", white: "#FFFFFF", text: "#111111", muted: "#4B5563", border: "#E8E4DC",
+  gold: "#F4A261", white: "#FFFFFF", text: "#111111", muted: "#1F2937", border: "#E8E4DC",
   red: "#E53E3E", redLight: "#FFF0F0", blue: "#3182CE", blueLight: "#EBF8FF",
 };
 
