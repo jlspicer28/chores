@@ -784,7 +784,7 @@ function ProfileField({ label, value, onChange, type="text", rows, placeholder="
 }
 
 function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
-  const storedUser = currentUser || (() => { try { return JSON.parse(localStorage.getItem("chores_user")); } catch { return null; } })();
+  const storedUser = currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
   const fullName = storedUser ? `${storedUser.firstName} ${storedUser.lastName||""}`.trim() : "Jordan Davis";
   const userEmail = storedUser?.email || "jordan@email.com";
   const userZipCode = storedUser?.zip || "60647";
@@ -982,6 +982,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             : <Btn onClick={()=>{
                 // Persist to localStorage so changes survive refresh
                 try {
+                  if (isBrowser) {
                   const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
                   localStorage.setItem("chores_user", JSON.stringify({
                     ...existing,
@@ -991,6 +992,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                     phone: profile.phone,
                     zip: profile.zip,
                   }));
+                  }
                 } catch(e) {}
                 if (onUpdateZip) onUpdateZip(profile.zip);
                 setSaved(true);
@@ -2823,7 +2825,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Applying as</div>
           <div style={{ display:"flex", gap:12, alignItems:"center" }}>
             <Avatar name="Jordan Davis" size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
-            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=JSON.parse(localStorage.getItem("chores_user")); return u?`${u.firstName} ${u.lastName||""}`.trim():"Jordan Davis"; } catch { return "Jordan Davis"; } })()}</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
+            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null; return u?`${u.firstName} ${u.lastName||""}`.trim():"Jordan Davis"; } catch { return "Jordan Davis"; } })()}</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
           </div>
         </div>
         {/* Message */}
@@ -4118,17 +4120,20 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 // ═══════════════════════════════════════════════════════════════════════════
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════
+const isBrowser = typeof window !== "undefined";
+
 export default function ChoresApp() {
-  const storedUser = (() => { try { return JSON.parse(localStorage.getItem("chores_user")); } catch { return null; } })();
-  const storedToken = localStorage.getItem("chores_token");
+  const storedUser = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
+  const storedToken = isBrowser ? localStorage.getItem("chores_token") : null;
   const [appView, setAppView] = useState((storedToken && storedUser) ? "user" : "onboarding");
   const [role, setRole] = useState(storedUser?.role || "worker");
   const [darkMode, setDarkMode] = useState(() => {
-    try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; }
+    try { return isBrowser ? window.matchMedia('(prefers-color-scheme: dark)').matches : false; } catch { return false; }
   });
 
   // Sync with OS-level changes in real time
   React.useEffect(() => {
+    if (!isBrowser) return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = e => setDarkMode(e.matches);
     mq.addEventListener('change', handler);
