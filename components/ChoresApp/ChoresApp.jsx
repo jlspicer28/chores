@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 // ─── STRIPE SETUP ────────────────────────────────────────────────────────────
 const STRIPE_PK = "pk_live_51Sm0ov0XVYeAYmlL81O3danYiF5PPJV3zpU4FiJR1kTMTatF5hLVB7tEEuyVKzTGbBD9K1QqlWnY7tkMocJ3j0sJ00rWBI5xzg";
-const BACKEND = "https://chores-backend-production-2051.up.railway.app";
+const BACKEND = "https://chores-backend4.onrender.com";
 
 // Load Stripe.js from CDN once
 function useStripeJS() {
@@ -3253,7 +3253,7 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
       <div style={{ padding:"0 32px 48px" }}>
         <button className="btn" onClick={nextStep} style={{ width:"100%", padding:"17px", borderRadius:16, background:G.greenLight, color:"#fff", fontSize:16, fontWeight:700, letterSpacing:.3 }}>Get Started</button>
         <div style={{ textAlign:"center", marginTop:16 }}>
-          <span className="tap" onClick={()=>onComplete("worker")} style={{ fontSize:13, color:"rgba(255,255,255,.4)", fontWeight:500 }}>Already have an account? <span style={{ color:G.greenLight, fontWeight:700 }}>Sign in</span></span>
+          <span className="tap" onClick={()=>onShowLogin&&onShowLogin()} style={{ fontSize:13, color:"rgba(255,255,255,.4)", fontWeight:500 }}>Already have an account? <span style={{ color:G.greenLight, fontWeight:700 }}>Sign in</span></span>
         </div>
         <div style={{ textAlign:"center", marginTop:12 }}>
           <span className="tap" onClick={()=>onComplete("guest")} style={{ fontSize:13, color:"rgba(255,255,255,.3)", fontWeight:500 }}>Continue as Guest →</span>
@@ -3638,15 +3638,16 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
     const startIdVerification = async () => {
       setIdLoading(true); setIdError("");
       try {
+        const token = isBrowser ? localStorage.getItem("chores_token") : null;
         const res = await fetch(`${BACKEND}/api/verify/identity/start`, {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ userId: form.email, name:`${form.first} ${form.last}` }),
+          method:"POST",
+          headers:{"Content-Type":"application/json", ...(token?{"Authorization":`Bearer ${token}`}:{})},
+          body: JSON.stringify({ userId: form.email }),
         });
         const data = await res.json();
         if (data.error) { setIdError(data.error); setIdLoading(false); return; }
         setIdSessionId(data.sessionId);
-        // Open Stripe Identity hosted page in new tab
-        window.open(data.url, "_blank");
+        if (data.url) window.open(data.url, "_blank");
         setIdLoading(false);
       } catch(e) { setIdError("Network error — please try again."); setIdLoading(false); }
     };
@@ -3655,13 +3656,15 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
       if (!idSessionId) { setIdError("Please start verification first."); return; }
       setIdPolling(true); setIdError("");
       try {
+        const token = isBrowser ? localStorage.getItem("chores_token") : null;
         const res = await fetch(`${BACKEND}/api/verify/identity/check`, {
-          method:"POST", headers:{"Content-Type":"application/json"},
+          method:"POST",
+          headers:{"Content-Type":"application/json", ...(token?{"Authorization":`Bearer ${token}`}:{})},
           body: JSON.stringify({ sessionId: idSessionId }),
         });
         const data = await res.json();
         if (data.verified) { setIdVerified(true); setTimeout(nextStep, 900); }
-        else if (data.status === "processing") { setIdError("Still processing — please check again in a moment."); }
+        else if (data.status === "processing") { setIdError("Still processing — check again in a moment."); }
         else { setIdError("Verification not complete yet. Finish the Stripe flow and try again."); }
       } catch(e) { setIdError("Network error — please try again."); }
       setIdPolling(false);
@@ -3766,7 +3769,43 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         ))}
       </div>
 
-      <button className="btn onb-fade" onClick={()=>onComplete(onbRole==="poster"?"poster":"worker")} style={{ width:"100%", padding:"17px", borderRadius:16, background:G.greenLight, color:"#fff", fontSize:16, fontWeight:700, marginTop:32, animationDelay:".45s", opacity:0 }}>Enter Chores →</button>
+      <button className="btn onb-fade" onClick={async ()=>{
+        // Register with real backend
+        try {
+          const res = await fetch(`${BACKEND}/api/auth/register`, {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              email: form.email,
+              password: form.password,
+              firstName: form.first,
+              lastName: form.last,
+              phone: form.phone,
+              zip: zip,
+              role: onbRole || "worker",
+            })
+          });
+          const data = await res.json();
+          if (data.token) {
+            if (isBrowser) {
+              localStorage.setItem("chores_token", data.token);
+              localStorage.setItem("chores_user", JSON.stringify({
+                ...data.user,
+                firstName: data.user.first_name || form.first,
+                lastName: data.user.last_name || form.last,
+                email: form.email,
+                phone: form.phone,
+                zip: zip,
+                role: onbRole || "worker",
+              }));
+            }
+          }
+        } catch(e) {
+          console.error("Registration error:", e);
+          // Still let them in — they can re-auth later
+        }
+        onComplete(onbRole==="poster"?"poster":"worker");
+      }} style={{ width:"100%", padding:"17px", borderRadius:16, background:G.greenLight, color:"#fff", fontSize:16, fontWeight:700, marginTop:32, animationDelay:".45s", opacity:0 }}>Enter Chores →</button>
     </div>
   );
 }
@@ -3894,7 +3933,6 @@ function ReviewModal({ target, jobTitle, onSubmit, onClose }) {
 // MAP SCREEN (full tab)
 // ═══════════════════════════════════════════════════════════════════════════
 function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist, userZip, darkMode }) {
-  const [mapZoom, setMapZoom] = useState(15);
   const [selectedPin, setSelectedPin] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [activeCategory, setActiveCategory] = useState([]);
@@ -3905,19 +3943,116 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
   const [applyMsg, setApplyMsg] = useState("");
   const [applyAvail, setApplyAvail] = useState([]);
   const [mapCenter, setMapCenter] = useState({ lat: 41.883, lng: -87.627 });
+  const mapRef = React.useRef(null);       // DOM node
+  const leafletRef = React.useRef(null);   // Leaflet map instance
+  const markersRef = React.useRef([]);     // current marker objects
+  const tileLayerRef = React.useRef(null); // tile layer for dark mode swap
 
-  // Geocode zip to lat/lng when zip changes
+  // Geocode zip → center
   React.useEffect(() => {
     if (!userZip) return;
     fetch(`https://nominatim.openstreetmap.org/search?postalcode=${userZip}&country=US&format=json&limit=1`)
       .then(r => r.json())
       .then(data => {
         if (data && data[0]) {
-          setMapCenter({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) });
+          const c = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+          setMapCenter(c);
+          if (leafletRef.current) leafletRef.current.setView([c.lat, c.lng], leafletRef.current.getZoom(), { animate: true });
         }
       })
-      .catch(() => {}); // keep default if fails
+      .catch(() => {});
   }, [userZip]);
+
+  // Boot Leaflet once
+  React.useEffect(() => {
+    if (!mapRef.current || leafletRef.current) return;
+
+    // Load Leaflet CSS
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    const bootMap = (L) => {
+      const map = L.map(mapRef.current, {
+        center: [mapCenter.lat, mapCenter.lng],
+        zoom: 15,
+        zoomControl: false,  // we use custom ± buttons
+        attributionControl: false,
+      });
+
+      const tileUrl = darkMode
+        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+
+      tileLayerRef.current = L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
+      leafletRef.current = map;
+    };
+
+    if (window.L) {
+      bootMap(window.L);
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.onload = () => bootMap(window.L);
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      if (leafletRef.current) { leafletRef.current.remove(); leafletRef.current = null; }
+    };
+  }, []);
+
+  // Swap tile layer when dark mode changes
+  React.useEffect(() => {
+    if (!leafletRef.current || !window.L) return;
+    if (tileLayerRef.current) tileLayerRef.current.remove();
+    const tileUrl = darkMode
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+    tileLayerRef.current = window.L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(leafletRef.current);
+  }, [darkMode]);
+
+  // Re-draw markers when filter/maxDist/selectedPin changes
+  React.useEffect(() => {
+    const L = window.L;
+    const map = leafletRef.current;
+    if (!L || !map) return;
+
+    // Remove old markers
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+
+    const filtered = JOBS.filter(j =>
+      (activeCategory.length === 0 || activeCategory.includes(j.category)) && j.dist <= maxDist
+    );
+
+    filtered.forEach(job => {
+      const isSel = selectedPin?.id === job.id;
+      const html = `
+        <div style="
+          width:${isSel?42:36}px; height:${isSel?42:36}px;
+          background:${isSel?G.green:"#fff"};
+          border:2.5px solid ${isSel?G.greenLight:G.greenMid};
+          border-radius:50% 50% 50% 0;
+          transform:rotate(-45deg);
+          display:flex; align-items:center; justify-content:center;
+          box-shadow:0 3px 12px rgba(0,0,0,${isSel?.45:.22});
+          transition:all .15s;
+        ">
+          <span style="transform:rotate(45deg);font-size:${isSel?12:11}px;font-weight:800;color:${isSel?"#fff":G.greenMid};font-family:'Outfit',sans-serif;">$${job.pay}</span>
+        </div>`;
+
+      const icon = L.divIcon({ html, className: "", iconSize: [isSel?42:36, isSel?42:36], iconAnchor: [isSel?21:18, isSel?42:36] });
+      const marker = L.marker([job.lat, job.lng], { icon })
+        .addTo(map)
+        .on("click", () => setSelectedPin(prev => prev?.id === job.id ? null : job));
+      markersRef.current.push(marker);
+    });
+  }, [activeCategory, maxDist, selectedPin]);
 
   // Job detail subpage
   if (selectedJob) {
@@ -4031,63 +4166,13 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             </div>
           )}
         </div>
-        {/* Use OpenStreetMap with markers baked into the URL so they never drift */}
-        {(() => {
-          const filtered = JOBS.filter(j=>(activeCategory.length===0||activeCategory.includes(j.category))&&j.dist<=maxDist);
-          const markers = filtered.map(j=>`${j.lat},${j.lng}`).join("|");
-          const osmSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.lng-0.03},${mapCenter.lat-0.02},${mapCenter.lng+0.03},${mapCenter.lat+0.02}&layer=mapnik&marker=${mapCenter.lat},${mapCenter.lng}`;
-          // Use Google Maps with markers embedded in the URL
-          const pinsList = filtered.map(j=>`markers=color:green%7Clabel:${j.pay}%7C${j.lat},${j.lng}`).join("&");
-          const staticSrc = `https://maps.googleapis.com/maps/api/staticmap?center=${mapCenter.lat},${mapCenter.lng}&zoom=${mapZoom}&size=430x600&maptype=roadmap&${pinsList}&key=AIzaSyCxNZrtOlBvANLudyc_ZCuo_JasYLIX5IA`;
-          return (
-            <>
-              {/* Interactive iframe for the base map */}
-              <iframe
-                title="Chores Map"
-                width="100%" height="100%"
-                style={{ border:0, position:"absolute", inset:0, filter:darkMode?"invert(92%) hue-rotate(180deg) saturate(0.85) brightness(0.88)":"none", transition:"filter .3s" }}
-                loading="lazy" allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade"
-                src={`https://www.google.com/maps/embed/v1/view?key=AIzaSyCxNZrtOlBvANLudyc_ZCuo_JasYLIX5IA&center=${mapCenter.lat},${mapCenter.lng}&zoom=${mapZoom}&maptype=roadmap`}
-              />
-              {/* Static overlay image with hardcoded pins — sits on top of iframe, pointer-events none so map is still pannable */}
-              <img
-                src={staticSrc}
-                alt="job pins"
-                style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", pointerEvents:"none", opacity:0.92, filter:darkMode?"invert(92%) hue-rotate(180deg) saturate(0.85) brightness(0.88)":"none" }}
-              />
-              {/* Tap targets over each pin position — fixed math based on static map */}
-              {filtered.map(job => {
-                const mapW=430, mapH=600;
-                const latRad = mapCenter.lat * Math.PI / 180;
-                const scale = (256 * Math.pow(2, mapZoom)) / (2 * Math.PI);
-                const cx = scale * (mapCenter.lng * Math.PI/180 + Math.PI);
-                const cy = scale * (Math.PI - Math.log(Math.tan(Math.PI/4 + mapCenter.lat*Math.PI/360)));
-                const px = scale * (job.lng * Math.PI/180 + Math.PI);
-                const py = scale * (Math.PI - Math.log(Math.tan(Math.PI/4 + job.lat*Math.PI/360)));
-                const x = (mapW/2 + (px - cx));
-                const y = (mapH/2 + (py - cy));
-                const pct_x = (x / mapW) * 100;
-                const pct_y = (y / mapH) * 100;
-                if(pct_x<0||pct_x>100||pct_y<0||pct_y>100) return null;
-                const isSel = selectedPin?.id===job.id;
-                return (
-                  <div key={job.id} className="tap" onClick={()=>setSelectedPin(isSel?null:job)}
-                    style={{ position:"absolute", left:`${pct_x}%`, top:`${pct_y}%`, transform:"translate(-50%,-100%)", zIndex:isSel?20:10, pointerEvents:"auto" }}>
-                    <div style={{ background:isSel?G.green:"#fff", borderRadius:"50% 50% 50% 0", width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 3px 10px rgba(0,0,0,${isSel?.4:.25})`, border:`2px solid ${isSel?G.greenLight:G.border}`, transform:"rotate(-45deg)" }}>
-                      <span style={{ transform:"rotate(45deg)", fontSize:13, fontWeight:800, color:isSel?"#fff":G.greenMid }}>${job.pay}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          );
-        })()}
+        {/* Leaflet map container — fills entire space, pins rendered by Leaflet */}
+        <div ref={mapRef} style={{ position:"absolute", inset:0, width:"100%", height:"100%", zIndex:0 }} />
 
         {/* Zoom controls */}
         <div style={{ position:"absolute", top:10, right:10, display:"flex", flexDirection:"column", gap:4, zIndex:10 }}>
-          <button className="btn tap" onClick={()=>setMapZoom(z=>Math.min(20,z+1))} style={{ width:32, height:32, borderRadius:8, background:"rgba(255,255,255,.95)", border:`1px solid ${G.border}`, fontSize:16, fontWeight:800, color:G.text, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 6px rgba(0,0,0,.12)" }}>+</button>
-          <button className="btn tap" onClick={()=>setMapZoom(z=>Math.max(12,z-1))} style={{ width:32, height:32, borderRadius:8, background:"rgba(255,255,255,.95)", border:`1px solid ${G.border}`, fontSize:16, fontWeight:800, color:G.text, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 6px rgba(0,0,0,.12)" }}>−</button>
+          <button className="btn tap" onClick={()=>leafletRef.current&&leafletRef.current.zoomIn()} style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.95)", border:`1px solid ${G.border}`, fontSize:18, fontWeight:800, color:G.text, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,.15)" }}>+</button>
+          <button className="btn tap" onClick={()=>leafletRef.current&&leafletRef.current.zoomOut()} style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.95)", border:`1px solid ${G.border}`, fontSize:18, fontWeight:800, color:G.text, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,.15)" }}>−</button>
         </div>
 
         {/* Selected pin detail */}
@@ -4118,6 +4203,97 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// LOGIN SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+function LoginScreen({ onComplete, onBack, darkMode }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  if (darkMode) { Object.assign(G, DARK); } else { Object.assign(G, LIGHT); }
+
+  const handleLogin = async () => {
+    if (!email || !password) return;
+    setLoading(true); setError("");
+    try {
+      const res = await fetch(`${BACKEND}/api/auth/login`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); setLoading(false); return; }
+      if (data.token) {
+        if (isBrowser) {
+          localStorage.setItem("chores_token", data.token);
+          localStorage.setItem("chores_user", JSON.stringify({
+            ...data.user,
+            firstName: data.user.first_name,
+            lastName: data.user.last_name,
+          }));
+        }
+        onComplete(data.user.role || "worker");
+      }
+    } catch(e) {
+      setError("Network error — please try again.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="chores-app" style={{ "--text":darkMode?DARK.text:LIGHT.text, "--tab-bg":darkMode?"rgba(30,30,30,.97)":"rgba(255,255,255,.95)", fontFamily:"'Outfit',sans-serif", background:G.cream, minHeight:"100vh", maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", color:G.text }}>
+      <style>{CSS}</style>
+      <div style={{ padding:"20px 20px 0" }}>
+        <div className="tap" onClick={onBack} style={{ fontSize:14, color:G.muted, fontWeight:600 }}>← Back</div>
+      </div>
+      <div style={{ flex:1, padding:"40px 32px", display:"flex", flexDirection:"column" }}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:800, color:G.text, lineHeight:1.2, marginBottom:8 }}>Welcome back</div>
+        <div style={{ fontSize:14, color:G.muted, marginBottom:32 }}>Sign in to your Chores account</div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ position:"relative" }}>
+            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address" type="email"
+              style={{ width:"100%", padding:"16px 16px 16px 44px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:15, background:G.white, color:G.text, outline:"none", boxSizing:"border-box" }}
+              onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
+            />
+            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            </div>
+          </div>
+
+          <div style={{ position:"relative" }}>
+            <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type={showPw?"text":"password"}
+              style={{ width:"100%", padding:"16px 44px 16px 44px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:15, background:G.white, color:G.text, outline:"none", boxSizing:"border-box" }}
+              onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
+              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+            />
+            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div className="tap" onClick={()=>setShowPw(!showPw)} style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+          </div>
+        </div>
+
+        {error && <div style={{ marginTop:12, padding:"10px 14px", borderRadius:10, background:G.redLight, color:G.red, fontSize:13, fontWeight:600 }}>{error}</div>}
+
+        <button className="btn" onClick={handleLogin} disabled={loading||!email||!password}
+          style={{ width:"100%", padding:"17px", borderRadius:16, background:(email&&password&&!loading)?G.green:"#ccc", color:"#fff", fontSize:15, fontWeight:700, marginTop:24, opacity:(email&&password&&!loading)?1:.5 }}>
+          {loading ? "Signing in…" : "Sign In"}
+        </button>
+
+        <div style={{ textAlign:"center", marginTop:20, fontSize:13, color:G.muted }}>
+          Don't have an account? <span className="tap" onClick={onBack} style={{ color:G.greenMid, fontWeight:700 }}>Sign up</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════
 const isBrowser = typeof window !== "undefined";
@@ -4127,6 +4303,26 @@ export default function ChoresApp() {
   const storedToken = isBrowser ? localStorage.getItem("chores_token") : null;
   const [appView, setAppView] = useState((storedToken && storedUser) ? "user" : "onboarding");
   const [role, setRole] = useState(storedUser?.role || "worker");
+  const [currentUserData, setCurrentUserData] = useState(storedUser);
+
+  // Load fresh user data from backend on startup
+  React.useEffect(() => {
+    if (!isBrowser) return;
+    const token = localStorage.getItem("chores_token");
+    if (!token) return;
+    fetch(`${BACKEND}/api/auth/me`, { headers:{ "Authorization":`Bearer ${token}` } })
+      .then(r=>r.json())
+      .then(data => {
+        if (data.user) {
+          const u = { ...data.user, firstName: data.user.first_name, lastName: data.user.last_name };
+          setCurrentUserData(u);
+          localStorage.setItem("chores_user", JSON.stringify(u));
+          if (data.user.zip) setUserZip(data.user.zip);
+          if (data.user.role) setRole(data.user.role);
+        }
+      })
+      .catch(()=>{});
+  }, []);
   const [darkMode, setDarkMode] = useState(() => {
     try { return isBrowser ? window.matchMedia('(prefers-color-scheme: dark)').matches : false; } catch { return false; }
   });
@@ -4144,7 +4340,7 @@ export default function ChoresApp() {
   if (darkMode) { Object.assign(G, DARK); } else { Object.assign(G, LIGHT); }
   const [view, setView] = useState("home");
   const [toast, setToast] = useState(null);
-  const [userZip, setUserZip] = useState("60647");
+  const [userZip, setUserZip] = useState(storedUser?.zip || "60647");
   const [userCoords, setUserCoords] = useState(null);
   const [locStatus, setLocStatus] = useState("idle"); // idle, loading, granted, denied
   const [chatOpen, setChatOpen] = useState(null);
@@ -4329,7 +4525,7 @@ export default function ChoresApp() {
             )}
           </div>
         )}
-        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={storedUser} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
+        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
 
       {/* POST JOB MODAL */}
