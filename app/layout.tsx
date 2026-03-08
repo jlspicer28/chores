@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chores",
+  title: "Chores · Find help. Get paid.",
   description: "Find trusted help for everyday tasks near you.",
 };
 
