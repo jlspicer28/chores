@@ -61,6 +61,27 @@ app.get("/ping", (req, res) => res.json({ ok: true }));
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Register a new user
+// Check if email is already registered
+app.post("/api/auth/check-email", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.json({ error: "Email required" });
+
+  try {
+    // Look up the email in the users table
+    const { data, error } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email.toLowerCase().trim())
+      .maybeSingle();
+
+    if (error) return res.json({ exists: false });
+    return res.json({ exists: !!data });
+  } catch (err) {
+    console.error("Check-email error:", err.message);
+    return res.json({ exists: false });
+  }
+});
+
 app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
 
