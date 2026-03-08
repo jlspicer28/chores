@@ -1,19 +1,24 @@
 /**
  * ChoresApp Backend
  * Stack: Express + Supabase + Stripe
- * Deploy: Railway
+ * Deploy: Render (https://chores-backend4.onrender.com)
  *
- * ENV VARS (set in Railway dashboard):
+ * ENV VARS (set in Render dashboard):
  *   STRIPE_SECRET_KEY       sk_live_...
  *   STRIPE_WEBHOOK_SECRET   whsec_...
  *   SUPABASE_URL            https://xxxx.supabase.co
  *   SUPABASE_SERVICE_KEY    service_role key (NOT anon)
  *   FRONTEND_URL            https://choresnearme.com
+ *   ANTHROPIC_API_KEY       sk-ant-...
+ *   RESEND_API_KEY          re_...
+ *   SUPPORT_EMAIL           your@email.com
  */
 
 require("dotenv").config();
 const express = require("express");
+const Anthropic = require("@anthropic-ai/sdk");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -612,10 +617,23 @@ app.post("/api/reviews/create", requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // JOB APPLICATIONS
 // ─────────────────────────────────────────────────────────────────────────────
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}hr ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return "Yesterday";
+  return `${days} days ago`;
+}
+
 app.post("/api/jobs/:id/apply", async (req, res) => {
-  const { message, availability, workerId } = req.body;
+  const { message, availability, workerId, workerName } = req.body;
   const jobId = req.params.id;
   try {
+    // 1. Save application
     const { error } = await supabase.from("applications").insert({
       job_id: jobId,
       worker_id: workerId,
@@ -625,11 +643,63 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
       created_at: new Date().toISOString(),
     });
     if (error) return res.json({ error: error.message });
-    res.json({ success: true });
+
+    // 2. Get job + poster info
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("id, title, poster_id, pay")
+      .eq("id", jobId)
+      .single();
+
+    // 3. Write message to poster's inbox
+    if (job?.poster_id) {
+      await supabase.from("messages").insert({
+        sender_id: workerId,
+        recipient_id: job.poster_id,
+        job_id: jobId,
+        type: "application",
+        preview: `${workerName || "Someone"} applied to your job`,
+        body: message,
+        read: false,
+        created_at: new Date().toISOString(),
+      }).catch(()=>{});
+    }
+
+    // 4. Get updated applicant count
+    const { count } = await supabase
+      .from("applications")
+      .select("*", { count: "exact", head: true })
+      .eq("job_id", jobId);
+
+    res.json({ success: true, applicantCount: count });
   } catch (err) {
     console.error("Apply error:", err.message);
     res.json({ error: err.message });
   }
+});
+
+// Get inbox messages for logged-in user
+app.get("/api/messages/inbox", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*, job:jobs(title), sender:users!sender_id(first_name, last_name)")
+    .eq("recipient_id", req.user.id)
+    .order("created_at", { ascending: false });
+
+  if (error) return res.json({ error: error.message });
+
+  const messages = (data || []).map(m => ({
+    id: m.id,
+    from: m.sender ? `${m.sender.first_name} ${m.sender.last_name}`.trim() : "Someone",
+    job: m.job?.title || "",
+    preview: m.preview || m.body?.slice(0, 80) || "",
+    time: timeAgo(m.created_at),
+    unread: !m.read,
+    type: m.type,
+    body: m.body,
+  }));
+
+  res.json({ messages });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -686,6 +756,59 @@ app.post("/api/support/feature", async (req, res) => {
 
 ${description}`);
   res.json({ success: true });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI — Generate application message
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/write-application", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.json({ error: "No prompt provided" });
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 300,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = message.content?.[0]?.text?.trim();
+    res.json({ text });
+  } catch(err) {
+    console.error("AI error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI - Write application message via Claude
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/write-application", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.json({ error: "No prompt provided" });
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text?.trim();
+    if (!text) return res.json({ error: "No response from AI" });
+    res.json({ text });
+  } catch(err) {
+    console.error("AI write error:", err.message);
+    res.json({ error: err.message });
+  }
 });
 
 // WEBHOOKS
