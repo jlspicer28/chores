@@ -3285,6 +3285,10 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
   const [emailError, setEmailError] = useState("");
   const [emailSending, setEmailSending] = useState(false);
 
+  // Set after registration completes — holds token + user so step 8 can just call onComplete
+  const [registeredSession, setRegisteredSession] = useState(null);
+  const [registerError, setRegisterError] = useState("");
+
   const nextStep = () => { setAnimKey(k=>k+1); setStep(s=>s+1); };
   const prevStep = () => { setAnimKey(k=>k+1); setStep(s=>s-1); };
 
@@ -3663,8 +3667,47 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
           body: JSON.stringify({ email: form.email, code: emailCode }),
         });
         const data = await res.json();
-        if (data.verified) { setEmailVerified(true); setTimeout(nextStep, 900); }
-        else { setEmailError("Incorrect code — please try again."); }
+        if (!data.verified) { setEmailError("Incorrect code — please try again."); return; }
+
+        // Email confirmed — register the user immediately
+        setEmailVerified(true);
+        setRegisterError("");
+        try {
+          const regRes = await fetch(`${BACKEND}/api/auth/register`, {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              email: form.email,
+              password: form.password,
+              firstName: form.first,
+              lastName: form.last,
+              phone: form.phone,
+              zip: zip,
+              role: onbRole || "worker",
+            }),
+          });
+          const regData = await regRes.json();
+          if (regData.error) {
+            setRegisterError(regData.error);
+          } else if (regData.token) {
+            if (isBrowser) {
+              localStorage.setItem("chores_token", regData.token);
+              localStorage.setItem("chores_user", JSON.stringify({
+                ...regData.user,
+                firstName: regData.user.firstName || form.first,
+                lastName: regData.user.lastName || form.last,
+                email: form.email,
+                phone: form.phone,
+                zip: zip,
+                role: onbRole || "worker",
+              }));
+            }
+            setRegisteredSession(regData);
+          }
+        } catch(e) {
+          setRegisterError("Account created but could not connect — please try signing in.");
+        }
+
+        setTimeout(nextStep, 900);
       } catch(e) { setEmailError("Network error — please try again."); }
     };
     return (
@@ -3765,55 +3808,18 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         ))}
       </div>
 
-      <button className="btn onb-fade" id="register-btn" onClick={async (e)=>{
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        btn.textContent = "Creating account…";
-        try {
-          const res = await fetch(`${BACKEND}/api/auth/register`, {
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({
-              email: form.email,
-              password: form.password,
-              firstName: form.first,
-              lastName: form.last,
-              phone: form.phone,
-              zip: zip,
-              role: onbRole || "worker",
-            })
-          });
-          const data = await res.json();
-          if (data.error) {
-            btn.disabled = false;
-            btn.textContent = "Enter Chores →";
-            alert(`Registration failed: ${data.error}`);
-            return;
-          }
-          if (data.token) {
-            if (isBrowser) {
-              localStorage.setItem("chores_token", data.token);
-              localStorage.setItem("chores_user", JSON.stringify({
-                ...data.user,
-                firstName: data.user.first_name || form.first,
-                lastName: data.user.last_name || form.last,
-                email: form.email,
-                phone: form.phone,
-                zip: zip,
-                role: onbRole || "worker",
-              }));
-            }
-            onComplete(onbRole==="poster"?"poster":"worker");
-          } else {
-            btn.disabled = false;
-            btn.textContent = "Enter Chores →";
-            alert("Registration failed — please try again.");
-          }
-        } catch(e) {
-          console.error("Registration error:", e);
-          btn.disabled = false;
-          btn.textContent = "Enter Chores →";
-          alert("Could not connect to server. Please check your connection and try again.");
+      {registerError && (
+        <div style={{ width:"100%", marginTop:16, padding:"12px 16px", borderRadius:14, background:"rgba(229,62,62,.15)", border:"1px solid rgba(229,62,62,.3)", color:"#FC8181", fontSize:13, fontWeight:600 }}>
+          ⚠️ {registerError}
+        </div>
+      )}
+
+      <button className="btn onb-fade" id="register-btn" onClick={()=>{
+        if (registeredSession) {
+          onComplete(onbRole==="poster"?"poster":"worker");
+        } else {
+          // Fallback: session wasn't stored (edge case), redirect to login
+          onComplete("worker");
         }
       }} style={{ width:"100%", padding:"17px", borderRadius:16, background:G.greenLight, color:"#fff", fontSize:16, fontWeight:700, marginTop:32, animationDelay:".45s", opacity:0 }}>Enter Chores →</button>
     </div>

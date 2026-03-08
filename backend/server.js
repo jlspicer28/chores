@@ -54,69 +54,110 @@ app.get("/", (req, res) => res.json({ status: "ChoresApp backend running" }));
 app.get("/ping", (req, res) => res.json({ ok: true }));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTH — Register / Login (Supabase handles tokens, we store extra profile data)
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Register a new user
+// Check if email already exists
+app.post("/api/auth/check-email", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.json({ error: "Email required" });
+  try {
+    const { data } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email.toLowerCase().trim())
+      .maybeSingle();
+    return res.json({ exists: !!data });
+  } catch {
+    return res.json({ exists: false });
+  }
+});
+
+// Register — called only after the user has verified their email via 6-digit code.
+// Uses the Supabase admin API to create the auth user with email pre-confirmed,
+// then writes their profile to the users table.
 app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
+  if (!email || !password) return res.json({ error: "Email and password are required." });
+
+  const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    // 1. Try to create auth user in Supabase
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    // 1. Check if this email is already in our users table
+    const { data: existing } = await supabase
+      .from("users")
+      .select("id, role")
+      .eq("email", normalizedEmail)
+      .maybeSingle();
 
-    // 2. If already registered, just sign them in instead — no error shown to user
-    if (authError || authData?.user?.identities?.length === 0) {
-      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-        email,
+    let userId;
+
+    if (existing) {
+      // Already registered — just sign them in
+      userId = existing.id;
+    } else {
+      // Create auth user with email pre-confirmed (we already verified it)
+      const { data: created, error: createError } = await supabase.auth.admin.createUser({
+        email: normalizedEmail,
         password,
+        email_confirm: true,
       });
-      if (loginError) return res.json({ error: loginError.message });
 
-      const { data: profile } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", loginData.user.id)
-        .single();
+      if (createError) {
+        // If Supabase auth user already exists (e.g. from a previous partial signup), look them up
+        if (createError.message?.toLowerCase().includes("already")) {
+          const { data: { users } } = await supabase.auth.admin.listUsers();
+          const found = users?.find(u => u.email === normalizedEmail);
+          if (!found) return res.json({ error: "Account exists but could not be retrieved. Please sign in." });
+          userId = found.id;
+        } else {
+          console.error("Auth createUser error:", createError.message);
+          return res.json({ error: createError.message });
+        }
+      } else {
+        userId = created.user.id;
+      }
 
-      return res.json({
-        success: true,
-        userId: loginData.user.id,
-        token: loginData.session?.access_token,
-        user: {
-          id: loginData.user.id,
-          email,
-          firstName: profile?.first_name || firstName,
-          lastName: profile?.last_name || lastName,
-          role: profile?.role || role,
-        },
+      // Write profile to users table
+      const { error: insertError } = await supabase.from("users").insert({
+        id: userId,
+        email: normalizedEmail,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        zip,
+        role: role || "worker",
       });
+      if (insertError) console.warn("Profile insert warning:", insertError.message);
     }
 
-    const userId = authData.user.id;
-
-    // 3. Store profile in users table (Stripe customer created on first payment)
-    const { error: dbError } = await supabase.from("users").insert({
-      id: userId,
-      email,
-      first_name: firstName,
-      last_name: lastName,
-      phone,
-      zip,
-      role: role || "worker",
+    // Sign in to get a real session token
+    const { data: session, error: signInError } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
     });
+    if (signInError) return res.json({ error: signInError.message });
 
-    // If profile insert fails (e.g. duplicate), still let them in
-    if (dbError) console.warn("Profile insert warning:", dbError.message);
+    // Fetch the full profile
+    const { data: profile } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single();
 
-    res.json({
+    return res.json({
       success: true,
-      userId,
-      token: authData.session?.access_token,
-      user: { id: userId, email, firstName, lastName, role },
+      token: session.session.access_token,
+      user: {
+        id: userId,
+        email: normalizedEmail,
+        firstName: profile?.first_name || firstName,
+        lastName: profile?.last_name || lastName,
+        role: profile?.role || role || "worker",
+        phone: profile?.phone || phone,
+        zip: profile?.zip || zip,
+      },
     });
   } catch (err) {
     console.error("Register error:", err.message);
@@ -124,28 +165,42 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// Login
+// Login — checks users table first, then signs in via Supabase Auth
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
+  if (!email || !password) return res.json({ error: "Email and password are required." });
 
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) return res.json({ error: error.message });
+    const normalizedEmail = email.toLowerCase().trim();
 
-    // Fetch full profile from users table
+    // Verify user exists in our users table
     const { data: profile } = await supabase
       .from("users")
       .select("*")
-      .eq("id", data.user.id)
-      .single();
+      .eq("email", normalizedEmail)
+      .maybeSingle();
 
-    res.json({
+    if (!profile) return res.json({ error: "No account found with that email. Please sign up first." });
+
+    // Authenticate via Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    });
+    if (error) return res.json({ error: "Incorrect password. Please try again." });
+
+    return res.json({
       success: true,
       token: data.session.access_token,
-      user: profile,
+      user: {
+        id: profile.id,
+        email: profile.email,
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        role: profile.role,
+        phone: profile.phone,
+        zip: profile.zip,
+      },
     });
   } catch (err) {
     res.json({ error: err.message });
@@ -163,6 +218,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
   if (error) return res.json({ error: error.message });
   res.json({ user: data });
 });
+
 
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
