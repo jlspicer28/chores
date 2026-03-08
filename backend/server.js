@@ -69,14 +69,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     const userId = authData.user.id;
 
-    // 2. Create Stripe customer for this user
-    const customer = await stripe.customers.create({
-      email,
-      name: `${firstName} ${lastName}`,
-      metadata: { userId },
-    });
-
-    // 3. Store profile in users table
+    // 2. Store profile in users table (Stripe customer created on first payment)
     const { error: dbError } = await supabase.from("users").insert({
       id: userId,
       email,
@@ -85,7 +78,6 @@ app.post("/api/auth/register", async (req, res) => {
       phone,
       zip,
       role: role || "worker",
-      stripe_customer_id: customer.id,
     });
 
     if (dbError) return res.json({ error: dbError.message });
@@ -234,9 +226,20 @@ app.post("/api/charge", requireAuth, async (req, res) => {
     const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
     if (!job) return res.json({ error: "Job not found" });
 
-    // Fetch poster's Stripe customer ID
+    // Fetch poster — create Stripe customer on first payment if needed
     const { data: poster } = await supabase
-      .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+      .from("users").select("stripe_customer_id, email, first_name, last_name").eq("id", req.user.id).single();
+
+    let stripeCustomerId = poster.stripe_customer_id;
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: poster.email,
+        name: `${poster.first_name} ${poster.last_name}`,
+        metadata: { userId: req.user.id },
+      });
+      stripeCustomerId = customer.id;
+      await supabase.from("users").update({ stripe_customer_id: stripeCustomerId }).eq("id", req.user.id);
+    }
 
     const amountCents = Math.round(job.pay * 100);
     const feeCents = Math.round(amountCents * 0.08);
@@ -251,7 +254,7 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       amount: amountCents,
       currency: "usd",
       payment_method: paymentMethodId,
-      customer: poster.stripe_customer_id,
+      customer: stripeCustomerId,
       confirm: true,
       capture_method: "manual",
       metadata: {
