@@ -9,16 +9,13 @@
  *   SUPABASE_URL            https://xxxx.supabase.co
  *   SUPABASE_SERVICE_KEY    service_role key (NOT anon)
  *   FRONTEND_URL            https://choresnearme.com
- *   ANTHROPIC_API_KEY       sk-ant-...
  *   RESEND_API_KEY          re_...
  *   SUPPORT_EMAIL           your@email.com
  */
 
 require("dotenv").config();
 const express = require("express");
-const Anthropic = require("@anthropic-ai/sdk");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -61,27 +58,6 @@ app.get("/ping", (req, res) => res.json({ ok: true }));
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Register a new user
-// Check if email is already registered
-app.post("/api/auth/check-email", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.json({ error: "Email required" });
-
-  try {
-    // Look up the email in the users table
-    const { data, error } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", email.toLowerCase().trim())
-      .maybeSingle();
-
-    if (error) return res.json({ exists: false });
-    return res.json({ exists: !!data });
-  } catch (err) {
-    console.error("Check-email error:", err.message);
-    return res.json({ exists: false });
-  }
-});
-
 app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
 
@@ -805,59 +781,6 @@ app.post("/api/support/feature", async (req, res) => {
 
 ${description}`);
   res.json({ success: true });
-});
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AI — Generate application message
-// ─────────────────────────────────────────────────────────────────────────────
-app.post("/api/ai/write-application", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.json({ error: "No prompt provided" });
-  try {
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 300,
-      messages: [{ role: "user", content: prompt }]
-    });
-    const text = message.content?.[0]?.text?.trim();
-    res.json({ text });
-  } catch(err) {
-    console.error("AI error:", err.message);
-    res.json({ error: err.message });
-  }
-});
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AI - Write application message via Claude
-// ─────────────────────────────────────────────────────────────────────────────
-app.post("/api/ai/write-application", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.json({ error: "No prompt provided" });
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 300,
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-    const data = await response.json();
-    const text = data.content?.[0]?.text?.trim();
-    if (!text) return res.json({ error: "No response from AI" });
-    res.json({ text });
-  } catch(err) {
-    console.error("AI write error:", err.message);
-    res.json({ error: err.message });
-  }
 });
 
 // WEBHOOKS

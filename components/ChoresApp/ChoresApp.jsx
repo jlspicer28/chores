@@ -134,36 +134,12 @@ const CATEGORIES = [
   { id:"other", icon:"", label:"Other" },
 ];
 
-const JOBS = [
-  { id:1, title:"Mow & Edge Front Lawn", category:"lawn", poster:"The Andersons", posterRating:4.8, posterJobs:12, posterSince:"Aug 2024", loc:"Oak Park Ave", dist:0.3, pay:35, date:"Sat Mar 1", tags:["mower provided","1–2 hrs"], verified:true, urgent:false, applicants:3, lat:41.8827, lng:-87.6233, desc:"Looking for someone to mow and edge the front lawn. We have a push mower in the garage you can use. Yard is roughly 2,000 sq ft. Please also bag the clippings. Usually takes about 1.5 hours.", photos:["🏡","🌿"] },
-  { id:2, title:"Dog Walking – 2 Labs", category:"pets", poster:"Maria C.", posterRating:5.0, posterJobs:8, posterSince:"Oct 2024", loc:"Elmwood Park Rd", dist:0.8, pay:20, date:"Mon–Fri", tags:["flexible","dog lover"], verified:true, urgent:false, applicants:1, lat:41.8750, lng:-87.6310, desc:"Need a reliable dog walker for my two yellow labs (Bruno & Daisy). Walk is about 30 min each day. They're friendly but pull a bit. Must be comfortable with large breeds.", photos:["🐕","🐕"] },
-  { id:3, title:"Babysit 2 Kids (5 & 8)", category:"babysitting", poster:"James & Lena K.", posterRating:4.9, posterJobs:6, posterSince:"Nov 2024", loc:"Maple St, Evanston", dist:1.1, pay:54, date:"Fri evening", tags:["CPR preferred","3 hrs"], verified:true, urgent:true, applicants:0, lat:41.8910, lng:-87.6380, desc:"Date night! Looking for a sitter for our two kids. 5-year-old loves drawing, 8-year-old has homework to finish. Bedtime is 8:30. Pizza money included. CPR certification preferred but not required.", photos:["👧","👦"] },
-  { id:4, title:"Window Washing – 10 Windows", category:"windows", poster:"Green Valley Bakery", posterRating:4.6, posterJobs:3, posterSince:"Jan 2025", loc:"Milwaukee Ave", dist:0.5, pay:60, date:"Tue Mar 4", tags:["supplies provided","business"], verified:false, urgent:false, applicants:2, lat:41.8800, lng:-87.6180, desc:"Our bakery has 10 street-facing windows that need a good cleaning inside and out. We'll provide squeegees and cleaning solution. Best done before we open at 7am or after 6pm.", photos:["🪟","🧹"] },
-  { id:5, title:"Help Move Furniture", category:"moving", poster:"The Patels", posterRating:4.7, posterJobs:5, posterSince:"Sep 2024", loc:"Cedar St, Wicker Park", dist:1.4, pay:50, date:"Sun Mar 2", tags:["2 people","3 hrs"], verified:true, urgent:false, applicants:4, lat:41.8960, lng:-87.6090, desc:"Rearranging our living room and need help moving a couch, bookshelf, and dining table. All stays in the same house, just different rooms. Would love 2 strong helpers for about 3 hours.", photos:["📦","🛋️"] },
-  { id:6, title:"Deep Clean Kitchen & Baths", category:"cleaning", poster:"Sunrise Café", posterRating:4.9, posterJobs:15, posterSince:"Jun 2024", loc:"Clark St, Lincoln Park", dist:0.6, pay:80, date:"Every Sun", tags:["recurring","supplies provided"], verified:true, urgent:false, applicants:1, lat:41.8700, lng:-87.6140, desc:"Weekly deep clean of our café kitchen and two bathrooms. We provide all cleaning supplies and equipment. Looking for someone reliable who can commit to every Sunday morning 6-9am.", photos:["🧽","🪣"] },
-  { id:7, title:"Paint Bedroom Accent Wall", category:"painting", poster:"DeAndre W.", posterRating:4.5, posterJobs:2, posterSince:"Feb 2025", loc:"Birch Ave, Logan Square", dist:0.9, pay:65, date:"Next weekend", tags:["paint provided","4 hrs"], verified:true, urgent:false, applicants:2, lat:41.8710, lng:-87.6290, desc:"Want to paint one accent wall in my bedroom dark navy blue. Room is 12x14, wall is about 10ft wide. I have the paint, rollers, and tape. Need someone with a steady hand. Should take 3-4 hours with prep.", photos:["🎨","🖌️"] },
-  { id:8, title:"Grocery Run & Errands", category:"errands", poster:"Mrs. Thompson", posterRating:5.0, posterJobs:20, posterSince:"Mar 2024", loc:"Willow St, Old Town", dist:0.4, pay:25, date:"Wed afternoons", tags:["car needed","weekly"], verified:true, urgent:false, applicants:0, lat:41.8830, lng:-87.6350, desc:"I'm 78 and don't drive anymore. Need someone to pick up groceries from Jewel-Osco (list provided) and drop them off. Usually about 15-20 items. Also need prescriptions picked up from CVS nearby.", photos:["🛒","💊"] },
-];
+// Jobs are loaded live from backend — no mock data
+const JOBS = [];
 
-const NOTIFS_WORKER = [
-  { id:1, type:"new_job", icon:"🌿", title:"New job near you", body:"Mow & Edge Front Lawn · $35 · 0.3mi", time:"2m ago", unread:true, category:"job" },
-  { id:2, type:"accepted", icon:"✅", title:"Application accepted!", body:"The Hendersons accepted your application", time:"18m ago", unread:true, category:"job" },
-  { id:3, type:"reminder", icon:"⏰", title:"Job tomorrow – 10:00 AM", body:"Mow & Edge Lawn · The Hendersons · Oak St", time:"1hr ago", unread:true, category:"reminder" },
-  { id:4, type:"payment", icon:"💸", title:"Payment released!", body:"$46.00 deposited · Dog Walking · Maria C.", time:"3hrs ago", unread:false, category:"payment" },
-  { id:5, type:"reminder", icon:"⏰", title:"Job in 1 hour – heads up!", body:"Window Washing · Green Valley · Main St", time:"Yesterday", unread:false, category:"reminder" },
-  { id:6, type:"noshow", icon:"⚠️", title:"Cancellation alert", body:"The Patels cancelled less than 12hrs notice", time:"2 days ago", unread:false, category:"alert" },
-  { id:7, type:"new_job", icon:"📦", title:"New job matches your skills", body:"Help Move Furniture · $50 · 1.4mi", time:"2 days ago", unread:false, category:"job" },
-];
-
-const NOTIFS_POSTER = [
-  { id:1, type:"applied", icon:"👤", title:"New applicant!", body:"Jordan M. applied to Mow & Edge Front Lawn", time:"5m ago", unread:true, category:"job" },
-  { id:2, type:"applied", icon:"👤", title:"2nd applicant received", body:"Priya S. applied to Babysit 2 Kids", time:"22m ago", unread:true, category:"job" },
-  { id:3, type:"confirmed", icon:"🚗", title:"Worker on their way!", body:"Carlos T. is confirmed for today at 2pm", time:"1hr ago", unread:true, category:"job" },
-  { id:4, type:"complete", icon:"✅", title:"Job marked complete", body:"Deep Clean Kitchen · Carlos T. · Rate now", time:"4hrs ago", unread:false, category:"job" },
-  { id:5, type:"payment", icon:"🧾", title:"Invoice & receipt sent", body:"$80.00 charged · Deep Clean · Sun Feb 16", time:"4hrs ago", unread:false, category:"payment" },
-  { id:6, type:"payment", icon:"💳", title:"Payment charged", body:"$35.00 · Mow & Edge Front Lawn · Receipt →", time:"Yesterday", unread:false, category:"payment" },
-  { id:7, type:"rating", icon:"⭐", title:"Reminder: Rate your worker", body:"How did Carlos T. do? Leave a review", time:"2 days ago", unread:false, category:"reminder" },
-];
+// Notifications loaded live — no mock data
+const NOTIFS_WORKER = [];
+const NOTIFS_POSTER = [];
 
 const ADMIN_STATS = {
   totalJobs:1247, activeJobs:84, completedToday:23, totalWorkers:892, activeWorkers:341, newThisWeek:47,
@@ -181,14 +157,8 @@ const ADMIN_STATS = {
   ],
 };
 
-const INITIAL_ESCROW = [
-  { id:"ESC-2041", jobId:1, job:"Mow & Edge Front Lawn", worker:"Jordan M.", poster:"The Hendersons", amount:35, fee:2.80, workerGets:32.20, status:"held", createdAt:"Feb 28", scheduledDate:"Mar 1", note:"Funds held until job completion · Oak St NW", posterConfirmed:false, workerConfirmed:false },
-  { id:"ESC-2040", jobId:6, job:"Deep Clean Kitchen", worker:"Carlos T.", poster:"Sunrise Café", amount:80, fee:6.40, workerGets:73.60, status:"held", createdAt:"Feb 27", scheduledDate:"Mar 2", note:"Recurring · auto-hold enabled", posterConfirmed:false, workerConfirmed:false },
-  { id:"ESC-2039", jobId:2, job:"Dog Walking – 2 Labs", worker:"Jordan M.", poster:"Maria C.", amount:20, fee:1.60, workerGets:18.40, status:"released", createdAt:"Feb 22", releasedAt:"Feb 24", note:"Poster confirmed completion", posterConfirmed:true, workerConfirmed:true },
-  { id:"ESC-2038", jobId:5, job:"Help Move Furniture", worker:"Priya S.", poster:"The Patels", amount:50, fee:4.00, workerGets:46.00, status:"disputed", createdAt:"Feb 20", disputedAt:"Feb 21", note:"Worker claims incomplete payment", posterConfirmed:false, workerConfirmed:false },
-  { id:"ESC-2037", jobId:4, job:"Window Washing", worker:"Aaliyah R.", poster:"Green Valley Bakery", amount:60, fee:4.80, workerGets:55.20, status:"released", createdAt:"Feb 18", releasedAt:"Feb 19", note:"Auto-released after 48hrs", posterConfirmed:true, workerConfirmed:true },
-  { id:"ESC-2036", jobId:8, job:"Grocery Run & Pickup", worker:"Carlos T.", poster:"Mrs. Chen", amount:25, fee:2.00, workerGets:23.00, status:"refunded", createdAt:"Feb 15", refundedAt:"Feb 16", note:"Worker no-show · full refund", posterConfirmed:false, workerConfirmed:false },
-];
+// Escrow loaded live from backend — no mock data
+const INITIAL_ESCROW = [];
 
 const ESCROW_STATUS = {
   held:     { bg:"#FFF7ED", text:G.gold, icon:"🔒", label:"Held" },
@@ -799,9 +769,20 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     if(el){let p=el.parentElement;while(p){if(p.scrollTop>0){p.scrollTop=0;}p=p.parentElement;}}
   },[tab, subPage]);
   const [selectedTxn, setSelectedTxn] = useState(null);
-  const [toggles, setToggles] = useState({ push:true, sound:true, vibrate:true, darkMode:false, exactLoc:false, analytics:true, marketing:false, twoFactor:true, instantPayout:false,
-    nJobs:true, nAppUpdates:true, nDayReminder:true, nHourReminder:true, nPayment:true, nCancel:true, nApplicant:true, nComplete:true, nReceipts:true, nRate:true, profileVisible:true });
-  const tog = (k) => setToggles(t=>{ const n={...t,[k]:!t[k]}; if(onTogglesChange) onTogglesChange(n); return n; });
+  const [toggles, setToggles] = useState(() => {
+    const defaults = { push:true, sound:true, vibrate:true, darkMode:false, exactLoc:false, analytics:true, marketing:false, twoFactor:true, instantPayout:false,
+      nJobs:true, nAppUpdates:true, nDayReminder:true, nHourReminder:true, nPayment:true, nCancel:true, nApplicant:true, nComplete:true, nReceipts:true, nRate:true, profileVisible:true };
+    try {
+      const saved = isBrowser ? localStorage.getItem("chores_toggles") : null;
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch { return defaults; }
+  });
+  const tog = (k) => setToggles(t=>{ 
+    const n={...t,[k]:!t[k]}; 
+    if(onTogglesChange) onTogglesChange(n); 
+    try { if(isBrowser) localStorage.setItem("chores_toggles", JSON.stringify(n)); } catch {}
+    return n; 
+  });
   const [deleteStep, setDeleteStep] = useState(0);
   const [zipInput, setZipInput] = useState("");
   const [zipCity, setZipCity] = useState(null);
@@ -1086,7 +1067,19 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <textarea value={csMessage} onChange={e=>setCsMessage(e.target.value)} rows={6} placeholder="Describe your issue in detail. Include any relevant job IDs, dates, or names to help us resolve it faster." style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.cream, outline:"none", lineHeight:1.6, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
               <div style={{ fontSize:11, color:G.muted, marginTop:6 }}>Replies go to {profile.email}</div>
             </div>
-            <Btn onClick={()=>{ if(csSubject&&csMessage&&csCategory) setCsSent(true); }} disabled={!csSubject||!csMessage||!csCategory} style={{ width:"100%", padding:14, borderRadius:14, opacity:csSubject&&csMessage&&csCategory?1:.5 }}>Send Message</Btn>
+            <Btn onClick={async ()=>{ 
+              if(!csSubject||!csMessage||!csCategory) return;
+              try {
+                const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+                await fetch(`${BACKEND}/api/support/contact`, {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+                  body: JSON.stringify({ category: csCategory, subject: csSubject, message: csMessage, userId: user.id, email: user.email })
+                });
+              } catch(e) { console.error("Support error:", e); }
+              setCsSent(true);
+            }} disabled={!csSubject||!csMessage||!csCategory} style={{ width:"100%", padding:14, borderRadius:14, opacity:csSubject&&csMessage&&csCategory?1:.5 }}>Send Message</Btn>
           </>
         )}
       </div>
@@ -1131,7 +1124,19 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Steps to reproduce <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
               <textarea value={bugSteps} onChange={e=>setBugSteps(e.target.value)} rows={3} placeholder={"1. Tap on...\n2. Then tap...\n3. Bug appears"} style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.cream, outline:"none", lineHeight:1.6, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
             </div>
-            <Btn onClick={()=>{ if(bugType&&bugDesc) setBugSent(true); }} disabled={!bugType||!bugDesc} style={{ width:"100%", padding:14, borderRadius:14, opacity:bugType&&bugDesc?1:.5 }}>Submit Bug Report</Btn>
+            <Btn onClick={async ()=>{ 
+              if(!bugType||!bugDesc) return;
+              try {
+                const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+                await fetch(`${BACKEND}/api/support/bug`, {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+                  body: JSON.stringify({ type: bugType, description: bugDesc, steps: bugSteps, userId: user.id, email: user.email })
+                });
+              } catch(e) { console.error("Bug report error:", e); }
+              setBugSent(true);
+            }} disabled={!bugType||!bugDesc} style={{ width:"100%", padding:14, borderRadius:14, opacity:bugType&&bugDesc?1:.5 }}>Submit Bug Report</Btn>
           </>
         )}
       </div>
@@ -1171,7 +1176,19 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Describe your idea</div>
               <textarea value={featDesc} onChange={e=>setFeatDesc(e.target.value)} rows={6} placeholder="What would you like Chores to do? How would it work? Why would it help you?" style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.cream, outline:"none", lineHeight:1.6, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
             </div>
-            <Btn onClick={()=>{ if(featArea&&featDesc) setFeatSent(true); }} disabled={!featArea||!featDesc} style={{ width:"100%", padding:14, borderRadius:14, opacity:featArea&&featDesc?1:.5 }}>Submit Idea</Btn>
+            <Btn onClick={async ()=>{ 
+              if(!featArea||!featDesc) return;
+              try {
+                const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+                await fetch(`${BACKEND}/api/support/feature`, {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+                  body: JSON.stringify({ area: featArea, description: featDesc, userId: user.id, email: user.email })
+                });
+              } catch(e) { console.error("Feature request error:", e); }
+              setFeatSent(true);
+            }} disabled={!featArea||!featDesc} style={{ width:"100%", padding:14, borderRadius:14, opacity:featArea&&featDesc?1:.5 }}>Submit Idea</Btn>
           </>
         )}
       </div>
@@ -2415,7 +2432,14 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             <SettingRow icon="🌐" label="Language" sub="English" right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} last />
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            <Btn variant="outline" style={{ width:"100%", borderRadius:16 }}>Sign Out</Btn>
+            <Btn variant="outline" style={{ width:"100%", borderRadius:16 }} onClick={()=>{
+              if (!window.confirm("Are you sure you want to sign out?")) return;
+              if (isBrowser) {
+                localStorage.removeItem("chores_user");
+                localStorage.removeItem("chores_token");
+              }
+              window.location.reload();
+            }}>Sign Out</Btn>
             <Btn variant="danger" style={{ width:"100%", borderRadius:16, opacity:.6 }}>Delete Account</Btn>
           </div>
 
@@ -2763,13 +2787,52 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
   const [applyMsg, setApplyMsg] = useState("");
   const [applyStep, setApplyStep] = useState(0); // 0=form, 1=sending, 2=done
   const [applyAvail, setApplyAvail] = useState([]);
+  const [liveJobs, setLiveJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
   const discRef = React.useRef(null);
+
+  // Load real jobs from backend
+  React.useEffect(()=>{
+    setJobsLoading(true);
+    fetch(`${BACKEND}/api/jobs?zip=${userZip}&maxDist=${maxDist}`)
+      .then(r=>r.json())
+      .then(data=>{
+        if (data.jobs) {
+          // Normalize backend fields to frontend shape
+          setLiveJobs(data.jobs.map(j=>({
+            id: j.id,
+            title: j.title,
+            category: j.category,
+            poster: j.poster_name || "Anonymous",
+            posterRating: j.poster_rating || 5.0,
+            posterJobs: j.poster_jobs_count || 0,
+            posterSince: j.poster_since || "",
+            loc: j.zip || userZip,
+            dist: j.dist || 0,
+            pay: parseFloat(j.pay) || 0,
+            date: j.date || j.scheduled_date || "",
+            tags: j.tags ? (typeof j.tags === "string" ? j.tags.split(",") : j.tags) : [],
+            verified: j.poster_verified || false,
+            urgent: j.urgent || false,
+            applicants: j.applicant_count || 0,
+            lat: j.lat || 41.88,
+            lng: j.lng || -87.63,
+            desc: j.description || "",
+            photos: [],
+            posterId: j.poster_id,
+          })));
+        }
+      })
+      .catch(e=>console.error("Jobs fetch error:", e))
+      .finally(()=>setJobsLoading(false));
+  }, [userZip, maxDist]);
+
   React.useEffect(()=>{
     if(discRef.current){let p=discRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
     window.scrollTo(0,0);
   },[selectedJob, applyModal, discoverView]);
 
-  const filtered = JOBS.filter(j=>{
+  const filtered = liveJobs.filter(j=>{
     if(activeCategory.length>0&&!activeCategory.includes(j.category)) return false;
     if(j.pay<payRange[0]||j.pay>payRange[1]) return false;
     if(j.dist>maxDist) return false;
@@ -2830,7 +2893,9 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         </div>
         {/* Message */}
         <div style={{ marginBottom:16 }}>
-          <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5, display:"block", marginBottom:6 }}>Message to {job.poster}</label>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+            <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5 }}>Message to {job.poster}</label>
+          </div>
           <textarea value={applyMsg} onChange={e=>setApplyMsg(e.target.value)} rows={4} placeholder={`Hi! I'd love to help with ${job.title}. I have experience with similar jobs and I'm available on ${job.date}...`}
             style={{ width:"100%", padding:"14px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.white, outline:"none" }}
             onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
@@ -2854,7 +2919,29 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
             })}
           </div>
         </div>
-        <Btn onClick={()=>{setApplyStep(1);setTimeout(()=>setApplyStep(2),1500);}} disabled={!applyMsg.trim()} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15, opacity:applyMsg.trim()?1:.5 }}>
+        <Btn onClick={async ()=>{
+          setApplyStep(1);
+          try {
+            const token = isBrowser ? localStorage.getItem("chores_token") : null;
+            const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+            const workerName = `${user.firstName||""} ${user.lastName||""}`.trim() || "Someone";
+            const res = await fetch(`${BACKEND}/api/jobs/${job.id}/apply`, {
+              method:"POST",
+              headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+              body: JSON.stringify({ message: applyMsg, availability: applyAvail, workerId: user.id, workerName })
+            });
+            const data = await res.json();
+            if (data.success) {
+              // Update applicant count in local job list
+              setLiveJobs(prev => prev.map(j => j.id===job.id ? {...j, applicants: (j.applicants||0)+1} : j));
+              // Push notification to browser
+              if (Notification && Notification.permission === "granted") {
+                new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent to ${job.poster}`, icon: "/favicon.ico" });
+              }
+            }
+          } catch(e) { console.error("Apply error:", e); }
+          setApplyStep(2);
+        }} disabled={!applyMsg.trim()} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15, opacity:applyMsg.trim()?1:.5 }}>
           {applyStep===1?"Sending...":"Submit Application →"}
         </Btn>
       </div>
@@ -3069,7 +3156,27 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
                 </div>
               </div>
             ))}
-            {filtered.length===0&&<div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}><div style={{ fontSize:36, marginBottom:10 }}>🔍</div><div style={{ fontWeight:700, fontSize:16 }}>No jobs match</div><div style={{ fontSize:13, marginTop:6 }}>Try adjusting filters</div></div>}
+            {jobsLoading && (
+              <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
+                <div style={{ width:36, height:36, borderRadius:"50%", border:`3px solid ${G.greenLight}`, borderTopColor:"transparent", margin:"0 auto 12px", animation:"spin .8s linear infinite" }} />
+                <div style={{ fontSize:14, fontWeight:600 }}>Loading jobs near {userZip}...</div>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+              </div>
+            )}
+            {!jobsLoading && filtered.length===0 && liveJobs.length===0 && (
+              <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
+                <div style={{ fontSize:36, marginBottom:10 }}>📭</div>
+                <div style={{ fontWeight:700, fontSize:16 }}>No jobs posted yet</div>
+                <div style={{ fontSize:13, marginTop:6 }}>Be the first to post a job in zip {userZip}!</div>
+              </div>
+            )}
+            {!jobsLoading && filtered.length===0 && liveJobs.length>0 && (
+              <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
+                <div style={{ fontSize:36, marginBottom:10 }}>🔍</div>
+                <div style={{ fontWeight:700, fontSize:16 }}>No jobs match your filters</div>
+                <div style={{ fontSize:13, marginTop:6 }}>Try adjusting filters or distance</div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3744,9 +3851,18 @@ function ReviewModal({ target, jobTitle, onSubmit, onClose }) {
   const [step, setStep] = useState(0); // 0=form, 1=sending, 2=done
   const togTag = (t) => setTags(s=>s.includes(t)?s.filter(x=>x!==t):[...s,t]);
 
-  const submit = () => {
+  const submit = async () => {
     setStep(1);
-    setTimeout(()=>setStep(2), 1200);
+    try {
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+      await fetch(`${BACKEND}/api/reviews/create`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+        body: JSON.stringify({ jobTitle, targetName: target, stars, text, tags, reviewerId: user.id })
+      });
+    } catch(e) { console.error("Review error:", e); }
+    setStep(2);
   };
 
   return (
@@ -3846,6 +3962,20 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
   const [applyMsg, setApplyMsg] = useState("");
   const [applyAvail, setApplyAvail] = useState([]);
   const [mapCenter, setMapCenter] = useState({ lat: 41.883, lng: -87.627 });
+  const [liveJobs, setLiveJobs] = useState([]);
+
+  React.useEffect(()=>{
+    fetch(`${BACKEND}/api/jobs?zip=${userZip}&maxDist=${maxDist}`)
+      .then(r=>r.json())
+      .then(data=>{ if(data.jobs) setLiveJobs(data.jobs.map(j=>({
+        id:j.id, title:j.title, category:j.category, poster:j.poster_name||"Anonymous",
+        posterRating:j.poster_rating||5.0, loc:j.zip||userZip, dist:j.dist||0,
+        pay:parseFloat(j.pay)||0, date:j.date||"", tags:j.tags?j.tags.split(","):[], 
+        verified:j.poster_verified||false, urgent:j.urgent||false,
+        lat:j.lat||41.88, lng:j.lng||-87.63, desc:j.description||"", photos:[],
+      }))); })
+      .catch(e=>console.error("Map jobs error:", e));
+  }, [userZip, maxDist]);
   const mapRef = React.useRef(null);       // DOM node
   const leafletRef = React.useRef(null);   // Leaflet map instance
   const markersRef = React.useRef([]);     // current marker objects
@@ -3929,7 +4059,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
-    const filtered = JOBS.filter(j =>
+    const filtered = liveJobs.filter(j =>
       (activeCategory.length === 0 || activeCategory.includes(j.category)) && j.dist <= maxDist
     );
 
@@ -4227,17 +4357,19 @@ export default function ChoresApp() {
       .catch(()=>{});
   }, []);
   const [darkMode, setDarkMode] = useState(() => {
-    try { return isBrowser ? window.matchMedia('(prefers-color-scheme: dark)').matches : false; } catch { return false; }
+    // First load = light mode unless user has explicitly set a preference before
+    try { 
+      if (!isBrowser) return false;
+      const saved = localStorage.getItem("chores_dark_mode");
+      return saved !== null ? saved === "true" : false;
+    } catch { return false; }
   });
 
-  // Sync with OS-level changes in real time
+  // Persist dark mode preference whenever it changes
   React.useEffect(() => {
     if (!isBrowser) return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = e => setDarkMode(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
+    localStorage.setItem("chores_dark_mode", String(darkMode));
+  }, [darkMode]);
 
   // Keep G in sync with dark mode — re-render triggers downstream
   if (darkMode) { Object.assign(G, DARK); } else { Object.assign(G, LIGHT); }
@@ -4248,7 +4380,29 @@ export default function ChoresApp() {
   const [locStatus, setLocStatus] = useState("idle"); // idle, loading, granted, denied
   const [chatOpen, setChatOpen] = useState(null);
   const [chatMsg, setChatMsg] = useState("");
-  const [chatHistory, setChatHistory] = useState([{from:"them",text:"Does Saturday at 10am work for you?"}]);
+  const [chatHistory, setChatHistory] = useState([]);
+  const [inboxMessages, setInboxMessages] = useState([]);
+
+  // Load inbox messages from backend
+  React.useEffect(()=>{
+    const user = isBrowser ? (() => { try { return JSON.parse(localStorage.getItem("chores_user")||"{}"); } catch { return {}; } })() : {};
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!user.id || !token) return;
+    fetch(`${BACKEND}/api/messages/inbox`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then(r=>r.json())
+      .then(data=>{ if(data.messages) setInboxMessages(data.messages); })
+      .catch(()=>{});
+  }, []);
+
+  // Request push notification permission on load
+  React.useEffect(()=>{
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
   const [showPostJob, setShowPostJob] = useState(false);
   const [postForm, setPostForm] = useState({title:"",category:"",pay:"",date:"",notes:"",photos:[]});
   const postPhotoRef = React.useRef();
@@ -4394,7 +4548,14 @@ export default function ChoresApp() {
             {!chatOpen?(
               <div style={{ padding:20 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:16 }}>Messages</div>
-                {[{id:1,from:"The Hendersons",job:"Mow & Edge Front Lawn",preview:"Does Saturday at 10am work?",time:"2m ago",unread:true},{id:2,from:"Maria C.",job:"Dog Walking – 2 Labs",preview:"Can you meet the dogs first?",time:"1hr ago",unread:true},{id:3,from:"Sunrise Café",job:"Deep Clean Kitchen",preview:"You're confirmed for Sunday.",time:"Yesterday",unread:false}].map(m=>(
+                {inboxMessages.length===0 && (
+                  <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
+                    <div style={{ fontSize:36, marginBottom:10 }}>💬</div>
+                    <div style={{ fontWeight:700, fontSize:15 }}>No messages yet</div>
+                    <div style={{ fontSize:13, marginTop:6 }}>{role==="worker" ? "Apply to jobs to start a conversation" : "Applications will appear here"}</div>
+                  </div>
+                )}
+                {inboxMessages.map(m=>(
                   <div key={m.id} className="tap" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
                     <Avatar name={m.from} />
                     <div style={{ flex:1, minWidth:0 }}>
@@ -4494,7 +4655,28 @@ export default function ChoresApp() {
                     )}
                   </div>
 
-                  <Btn onClick={()=>{setFormPosted(true);setTimeout(()=>{setShowPostJob(false);setFormPosted(false);setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]});},2200);}} style={{ width:"100%", padding:"14px" }}>Post Job →</Btn>
+                  <Btn onClick={async ()=>{
+                    if (!postForm.title || !postForm.category || !postForm.pay) { alert("Please fill in title, category, and pay."); return; }
+                    setFormPosted(true);
+                    try {
+                      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                      const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+                      await fetch(`${BACKEND}/api/jobs/create`, {
+                        method:"POST",
+                        headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+                        body: JSON.stringify({
+                          title: postForm.title,
+                          category: postForm.category,
+                          pay: parseFloat(postForm.pay.replace(/[^0-9.]/g,"")),
+                          date: postForm.date,
+                          description: postForm.notes,
+                          zip: userZip,
+                          posterId: user.id,
+                        })
+                      });
+                    } catch(e) { console.error("Post job error:", e); }
+                    setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); }, 2200);
+                  }} style={{ width:"100%", padding:"14px" }}>Post Job →</Btn>
                 </div>
               </>
             )}
