@@ -9,13 +9,16 @@
  *   SUPABASE_URL            https://xxxx.supabase.co
  *   SUPABASE_SERVICE_KEY    service_role key (NOT anon)
  *   FRONTEND_URL            https://choresnearme.com
+ *   ANTHROPIC_API_KEY       sk-ant-...
  *   RESEND_API_KEY          re_...
  *   SUPPORT_EMAIL           your@email.com
  */
 
 require("dotenv").config();
 const express = require("express");
+const Anthropic = require("@anthropic-ai/sdk");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -54,110 +57,69 @@ app.get("/", (req, res) => res.json({ status: "ChoresApp backend running" }));
 app.get("/ping", (req, res) => res.json({ ok: true }));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTH
+// AUTH — Register / Login (Supabase handles tokens, we store extra profile data)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Check if email already exists
-app.post("/api/auth/check-email", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.json({ error: "Email required" });
-  try {
-    const { data } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", email.toLowerCase().trim())
-      .maybeSingle();
-    return res.json({ exists: !!data });
-  } catch {
-    return res.json({ exists: false });
-  }
-});
-
-// Register — called only after the user has verified their email via 6-digit code.
-// Uses the Supabase admin API to create the auth user with email pre-confirmed,
-// then writes their profile to the users table.
+// Register a new user
 app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
-  if (!email || !password) return res.json({ error: "Email and password are required." });
-
-  const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    // 1. Check if this email is already in our users table
-    const { data: existing } = await supabase
-      .from("users")
-      .select("id, role")
-      .eq("email", normalizedEmail)
-      .maybeSingle();
-
-    let userId;
-
-    if (existing) {
-      // Already registered — just sign them in
-      userId = existing.id;
-    } else {
-      // Create auth user with email pre-confirmed (we already verified it)
-      const { data: created, error: createError } = await supabase.auth.admin.createUser({
-        email: normalizedEmail,
-        password,
-        email_confirm: true,
-      });
-
-      if (createError) {
-        // If Supabase auth user already exists (e.g. from a previous partial signup), look them up
-        if (createError.message?.toLowerCase().includes("already")) {
-          const { data: { users } } = await supabase.auth.admin.listUsers();
-          const found = users?.find(u => u.email === normalizedEmail);
-          if (!found) return res.json({ error: "Account exists but could not be retrieved. Please sign in." });
-          userId = found.id;
-        } else {
-          console.error("Auth createUser error:", createError.message);
-          return res.json({ error: createError.message });
-        }
-      } else {
-        userId = created.user.id;
-      }
-
-      // Write profile to users table
-      const { error: insertError } = await supabase.from("users").insert({
-        id: userId,
-        email: normalizedEmail,
-        first_name: firstName,
-        last_name: lastName,
-        phone,
-        zip,
-        role: role || "worker",
-      });
-      if (insertError) console.warn("Profile insert warning:", insertError.message);
-    }
-
-    // Sign in to get a real session token
-    const { data: session, error: signInError } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
+    // 1. Try to create auth user in Supabase
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
       password,
     });
-    if (signInError) return res.json({ error: signInError.message });
 
-    // Fetch the full profile
-    const { data: profile } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", userId)
-      .single();
+    // 2. If already registered, just sign them in instead — no error shown to user
+    if (authError || authData?.user?.identities?.length === 0) {
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (loginError) return res.json({ error: loginError.message });
 
-    return res.json({
+      const { data: profile } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", loginData.user.id)
+        .single();
+
+      return res.json({
+        success: true,
+        userId: loginData.user.id,
+        token: loginData.session?.access_token,
+        user: {
+          id: loginData.user.id,
+          email,
+          firstName: profile?.first_name || firstName,
+          lastName: profile?.last_name || lastName,
+          role: profile?.role || role,
+        },
+      });
+    }
+
+    const userId = authData.user.id;
+
+    // 3. Store profile in users table (Stripe customer created on first payment)
+    const { error: dbError } = await supabase.from("users").insert({
+      id: userId,
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      phone,
+      zip,
+      role: role || "worker",
+    });
+
+    // If profile insert fails (e.g. duplicate), still let them in
+    if (dbError) console.warn("Profile insert warning:", dbError.message);
+
+    res.json({
       success: true,
-      token: session.session.access_token,
-      user: {
-        id: userId,
-        email: normalizedEmail,
-        firstName: profile?.first_name || firstName,
-        lastName: profile?.last_name || lastName,
-        role: profile?.role || role || "worker",
-        phone: profile?.phone || phone,
-        zip: profile?.zip || zip,
-      },
+      userId,
+      token: authData.session?.access_token,
+      user: { id: userId, email, firstName, lastName, role },
     });
   } catch (err) {
     console.error("Register error:", err.message);
@@ -165,42 +127,28 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// Login — checks users table first, then signs in via Supabase Auth
+// Login
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.json({ error: "Email and password are required." });
 
   try {
-    const normalizedEmail = email.toLowerCase().trim();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) return res.json({ error: error.message });
 
-    // Verify user exists in our users table
+    // Fetch full profile from users table
     const { data: profile } = await supabase
       .from("users")
       .select("*")
-      .eq("email", normalizedEmail)
-      .maybeSingle();
+      .eq("id", data.user.id)
+      .single();
 
-    if (!profile) return res.json({ error: "No account found with that email. Please sign up first." });
-
-    // Authenticate via Supabase Auth
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-    if (error) return res.json({ error: "Incorrect password. Please try again." });
-
-    return res.json({
+    res.json({
       success: true,
       token: data.session.access_token,
-      user: {
-        id: profile.id,
-        email: profile.email,
-        firstName: profile.first_name,
-        lastName: profile.last_name,
-        role: profile.role,
-        phone: profile.phone,
-        zip: profile.zip,
-      },
+      user: profile,
     });
   } catch (err) {
     res.json({ error: err.message });
@@ -218,7 +166,6 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
   if (error) return res.json({ error: error.message });
   res.json({ user: data });
 });
-
 
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
@@ -783,8 +730,95 @@ app.get("/api/messages/inbox", requireAuth, async (req, res) => {
   res.json({ messages });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SUPPORT SUBMISSIONS (stored in Supabase, emailed if Resend configured)
+// Get all applications for jobs posted by the logged-in poster
+app.get("/api/poster/applications", requireAuth, async (req, res) => {
+  try {
+    // Get all jobs owned by this poster
+    const { data: jobs, error: jobsError } = await supabase
+      .from("jobs")
+      .select("id, title, pay, category")
+      .eq("poster_id", req.user.id);
+
+    if (jobsError) return res.json({ error: jobsError.message });
+    if (!jobs?.length) return res.json({ applications: [] });
+
+    const jobIds = jobs.map(j => j.id);
+    const jobMap = Object.fromEntries(jobs.map(j => [j.id, j]));
+
+    // Get all applications for those jobs with worker info
+    const { data: apps, error: appsError } = await supabase
+      .from("applications")
+      .select("*, worker:users!worker_id(id, first_name, last_name, email, phone)")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: false });
+
+    if (appsError) return res.json({ error: appsError.message });
+
+    const applications = (apps || []).map(a => ({
+      id: a.id,
+      jobId: a.job_id,
+      jobTitle: jobMap[a.job_id]?.title || "Unknown job",
+      jobPay: jobMap[a.job_id]?.pay || 0,
+      jobCategory: jobMap[a.job_id]?.category || "",
+      workerId: a.worker_id,
+      workerName: a.worker ? `${a.worker.first_name} ${a.worker.last_name}`.trim() : "Unknown",
+      workerEmail: a.worker?.email || "",
+      message: a.message || "",
+      availability: a.availability || "",
+      status: a.status || "pending",
+      time: timeAgo(a.created_at),
+      createdAt: a.created_at,
+    }));
+
+    res.json({ applications });
+  } catch (err) {
+    console.error("Poster applications error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+// Accept or decline an application
+app.post("/api/applications/:id/status", requireAuth, async (req, res) => {
+  const { status } = req.body; // "accepted" | "declined"
+  const appId = req.params.id;
+
+  try {
+    const { data: app, error: fetchError } = await supabase
+      .from("applications")
+      .select("*, job:jobs!job_id(title, poster_id)")
+      .eq("id", appId)
+      .single();
+
+    if (fetchError || !app) return res.json({ error: "Application not found" });
+    if (app.job?.poster_id !== req.user.id) return res.status(403).json({ error: "Not authorized" });
+
+    await supabase.from("applications").update({ status }).eq("id", appId);
+
+    // Notify the worker via messages
+    if (app.worker_id) {
+      const msg = status === "accepted"
+        ? `Great news! Your application for "${app.job.title}" was accepted.`
+        : `Your application for "${app.job.title}" was not selected this time.`;
+      await supabase.from("messages").insert({
+        sender_id: req.user.id,
+        recipient_id: app.worker_id,
+        job_id: app.job_id,
+        type: status === "accepted" ? "accepted" : "declined",
+        preview: msg,
+        body: msg,
+        read: false,
+        created_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Application status error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+ (stored in Supabase, emailed if Resend configured)
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendSupportEmail(subject, body) {
   if (!process.env.RESEND_API_KEY) return;
@@ -837,6 +871,59 @@ app.post("/api/support/feature", async (req, res) => {
 
 ${description}`);
   res.json({ success: true });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI — Generate application message
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/write-application", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.json({ error: "No prompt provided" });
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 300,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = message.content?.[0]?.text?.trim();
+    res.json({ text });
+  } catch(err) {
+    console.error("AI error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI - Write application message via Claude
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/write-application", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.json({ error: "No prompt provided" });
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text?.trim();
+    if (!text) return res.json({ error: "No response from AI" });
+    res.json({ text });
+  } catch(err) {
+    console.error("AI write error:", err.message);
+    res.json({ error: err.message });
+  }
 });
 
 // WEBHOOKS

@@ -2772,6 +2772,71 @@ function NotificationsScreen({ role, onNavigate }) {
 }
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// AI WRITE BUTTON — generates application message using Claude
+// ─────────────────────────────────────────────────────────────────────────────
+function AiWriteBtn({ job, onResult }) {
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    setLoading(true);
+    const user = isBrowser ? (() => { try { return JSON.parse(localStorage.getItem("chores_user")||"{}"); } catch { return {}; } })() : {};
+    const userName = `${user.firstName||""} ${user.lastName||""}`.trim() || "a neighbor";
+    const prompt = `Write a short, friendly job application message (under 200 words) from ${userName} applying for this job:
+
+Job title: ${job.title}
+Category: ${job.category}
+Pay: $${job.pay}
+Date: ${job.date}
+Description: ${job.desc || "No description provided"}
+Posted by: ${job.poster}
+
+The message should:
+- Be warm and personal, not generic
+- Mention relevant experience or enthusiasm for this type of work
+- Reference the specific job details
+- End with availability to discuss
+- Sound like a real person, not AI-generated
+- Be 3-4 sentences max
+
+Return ONLY the message text, no subject line, no quotes, no preamble.`;
+
+    try {
+      const res = await fetch(`${BACKEND}/api/ai/write-application`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+      const data = await res.json();
+      if (data.text) onResult(data.text.slice(0, 300));
+    } catch(e) {
+      console.error("AI write error:", e);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="tap" onClick={loading ? undefined : generate}
+      style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", borderRadius:10,
+        background:`linear-gradient(135deg, ${G.green}, ${G.greenLight})`,
+        color:"#fff", fontSize:11, fontWeight:700, opacity:loading?0.7:1, cursor:loading?"default":"pointer" }}>
+      {loading ? (
+        <>
+          <div style={{ width:10, height:10, borderRadius:"50%", border:"1.5px solid rgba(255,255,255,.4)", borderTopColor:"#fff", animation:"spin .7s linear infinite" }} />
+          Writing...
+        </>
+      ) : (
+        <>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+          </svg>
+          AI Write
+        </>
+      )}
+    </div>
+  );
+}
+
 function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true }) {
   const [discoverView, setDiscoverView] = useState("feed");
   const [activeCategory, setActiveCategory] = useState([]);
@@ -2895,6 +2960,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         <div style={{ marginBottom:16 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
             <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5 }}>Message to {job.poster}</label>
+            <AiWriteBtn job={job} onResult={setApplyMsg} />
           </div>
           <textarea value={applyMsg} onChange={e=>setApplyMsg(e.target.value)} rows={4} placeholder={`Hi! I'd love to help with ${job.title}. I have experience with similar jobs and I'm available on ${job.date}...`}
             style={{ width:"100%", padding:"14px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.white, outline:"none" }}
@@ -3285,10 +3351,6 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
   const [emailError, setEmailError] = useState("");
   const [emailSending, setEmailSending] = useState(false);
 
-  // Set after registration completes — holds token + user so step 8 can just call onComplete
-  const [registeredSession, setRegisteredSession] = useState(null);
-  const [registerError, setRegisterError] = useState("");
-
   const nextStep = () => { setAnimKey(k=>k+1); setStep(s=>s+1); };
   const prevStep = () => { setAnimKey(k=>k+1); setStep(s=>s-1); };
 
@@ -3667,47 +3729,8 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
           body: JSON.stringify({ email: form.email, code: emailCode }),
         });
         const data = await res.json();
-        if (!data.verified) { setEmailError("Incorrect code — please try again."); return; }
-
-        // Email confirmed — register the user immediately
-        setEmailVerified(true);
-        setRegisterError("");
-        try {
-          const regRes = await fetch(`${BACKEND}/api/auth/register`, {
-            method:"POST", headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({
-              email: form.email,
-              password: form.password,
-              firstName: form.first,
-              lastName: form.last,
-              phone: form.phone,
-              zip: zip,
-              role: onbRole || "worker",
-            }),
-          });
-          const regData = await regRes.json();
-          if (regData.error) {
-            setRegisterError(regData.error);
-          } else if (regData.token) {
-            if (isBrowser) {
-              localStorage.setItem("chores_token", regData.token);
-              localStorage.setItem("chores_user", JSON.stringify({
-                ...regData.user,
-                firstName: regData.user.firstName || form.first,
-                lastName: regData.user.lastName || form.last,
-                email: form.email,
-                phone: form.phone,
-                zip: zip,
-                role: onbRole || "worker",
-              }));
-            }
-            setRegisteredSession(regData);
-          }
-        } catch(e) {
-          setRegisterError("Account created but could not connect — please try signing in.");
-        }
-
-        setTimeout(nextStep, 900);
+        if (data.verified) { setEmailVerified(true); setTimeout(nextStep, 900); }
+        else { setEmailError("Incorrect code — please try again."); }
       } catch(e) { setEmailError("Network error — please try again."); }
     };
     return (
@@ -3808,18 +3831,55 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         ))}
       </div>
 
-      {registerError && (
-        <div style={{ width:"100%", marginTop:16, padding:"12px 16px", borderRadius:14, background:"rgba(229,62,62,.15)", border:"1px solid rgba(229,62,62,.3)", color:"#FC8181", fontSize:13, fontWeight:600 }}>
-          ⚠️ {registerError}
-        </div>
-      )}
-
-      <button className="btn onb-fade" id="register-btn" onClick={()=>{
-        if (registeredSession) {
-          onComplete(onbRole==="poster"?"poster":"worker");
-        } else {
-          // Fallback: session wasn't stored (edge case), redirect to login
-          onComplete("worker");
+      <button className="btn onb-fade" id="register-btn" onClick={async (e)=>{
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = "Creating account…";
+        try {
+          const res = await fetch(`${BACKEND}/api/auth/register`, {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              email: form.email,
+              password: form.password,
+              firstName: form.first,
+              lastName: form.last,
+              phone: form.phone,
+              zip: zip,
+              role: onbRole || "worker",
+            })
+          });
+          const data = await res.json();
+          if (data.error) {
+            btn.disabled = false;
+            btn.textContent = "Enter Chores →";
+            alert(`Registration failed: ${data.error}`);
+            return;
+          }
+          if (data.token) {
+            if (isBrowser) {
+              localStorage.setItem("chores_token", data.token);
+              localStorage.setItem("chores_user", JSON.stringify({
+                ...data.user,
+                firstName: data.user.first_name || form.first,
+                lastName: data.user.last_name || form.last,
+                email: form.email,
+                phone: form.phone,
+                zip: zip,
+                role: onbRole || "worker",
+              }));
+            }
+            onComplete(onbRole==="poster"?"poster":"worker");
+          } else {
+            btn.disabled = false;
+            btn.textContent = "Enter Chores →";
+            alert("Registration failed — please try again.");
+          }
+        } catch(e) {
+          console.error("Registration error:", e);
+          btn.disabled = false;
+          btn.textContent = "Enter Chores →";
+          alert("Could not connect to server. Please check your connection and try again.");
         }
       }} style={{ width:"100%", padding:"17px", borderRadius:16, background:G.greenLight, color:"#fff", fontSize:16, fontWeight:700, marginTop:32, animationDelay:".45s", opacity:0 }}>Enter Chores →</button>
     </div>
@@ -4333,6 +4393,195 @@ function LoginScreen({ onComplete, onBack, darkMode }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MESSAGES VIEW — tabbed messages + application manager
+// ═══════════════════════════════════════════════════════════════════════════
+function MessagesView({ role, chatOpen, setChatOpen, inboxMessages, setInboxMessages }) {
+  const [tab, setTab] = React.useState("messages"); // "messages" | "applications"
+  const [applications, setApplications] = React.useState([]);
+  const [appsLoading, setAppsLoading] = React.useState(false);
+  const [statusUpdating, setStatusUpdating] = React.useState(null);
+  const [chatMsg, setChatMsg] = React.useState("");
+  const [chatHistory, setChatHistory] = React.useState([]);
+
+  const isPoster = role === "poster";
+
+  // Load applications for posters
+  React.useEffect(() => {
+    if (!isPoster || tab !== "applications") return;
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    setAppsLoading(true);
+    fetch(`${BACKEND}/api/poster/applications`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.applications) setApplications(data.applications); })
+      .catch(() => {})
+      .finally(() => setAppsLoading(false));
+  }, [tab, isPoster]);
+
+  const updateStatus = async (appId, status) => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    setStatusUpdating(appId);
+    try {
+      await fetch(`${BACKEND}/api/applications/${appId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      setApplications(prev => prev.map(a => a.id === appId ? { ...a, status } : a));
+    } catch (e) { console.error(e); }
+    setStatusUpdating(null);
+  };
+
+  const statusStyle = (s) => ({
+    accepted:  { bg: G.greenPale,  color: G.greenMid, label: "Accepted" },
+    declined:  { bg: G.redLight,   color: G.red,      label: "Declined" },
+    pending:   { bg: "#FFF7ED",    color: G.gold,     label: "Pending"  },
+  }[s] || { bg: G.sand, color: G.muted, label: s });
+
+  if (chatOpen) return (
+    <div className="fade" style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
+      <div style={{ padding:"14px 20px", background:G.white, borderBottom:`1px solid ${G.border}`, display:"flex", alignItems:"center", gap:12 }}>
+        <div className="tap" onClick={()=>setChatOpen(null)} style={{ fontSize:20, color:G.muted }}>←</div>
+        <Avatar name={chatOpen.from} size={36} />
+        <div>
+          <div style={{ fontWeight:700, fontSize:14 }}>{chatOpen.from}</div>
+          <div style={{ fontSize:11, color:G.greenMid }}>📋 {chatOpen.job}</div>
+        </div>
+      </div>
+      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
+        {/* Show the original application message */}
+        {chatOpen.body && (
+          <div style={{ display:"flex", justifyContent:"flex-start" }}>
+            <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"80%", background:G.white, color:G.text, borderRadius:"18px 18px 18px 4px", boxShadow:"0 2px 8px rgba(0,0,0,.08)", lineHeight:1.5 }}>{chatOpen.body}</div>
+          </div>
+        )}
+        {chatHistory.map((msg, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:msg.from==="me"?"flex-end":"flex-start" }}>
+            <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"75%", ...(msg.from==="me" ? { background:G.green, color:"#fff", borderRadius:"18px 18px 4px 18px" } : { background:"#fff", color:G.text, borderRadius:"18px 18px 18px 4px", boxShadow:"0 2px 8px rgba(0,0,0,.08)" }) }}>{msg.text}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
+        <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&chatMsg.trim()){ setChatHistory(h=>[...h,{from:"me",text:chatMsg}]); setChatMsg(""); setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800); }}}
+          placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white }} />
+        <button className="btn" onClick={()=>{ if(chatMsg.trim()){ setChatHistory(h=>[...h,{from:"me",text:chatMsg}]); setChatMsg(""); setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800); }}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18, flexShrink:0 }}>↑</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fade">
+      {/* Header */}
+      <div style={{ padding:"20px 20px 0", background:G.cream }}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text, marginBottom:16 }}>
+          {isPoster ? "Inbox" : "Messages"}
+        </div>
+        {isPoster && (
+          <div style={{ display:"flex", gap:0, borderBottom:`2px solid ${G.border}` }}>
+            {[["messages","💬 Messages"],["applications","📋 Applications"]].map(([id,label])=>(
+              <button key={id} className="btn" onClick={()=>setTab(id)} style={{ flex:1, padding:"10px 0", fontSize:13, fontWeight:700, background:"none", borderBottom:`2px solid ${tab===id?G.green:"transparent"}`, borderRadius:0, color:tab===id?G.green:G.muted, marginBottom:-2 }}>{label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Messages tab */}
+      {tab === "messages" && (
+        <div style={{ padding:"16px 20px" }}>
+          {inboxMessages.length === 0 ? (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
+              <div style={{ fontSize:48 }}>💬</div>
+              <div style={{ fontWeight:700, fontSize:17, color:G.text }}>No messages yet</div>
+              <div style={{ fontSize:14, color:G.muted, textAlign:"center", lineHeight:1.5 }}>
+                {role === "worker" ? "Apply to jobs to start a conversation" : "Messages from workers will appear here"}
+              </div>
+            </div>
+          ) : inboxMessages.map(m => (
+            <div key={m.id} className="tap card" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
+              <Avatar name={m.from} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span>
+                  <span style={{ fontSize:11, color:G.muted }}>{m.time}</span>
+                </div>
+                <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>📋 {m.job}</div>
+                <div style={{ fontSize:13, color:m.unread?G.text:G.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.preview}</div>
+              </div>
+              {m.unread && <div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0 }}/>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Applications tab (poster only) */}
+      {tab === "applications" && (
+        <div style={{ padding:"16px 20px" }}>
+          {appsLoading ? (
+            <div style={{ textAlign:"center", padding:"48px 0", color:G.muted, fontSize:14 }}>Loading applications…</div>
+          ) : applications.length === 0 ? (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
+              <div style={{ fontSize:48 }}>📋</div>
+              <div style={{ fontWeight:700, fontSize:17, color:G.text }}>No applications yet</div>
+              <div style={{ fontSize:14, color:G.muted, textAlign:"center", lineHeight:1.5 }}>Workers who apply to your jobs<br/>will show up here</div>
+            </div>
+          ) : (
+            <>
+              {/* Group by job */}
+              {Object.entries(
+                applications.reduce((acc, a) => { (acc[a.jobTitle] = acc[a.jobTitle] || []).push(a); return acc; }, {})
+              ).map(([jobTitle, apps]) => (
+                <div key={jobTitle} style={{ marginBottom:24 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+                    <span>📋 {jobTitle}</span>
+                    <span style={{ background:G.greenPale, color:G.greenMid, borderRadius:20, padding:"2px 8px", fontSize:11 }}>{apps.length}</span>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    {apps.map(app => {
+                      const st = statusStyle(app.status);
+                      return (
+                        <div key={app.id} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                              <Avatar name={app.workerName} size={38} />
+                              <div>
+                                <div style={{ fontWeight:700, fontSize:14, color:G.text }}>{app.workerName}</div>
+                                <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{app.time}</div>
+                              </div>
+                            </div>
+                            <div style={{ background:st.bg, color:st.color, fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20 }}>{st.label}</div>
+                          </div>
+                          {app.availability && (
+                            <div style={{ fontSize:12, color:G.muted, marginBottom:8 }}>🕐 Available: {app.availability}</div>
+                          )}
+                          {app.message && (
+                            <div style={{ fontSize:13, color:G.text, lineHeight:1.5, padding:"10px 12px", background:G.sand, borderRadius:10, marginBottom:12 }}>"{app.message}"</div>
+                          )}
+                          {app.status === "pending" && (
+                            <div style={{ display:"flex", gap:8 }}>
+                              <button className="btn" disabled={statusUpdating===app.id} onClick={()=>updateStatus(app.id,"accepted")} style={{ flex:1, padding:"10px 0", borderRadius:12, background:G.green, color:"#fff", fontSize:13, fontWeight:700, opacity:statusUpdating===app.id?.6:1 }}>
+                                ✓ Accept
+                              </button>
+                              <button className="btn" disabled={statusUpdating===app.id} onClick={()=>updateStatus(app.id,"declined")} style={{ flex:1, padding:"10px 0", borderRadius:12, background:G.sand, color:G.muted, fontSize:13, fontWeight:700, border:`1.5px solid ${G.border}`, opacity:statusUpdating===app.id?.6:1 }}>
+                                ✕ Decline
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════
 const isBrowser = typeof window !== "undefined";
@@ -4550,50 +4799,7 @@ export default function ChoresApp() {
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
-          <div className="fade">
-            {!chatOpen?(
-              <div style={{ padding:20 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:16 }}>Messages</div>
-                {inboxMessages.length===0 && (
-                  <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
-                    <div style={{ fontSize:36, marginBottom:10 }}>💬</div>
-                    <div style={{ fontWeight:700, fontSize:15 }}>No messages yet</div>
-                    <div style={{ fontSize:13, marginTop:6 }}>{role==="worker" ? "Apply to jobs to start a conversation" : "Applications will appear here"}</div>
-                  </div>
-                )}
-                {inboxMessages.map(m=>(
-                  <div key={m.id} className="tap" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
-                    <Avatar name={m.from} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span><span style={{ fontSize:11, color:G.muted }}>{m.time}</span></div>
-                      <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>📋 {m.job}</div>
-                      <div style={{ fontSize:13, color:m.unread?G.text:G.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.preview}</div>
-                    </div>
-                    {m.unread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0 }}/>}
-                  </div>
-                ))}
-              </div>
-            ):(
-              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
-                <div style={{ padding:"14px 20px", background:G.white, borderBottom:`1px solid ${G.border}`, display:"flex", alignItems:"center", gap:12 }}>
-                  <div className="tap" onClick={()=>setChatOpen(null)} style={{ fontSize:20 }}>←</div>
-                  <Avatar name={chatOpen.from} size={36} />
-                  <div><div style={{ fontWeight:700, fontSize:14 }}>{chatOpen.from}</div><div style={{ fontSize:11, color:G.greenMid }}>📋 {chatOpen.job}</div></div>
-                </div>
-                <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
-                  {chatHistory.map((msg,i)=>(
-                    <div key={i} style={{ display:"flex", justifyContent:msg.from==="me"?"flex-end":"flex-start" }}>
-                      <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"75%", ...(msg.from==="me"?{background:G.green,color:"#fff",borderRadius:"18px 18px 4px 18px"}:{background:"#fff",color:G.text,borderRadius:"18px 18px 18px 4px",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}) }}>{msg.text}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
-                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
-                  <button className="btn" onClick={()=>{if(chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
-                </div>
-              </div>
-            )}
-          </div>
+          <MessagesView role={role} chatOpen={chatOpen} setChatOpen={setChatOpen} inboxMessages={inboxMessages} setInboxMessages={setInboxMessages} />
         )}
         {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
