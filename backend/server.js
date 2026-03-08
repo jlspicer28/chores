@@ -49,6 +49,7 @@ async function requireAuth(req, res, next) {
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.json({ status: "ChoresApp backend running" }));
+app.get("/ping", (req, res) => res.json({ ok: true }));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH — Register / Login (Supabase handles tokens, we store extra profile data)

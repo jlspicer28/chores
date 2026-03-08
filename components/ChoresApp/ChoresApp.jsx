@@ -3160,7 +3160,7 @@ function OnbInput({ icon, placeholder, value, onChange, type="text", extra }) {
 }
 
 function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
-  const [step, setStep] = useState(0); // 0=splash, 1=welcome, 2=role, 3=info, 4=interests, 5=zip, 6=verify-email, 7=verify-id, 8=done
+  const [step, setStep] = useState(0); // 0=splash, 1=welcome, 2=role, 3=info, 4=interests, 5=zip, 6=verify-email, 7=done
   const [onbRole, setOnbRole] = useState(null);
   const [form, setForm] = useState({ first:"", last:"", email:"", phone:"", password:"" });
   const [interests, setInterests] = useState([]);
@@ -3177,16 +3177,11 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
   const [emailVerified, setEmailVerified] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [emailSending, setEmailSending] = useState(false);
-  const [idVerified, setIdVerified] = useState(false);
-  const [idLoading, setIdLoading] = useState(false);
-  const [idError, setIdError] = useState("");
-  const [idSessionId, setIdSessionId] = useState(null);
-  const [idPolling, setIdPolling] = useState(false);
 
   const nextStep = () => { setAnimKey(k=>k+1); setStep(s=>s+1); };
   const prevStep = () => { setAnimKey(k=>k+1); setStep(s=>s-1); };
 
-  const totalSteps = 9;
+  const totalSteps = 8;
   const progress = ((step) / (totalSteps - 1)) * 100;
 
   const DARK_CSS = darkMode ? `
@@ -3571,7 +3566,7 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         <div style={{ padding:"20px 20px 0" }}><div className="tap" onClick={prevStep} style={{ fontSize:14, color:G.muted, fontWeight:600 }}>← Back</div></div>
         <div style={{ padding:"16px 32px 0" }}>
           <div style={{ height:4, borderRadius:2, background:G.border }}><div className="progress-fill" style={{ height:"100%", borderRadius:2, background:G.greenLight, width:`${progress}%` }} /></div>
-          <div style={{ fontSize:11, color:G.muted, marginTop:6, fontWeight:600 }}>Step 5 of 7 · Email Verification</div>
+          <div style={{ fontSize:11, color:G.muted, marginTop:6, fontWeight:600 }}>Step 5 of 6 · Email Verification</div>
         </div>
         <div style={{ flex:1, padding:"32px", display:"flex", flexDirection:"column" }}>
           <div style={{ width:64, height:64, borderRadius:20, background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:20 }}>
@@ -3632,111 +3627,6 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
     );
   }
 
-  // Step 7 — Government ID Verification (Stripe Identity)
-  if (step === 7) {
-
-    const startIdVerification = async () => {
-      setIdLoading(true); setIdError("");
-      try {
-        const token = isBrowser ? localStorage.getItem("chores_token") : null;
-        const res = await fetch(`${BACKEND}/api/verify/identity/start`, {
-          method:"POST",
-          headers:{"Content-Type":"application/json", ...(token?{"Authorization":`Bearer ${token}`}:{})},
-          body: JSON.stringify({ userId: form.email }),
-        });
-        const data = await res.json();
-        if (data.error) { setIdError(data.error); setIdLoading(false); return; }
-        setIdSessionId(data.sessionId);
-        if (data.url) window.open(data.url, "_blank");
-        setIdLoading(false);
-      } catch(e) { setIdError("Network error — please try again."); setIdLoading(false); }
-    };
-
-    const checkIdResult = async () => {
-      if (!idSessionId) { setIdError("Please start verification first."); return; }
-      setIdPolling(true); setIdError("");
-      try {
-        const token = isBrowser ? localStorage.getItem("chores_token") : null;
-        const res = await fetch(`${BACKEND}/api/verify/identity/check`, {
-          method:"POST",
-          headers:{"Content-Type":"application/json", ...(token?{"Authorization":`Bearer ${token}`}:{})},
-          body: JSON.stringify({ sessionId: idSessionId }),
-        });
-        const data = await res.json();
-        if (data.verified) { setIdVerified(true); setTimeout(nextStep, 900); }
-        else if (data.status === "processing") { setIdError("Still processing — check again in a moment."); }
-        else { setIdError("Verification not complete yet. Finish the Stripe flow and try again."); }
-      } catch(e) { setIdError("Network error — please try again."); }
-      setIdPolling(false);
-    };
-    return (
-      <div className="onb-wrap" style={{ maxWidth:430, margin:"0 auto", minHeight:"100vh", background:G.cream, display:"flex", flexDirection:"column", boxShadow:"0 0 80px rgba(0,0,0,.2)", color:darkMode?DARK.text:LIGHT.text }}>
-        <style>{CSS+DARK_CSS}</style>
-        <div style={{ padding:"20px 20px 0" }}><div className="tap" onClick={prevStep} style={{ fontSize:14, color:G.muted, fontWeight:600 }}>← Back</div></div>
-        <div style={{ padding:"16px 32px 0" }}>
-          <div style={{ height:4, borderRadius:2, background:G.border }}><div className="progress-fill" style={{ height:"100%", borderRadius:2, background:G.greenLight, width:`${progress}%` }} /></div>
-          <div style={{ fontSize:11, color:G.muted, marginTop:6, fontWeight:600 }}>Step 6 of 7 · Identity Verification</div>
-        </div>
-        <div style={{ flex:1, padding:"32px", display:"flex", flexDirection:"column" }}>
-          <div style={{ width:64, height:64, borderRadius:20, background:"#EBF8FF", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:20 }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={G.blue} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-          </div>
-          {idVerified ? (
-            <div style={{ textAlign:"center", paddingTop:40 }}>
-              <div style={{ fontSize:48, marginBottom:16 }}>✅</div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:G.green }}>Identity Verified!</div>
-              <div style={{ fontSize:14, color:G.muted, marginTop:8 }}>Your ID has been confirmed.</div>
-            </div>
-          ) : (<>
-            <div className="onb-fade" style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text, lineHeight:1.2 }}>Verify your<br/>identity</div>
-            <div className="onb-fade" style={{ fontSize:14, color:G.muted, marginTop:8, lineHeight:1.5, animationDelay:".1s", opacity:0 }}>A quick ID check so everyone on Chores knows you're real. Powered by Stripe.</div>
-
-            <div style={{ marginTop:20, display:"flex", flexDirection:"column", gap:10 }}>
-              {[["🪪","Government-issued ID","Driver's license, passport, or national ID"],["🤳","Quick selfie","Liveness check to match your photo"],["🔒","Secure & private","Stripe handles everything — we never see your ID"]].map(([icon,title,sub])=>(
-                <div key={title} style={{ display:"flex", gap:14, alignItems:"center", background:G.white, borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.04)" }}>
-                  <span style={{ fontSize:22 }}>{icon}</span>
-                  <div><div style={{ fontWeight:700, fontSize:13, color:G.text }}>{title}</div><div style={{ fontSize:12, color:G.muted, marginTop:2 }}>{sub}</div></div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ marginTop:16, padding:"12px 16px", borderRadius:12, background:"#EBF8FF", display:"flex", alignItems:"center", gap:10 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.blue} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <span style={{ fontSize:12, color:G.blue, fontWeight:600 }}>One-time verification · $1.50 fee (absorbed by Chores)</span>
-            </div>
-
-            {idError && <div style={{ color:G.red, fontSize:13, fontWeight:600, marginTop:12 }}>⚠️ {idError}</div>}
-
-            <div style={{ marginTop:"auto", paddingTop:24, display:"flex", flexDirection:"column", gap:10 }}>
-              {!idSessionId ? (
-                <Btn onClick={startIdVerification} disabled={idLoading} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>
-                  {idLoading ? "Opening Stripe…" : "Start ID Verification →"}
-                </Btn>
-              ) : (
-                <>
-                  <Btn onClick={startIdVerification} disabled={idLoading} variant="outline" style={{ width:"100%", padding:14, borderRadius:16, fontSize:14 }}>
-                    {idLoading ? "Opening…" : "↗ Reopen Stripe Verification"}
-                  </Btn>
-                  <Btn onClick={checkIdResult} disabled={idPolling} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>
-                    {idPolling ? "Checking…" : "I've Completed Verification ✓"}
-                  </Btn>
-                </>
-              )}
-              <div className="tap" onClick={()=>{ setIdVerified(false); nextStep(); }} style={{ textAlign:"center", fontSize:12, color:G.muted, fontWeight:600, padding:8 }}>
-                Skip for now (limits posting & applying)
-              </div>
-            </div>
-          </>)}
-        </div>
-        {idVerified && (
-          <div style={{ padding:"0 32px 48px" }}>
-            <Btn onClick={nextStep} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>Continue →</Btn>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   // Step 8 — Done / success
   return (
     <div style={{ maxWidth:430, margin:"0 auto", minHeight:"100vh", background:`linear-gradient(165deg, ${G.green} 0%, #143728 50%, #0D2818 100%)`, display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", textAlign:"center", padding:40, position:"relative", overflow:"hidden", boxShadow:"0 0 80px rgba(0,0,0,.2)" }}>
@@ -3760,7 +3650,6 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
           { l:"Role", v:onbRole==="worker"?"Worker":onbRole==="poster"?"Poster":"Worker & Poster" },
           { l:"Location", v:`Zip ${zip || "60647"}` },
           { l:"Email", v:emailVerified ? "✅ Verified" : "⚠️ Unverified" },
-          { l:"Identity", v:idVerified ? "✅ Verified" : "⏳ Pending" },
         ].map(r=>(
           <div key={r.l} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"1px solid rgba(255,255,255,.06)" }}>
             <span style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{r.l}</span>
@@ -3769,8 +3658,10 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         ))}
       </div>
 
-      <button className="btn onb-fade" onClick={async ()=>{
-        // Register with real backend
+      <button className="btn onb-fade" id="register-btn" onClick={async (e)=>{
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = "Creating account…";
         try {
           const res = await fetch(`${BACKEND}/api/auth/register`, {
             method:"POST",
@@ -3786,6 +3677,12 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
             })
           });
           const data = await res.json();
+          if (data.error) {
+            btn.disabled = false;
+            btn.textContent = "Enter Chores →";
+            alert(`Registration failed: ${data.error}`);
+            return;
+          }
           if (data.token) {
             if (isBrowser) {
               localStorage.setItem("chores_token", data.token);
@@ -3799,12 +3696,18 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
                 role: onbRole || "worker",
               }));
             }
+            onComplete(onbRole==="poster"?"poster":"worker");
+          } else {
+            btn.disabled = false;
+            btn.textContent = "Enter Chores →";
+            alert("Registration failed — please try again.");
           }
         } catch(e) {
           console.error("Registration error:", e);
-          // Still let them in — they can re-auth later
+          btn.disabled = false;
+          btn.textContent = "Enter Chores →";
+          alert("Could not connect to server. Please check your connection and try again.");
         }
-        onComplete(onbRole==="poster"?"poster":"worker");
       }} style={{ width:"100%", padding:"17px", borderRadius:16, background:G.greenLight, color:"#fff", fontSize:16, fontWeight:700, marginTop:32, animationDelay:".45s", opacity:0 }}>Enter Chores →</button>
     </div>
   );
