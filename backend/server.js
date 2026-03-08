@@ -521,11 +521,37 @@ app.post("/api/verify/email/send", async (req, res) => {
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   emailCodes.set(email, { code, expires: Date.now() + 10 * 60 * 1000 });
 
-  // Use Supabase's built-in email OR your own SMTP
-  // For now just log it — swap with Resend/SendGrid in production
   console.log(`📧 Email code for ${email}: ${code}`);
 
-  // You can use Supabase edge functions or Resend.com for actual email sending
+  // Send real email via Resend if API key is configured
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: "Chores <noreply@choresnearme.com>",
+          to: [email],
+          subject: "Your Chores verification code",
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+              <h2 style="color:#2D6A4F">Your verification code</h2>
+              <p>Hi ${name || "there"},</p>
+              <p>Enter this code to verify your email address:</p>
+              <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#2D6A4F;padding:24px;background:#f0faf4;border-radius:12px;text-align:center">${code}</div>
+              <p style="color:#888;font-size:13px;margin-top:24px">This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>
+            </div>
+          `
+        })
+      });
+    } catch (e) {
+      console.error("Resend error:", e);
+    }
+  }
+
   res.json({ success: true, message: "Code sent" });
 });
 
