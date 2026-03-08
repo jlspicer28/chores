@@ -157,18 +157,28 @@ app.get("/api/jobs", async (req, res) => {
 
   let query = supabase
     .from("jobs")
-    .select(`*, poster:users!poster_id(first_name, last_name, rating, identity_verified)`)
+    .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified)`)
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(parseInt(limit));
 
-  if (zip) query = query.eq("zip", zip);
   if (category) query = query.eq("category", category);
 
   const { data, error } = await query;
   if (error) return res.json({ error: error.message });
 
-  res.json({ jobs: data });
+  // Normalize jobs with poster info
+  const jobs = (data || []).map(j => ({
+    ...j,
+    poster_name: j.poster ? `${j.poster.first_name} ${j.poster.last_name}`.trim() : "Anonymous",
+    poster_rating: j.poster?.rating || 5.0,
+    poster_jobs_count: j.poster?.jobs_completed || 0,
+    poster_since: j.poster?.created_at ? new Date(j.poster.created_at).toLocaleDateString("en-US", { month:"short", year:"numeric" }) : "",
+    poster_verified: j.poster?.identity_verified || false,
+    applicant_count: 0,
+  }));
+
+  res.json({ jobs });
 });
 
 // Get a single job
@@ -598,6 +608,86 @@ app.post("/api/reviews/create", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JOB APPLICATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/jobs/:id/apply", async (req, res) => {
+  const { message, availability, workerId } = req.body;
+  const jobId = req.params.id;
+  try {
+    const { error } = await supabase.from("applications").insert({
+      job_id: jobId,
+      worker_id: workerId,
+      message,
+      availability: availability?.join(", "),
+      status: "pending",
+      created_at: new Date().toISOString(),
+    });
+    if (error) return res.json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Apply error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPORT SUBMISSIONS (stored in Supabase, emailed if Resend configured)
+// ─────────────────────────────────────────────────────────────────────────────
+async function sendSupportEmail(subject, body) {
+  if (!process.env.RESEND_API_KEY) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: "Chores App <noreply@choresnearme.com>",
+        to: [process.env.SUPPORT_EMAIL || "support@choresnearme.com"],
+        subject,
+        html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${body}</pre>`
+      })
+    });
+  } catch(e) { console.error("Support email error:", e); }
+}
+
+app.post("/api/support/contact", async (req, res) => {
+  const { category, subject, message, userId, email } = req.body;
+  console.log(`📩 Support: [${category}] ${subject} from ${email}`);
+  await supabase.from("support_tickets").insert({ type: "contact", category, subject, message, user_id: userId, email, created_at: new Date().toISOString() }).catch(()=>{});
+  await sendSupportEmail(`[Support] ${subject}`, `From: ${email}
+Category: ${category}
+
+${message}`);
+  res.json({ success: true });
+});
+
+app.post("/api/support/bug", async (req, res) => {
+  const { type, description, steps, userId, email } = req.body;
+  console.log(`🐛 Bug report: [${type}] from ${email}`);
+  await supabase.from("support_tickets").insert({ type: "bug", category: type, subject: `Bug: ${type}`, message: `${description}
+
+Steps:
+${steps}`, user_id: userId, email, created_at: new Date().toISOString() }).catch(()=>{});
+  await sendSupportEmail(`[Bug] ${type}`, `From: ${email}
+
+${description}
+
+Steps:
+${steps}`);
+  res.json({ success: true });
+});
+
+app.post("/api/support/feature", async (req, res) => {
+  const { area, description, userId, email } = req.body;
+  console.log(`💡 Feature request: [${area}] from ${email}`);
+  await supabase.from("support_tickets").insert({ type: "feature", category: area, subject: `Feature: ${area}`, message: description, user_id: userId, email, created_at: new Date().toISOString() }).catch(()=>{});
+  await sendSupportEmail(`[Feature] ${area}`, `From: ${email}
+
+${description}`);
+  res.json({ success: true });
+});
+
 // WEBHOOKS
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/webhook", async (req, res) => {
