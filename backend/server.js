@@ -65,16 +65,43 @@ app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
 
   try {
-    // 1. Create auth user in Supabase
+    // 1. Try to create auth user in Supabase
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
     });
-    if (authError) return res.json({ error: authError.message });
+
+    // 2. If already registered, just sign them in instead — no error shown to user
+    if (authError || authData?.user?.identities?.length === 0) {
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (loginError) return res.json({ error: loginError.message });
+
+      const { data: profile } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", loginData.user.id)
+        .single();
+
+      return res.json({
+        success: true,
+        userId: loginData.user.id,
+        token: loginData.session?.access_token,
+        user: {
+          id: loginData.user.id,
+          email,
+          firstName: profile?.first_name || firstName,
+          lastName: profile?.last_name || lastName,
+          role: profile?.role || role,
+        },
+      });
+    }
 
     const userId = authData.user.id;
 
-    // 2. Store profile in users table (Stripe customer created on first payment)
+    // 3. Store profile in users table (Stripe customer created on first payment)
     const { error: dbError } = await supabase.from("users").insert({
       id: userId,
       email,
@@ -85,7 +112,8 @@ app.post("/api/auth/register", async (req, res) => {
       role: role || "worker",
     });
 
-    if (dbError) return res.json({ error: dbError.message });
+    // If profile insert fails (e.g. duplicate), still let them in
+    if (dbError) console.warn("Profile insert warning:", dbError.message);
 
     res.json({
       success: true,
