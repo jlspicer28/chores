@@ -4382,6 +4382,173 @@ function LoginScreen({ onComplete, onBack, darkMode, prefillEmail="" }) {
 
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// MESSAGES TAB — Real DB-backed conversations + threads
+// ─────────────────────────────────────────────────────────────────────────────
+function MessagesTab({ inboxMessages, fetchInbox, chatOpen, setChatOpen, role }) {
+  const [thread, setThread] = React.useState([]);
+  const [threadLoading, setThreadLoading] = React.useState(false);
+  const [chatMsg, setChatMsg] = React.useState("");
+  const [sending, setSending] = React.useState(false);
+  const threadEndRef = React.useRef(null);
+  const pollRef = React.useRef(null);
+
+  const currentUser = React.useMemo(() => {
+    try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; }
+  }, []);
+
+  // Load thread when a conversation is opened
+  React.useEffect(() => {
+    if (!chatOpen) { setThread([]); return; }
+    loadThread();
+    // Poll for new messages every 8 seconds
+    pollRef.current = setInterval(loadThread, 8000);
+    return () => clearInterval(pollRef.current);
+  }, [chatOpen?.id]);
+
+  // Scroll to bottom when thread updates
+  React.useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [thread]);
+
+  async function loadThread() {
+    if (!chatOpen) return;
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    setThreadLoading(t => thread.length === 0 ? true : t);
+    try {
+      const qs = chatOpen.job_id ? `?job_id=${chatOpen.job_id}` : "";
+      const res = await fetch(`${BACKEND}/api/messages/thread/${chatOpen.other_user_id}${qs}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.thread) {
+        setThread(data.thread);
+        fetchInbox(); // refresh unread badge
+      }
+    } catch(e) { console.error("Thread load error:", e); }
+    setThreadLoading(false);
+  }
+
+  async function sendMessage() {
+    if (!chatMsg.trim() || sending) return;
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token || !chatOpen?.other_user_id) return;
+    setSending(true);
+    const text = chatMsg.trim();
+    setChatMsg("");
+    // Optimistic update
+    const optimistic = { id: `opt_${Date.now()}`, from_me: true, text, time: "just now", created_at: new Date().toISOString() };
+    setThread(t => [...t, optimistic]);
+    try {
+      const res = await fetch(`${BACKEND}/api/messages/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ recipientId: chatOpen.other_user_id, jobId: chatOpen.job_id, body: text })
+      });
+      const data = await res.json();
+      if (data.error) {
+        // Remove optimistic on error
+        setThread(t => t.filter(m => m.id !== optimistic.id));
+        setChatMsg(text);
+        alert("Failed to send: " + data.error);
+      } else {
+        // Replace optimistic with real message
+        setThread(t => t.map(m => m.id === optimistic.id ? data.message : m));
+        fetchInbox();
+      }
+    } catch(e) {
+      setThread(t => t.filter(m => m.id !== optimistic.id));
+      setChatMsg(text);
+    }
+    setSending(false);
+  }
+
+  // Conversation list view
+  if (!chatOpen) {
+    return (
+      <div className="fade" style={{ padding: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: G.muted, textTransform: "uppercase", letterSpacing: .8, marginBottom: 16 }}>Messages</div>
+        {inboxMessages.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 20px", color: G.muted }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: G.text }}>No messages yet</div>
+            <div style={{ fontSize: 13, marginTop: 6 }}>{role === "worker" ? "Apply to jobs to start a conversation" : "Applications from workers will appear here"}</div>
+          </div>
+        ) : inboxMessages.map(m => (
+          <div key={m.id} className="tap" onClick={() => { setChatOpen(m); }} style={{ background: G.white, borderRadius: 16, padding: 16, marginBottom: 10, boxShadow: "0 2px 8px rgba(0,0,0,.06)", display: "flex", gap: 12, alignItems: "center", borderLeft: `3px solid ${m.unread ? G.green : "transparent"}` }}>
+            <Avatar name={m.from} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span style={{ fontWeight: m.unread ? 700 : 500, fontSize: 14 }}>{m.from}</span>
+                <span style={{ fontSize: 11, color: G.muted }}>{m.time}</span>
+              </div>
+              {m.job && <div style={{ fontSize: 11, color: G.muted, marginBottom: 2 }}>📋 {m.job}</div>}
+              <div style={{ fontSize: 13, color: m.unread ? G.text : G.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.preview}</div>
+            </div>
+            {m.unread && <div style={{ width: 8, height: 8, borderRadius: "50%", background: G.green, flexShrink: 0 }} />}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Thread view
+  return (
+    <div className="fade" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 170px)" }}>
+      {/* Header */}
+      <div style={{ padding: "14px 20px", background: G.white, borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <div className="tap" onClick={() => { setChatOpen(null); setThread([]); clearInterval(pollRef.current); }} style={{ fontSize: 20, lineHeight: 1 }}>←</div>
+        <Avatar name={chatOpen.from} size={36} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{chatOpen.from}</div>
+          {chatOpen.job && <div style={{ fontSize: 11, color: G.greenMid }}>📋 {chatOpen.job}</div>}
+        </div>
+      </div>
+
+      {/* Thread messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {threadLoading && thread.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 0", color: G.muted, fontSize: 13 }}>Loading messages...</div>
+        ) : thread.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 0", color: G.muted, fontSize: 13 }}>No messages yet — say hello!</div>
+        ) : thread.map((msg, i) => {
+          const showTime = i === 0 || (new Date(thread[i].created_at) - new Date(thread[i-1].created_at)) > 5 * 60 * 1000;
+          return (
+            <React.Fragment key={msg.id}>
+              {showTime && <div style={{ textAlign: "center", fontSize: 10, color: G.muted, margin: "4px 0" }}>{msg.time}</div>}
+              <div style={{ display: "flex", justifyContent: msg.from_me ? "flex-end" : "flex-start" }}>
+                <div style={{ padding: "10px 14px", fontSize: 14, maxWidth: "75%", lineHeight: 1.4, ...(msg.from_me ? { background: G.green, color: "#fff", borderRadius: "18px 18px 4px 18px" } : { background: "#fff", color: G.text, borderRadius: "18px 18px 18px 4px", boxShadow: "0 2px 8px rgba(0,0,0,.08)" }) }}>
+                  {msg.type === "application" && !msg.from_me && <div style={{ fontSize: 10, opacity: .7, marginBottom: 4 }}>📋 Application</div>}
+                  {msg.text}
+                </div>
+              </div>
+            </React.Fragment>
+          );
+        })}
+        <div ref={threadEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: "12px 16px 16px", background: G.white, borderTop: `1px solid ${G.border}`, display: "flex", gap: 8, flexShrink: 0 }}>
+        <input
+          value={chatMsg}
+          onChange={e => setChatMsg(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          placeholder="Type a message..."
+          style={{ flex: 1, padding: "10px 14px", borderRadius: 20, border: `1.5px solid ${G.border}`, fontSize: 14, fontFamily: "'Outfit',sans-serif", outline: "none" }}
+        />
+        <button
+          className="btn"
+          onClick={sendMessage}
+          disabled={!chatMsg.trim() || sending}
+          style={{ width: 42, height: 42, borderRadius: "50%", background: G.green, color: "#fff", fontSize: 18, opacity: chatMsg.trim() ? 1 : .5 }}
+        >↑</button>
+      </div>
+    </div>
+  );
+}
+
 const isBrowser = typeof window !== "undefined";
 
 export default function ChoresApp() {
@@ -4442,8 +4609,6 @@ export default function ChoresApp() {
   const [userCoords, setUserCoords] = useState(null);
   const [locStatus, setLocStatus] = useState("idle"); // idle, loading, granted, denied
   const [chatOpen, setChatOpen] = useState(null);
-  const [chatMsg, setChatMsg] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
   const [inboxMessages, setInboxMessages] = useState([]);
 
   // Load inbox messages from backend + poll every 20s for new ones
@@ -4611,50 +4776,13 @@ export default function ChoresApp() {
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
-          <div className="fade">
-            {!chatOpen?(
-              <div style={{ padding:20 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:16 }}>Messages</div>
-                {inboxMessages.length===0 && (
-                  <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
-                    <div style={{ fontSize:36, marginBottom:10 }}>💬</div>
-                    <div style={{ fontWeight:700, fontSize:15 }}>No messages yet</div>
-                    <div style={{ fontSize:13, marginTop:6 }}>{role==="worker" ? "Apply to jobs to start a conversation" : "Applications will appear here"}</div>
-                  </div>
-                )}
-                {inboxMessages.map(m=>(
-                  <div key={m.id} className="tap" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
-                    <Avatar name={m.from} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span><span style={{ fontSize:11, color:G.muted }}>{m.time}</span></div>
-                      <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>📋 {m.job}</div>
-                      <div style={{ fontSize:13, color:m.unread?G.text:G.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.preview}</div>
-                    </div>
-                    {m.unread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0 }}/>}
-                  </div>
-                ))}
-              </div>
-            ):(
-              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
-                <div style={{ padding:"14px 20px", background:G.white, borderBottom:`1px solid ${G.border}`, display:"flex", alignItems:"center", gap:12 }}>
-                  <div className="tap" onClick={()=>setChatOpen(null)} style={{ fontSize:20 }}>←</div>
-                  <Avatar name={chatOpen.from} size={36} />
-                  <div><div style={{ fontWeight:700, fontSize:14 }}>{chatOpen.from}</div><div style={{ fontSize:11, color:G.greenMid }}>📋 {chatOpen.job}</div></div>
-                </div>
-                <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
-                  {chatHistory.map((msg,i)=>(
-                    <div key={i} style={{ display:"flex", justifyContent:msg.from==="me"?"flex-end":"flex-start" }}>
-                      <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"75%", ...(msg.from==="me"?{background:G.green,color:"#fff",borderRadius:"18px 18px 4px 18px"}:{background:"#fff",color:G.text,borderRadius:"18px 18px 18px 4px",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}) }}>{msg.text}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
-                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
-                  <button className="btn" onClick={()=>{if(chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
-                </div>
-              </div>
-            )}
-          </div>
+          <MessagesTab
+            inboxMessages={inboxMessages}
+            fetchInbox={fetchInbox}
+            chatOpen={chatOpen}
+            setChatOpen={setChatOpen}
+            role={role}
+          />
         )}
         {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
