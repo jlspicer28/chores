@@ -295,7 +295,22 @@ app.post("/api/jobs/:id/cancel", requireAuth, async (req, res) => {
   if (job.poster_id !== req.user.id) return res.json({ error: "Not authorized" });
   if (job.status === "booked") return res.json({ error: "Cannot cancel a booked job — open a dispute instead" });
 
+  const { data: cancelledJob } = await supabase
+    .from("jobs").select("id, title, worker_id, poster_id").eq("id", req.params.id).single();
+
   await supabase.from("jobs").update({ status: "cancelled" }).eq("id", req.params.id);
+
+  // Notify worker if they were assigned
+  if (cancelledJob?.worker_id) {
+    const { data: poster } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+    const posterName = poster ? `${poster.first_name} ${poster.last_name}`.trim() : "The poster";
+    await notify(cancelledJob.worker_id, {
+      type: "cancelled", category: "alert", icon: "⚠️",
+      title: "Job cancelled",
+      body: `${posterName} cancelled "${cancelledJob.title}"`,
+      jobId: req.params.id, relatedUserId: req.user.id,
+    });
+  }
   res.json({ success: true });
 });
 
@@ -376,6 +391,23 @@ app.post("/api/charge", requireAuth, async (req, res) => {
     // Mark job as booked
     await supabase.from("jobs").update({ status: "booked", worker_id: workerId }).eq("id", jobId);
 
+    // Notify worker: accepted / hired
+    const { data: posterUser } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+    const posterName = posterUser ? `${posterUser.first_name} ${posterUser.last_name}`.trim() : "The poster";
+    await notify(workerId, {
+      type: "accepted", category: "job", icon: "✅",
+      title: "Application accepted!",
+      body: `${posterName} hired you for "${job.title}" · $${job.pay}`,
+      jobId, relatedUserId: req.user.id,
+    });
+    // Notify poster: payment held confirmation
+    await notify(req.user.id, {
+      type: "payment", category: "payment", icon: "🔒",
+      title: "Payment held in escrow",
+      body: `$${job.pay} held for "${job.title}" · releases when job is confirmed complete`,
+      jobId,
+    });
+
     res.json({ success: true, intentId: intent.id, escrowId: escrow.id });
   } catch (err) {
     console.error("Charge error:", err.message);
@@ -430,12 +462,64 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
         earned: escrow.worker_gets,
       });
 
+      // Fetch job title for notifications
+      const { data: completedJob } = await supabase.from("jobs").select("title").eq("id", escrow.job_id).maybeSingle();
+      const jobTitle = completedJob?.title || "the job";
+
+      // Notify worker: payment released
+      await notify(escrow.worker_id, {
+        type: "payment", category: "payment", icon: "💸",
+        title: "Payment released!",
+        body: `$${escrow.worker_gets.toFixed(2)} deposited · "${jobTitle}"`,
+        jobId: escrow.job_id, relatedUserId: escrow.poster_id,
+      });
+      // Notify poster: job complete
+      await notify(escrow.poster_id, {
+        type: "complete", category: "job", icon: "✅",
+        title: "Job marked complete",
+        body: `"${jobTitle}" is complete · $${escrow.amount} charged · Rate your worker`,
+        jobId: escrow.job_id, relatedUserId: escrow.worker_id,
+      });
+      // Notify poster: receipt
+      await notify(escrow.poster_id, {
+        type: "payment", category: "payment", icon: "🧾",
+        title: "Invoice & receipt",
+        body: `$${escrow.amount} charged · "${jobTitle}"`,
+        jobId: escrow.job_id,
+      });
+      // Remind both to leave a review
+      await notify(escrow.worker_id, {
+        type: "rating", category: "reminder", icon: "⭐",
+        title: "Reminder: Rate your client",
+        body: `How did the job go? Leave a review for "${jobTitle}"`,
+        jobId: escrow.job_id, relatedUserId: escrow.poster_id,
+      });
+      await notify(escrow.poster_id, {
+        type: "rating", category: "reminder", icon: "⭐",
+        title: "Reminder: Rate your worker",
+        body: `How did your worker do on "${jobTitle}"? Leave a review`,
+        jobId: escrow.job_id, relatedUserId: escrow.worker_id,
+      });
+
       return res.json({ success: true, released: true });
     } catch (err) {
       console.error("Auto-release error:", err.message);
       return res.json({ error: err.message });
     }
   }
+
+  // One side confirmed — notify the other party
+  const otherUserId = isPoster ? escrow.worker_id : escrow.poster_id;
+  const confirmerRole = isPoster ? "poster" : "worker";
+  const { data: confirmerUser } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+  const confirmerName = confirmerUser ? `${confirmerUser.first_name} ${confirmerUser.last_name}`.trim() : "The other party";
+  const { data: pendingJob } = await supabase.from("jobs").select("title").eq("id", escrow.job_id).maybeSingle();
+  await notify(otherUserId, {
+    type: "confirmed", category: "job", icon: "🚗",
+    title: confirmerRole === "poster" ? "Poster confirmed complete!" : "Worker confirmed complete!",
+    body: `${confirmerName} confirmed "${pendingJob?.title || "the job"}" is done — confirm on your end to release payment`,
+    jobId: escrow.job_id, relatedUserId: req.user.id,
+  });
 
   res.json({ success: true, released: false, awaitingOtherParty: true });
 });
@@ -460,6 +544,22 @@ app.post("/api/refund", requireAuth, async (req, res) => {
 
     await supabase.from("escrow").update({ status: "refunded" }).eq("id", escrowId);
     await supabase.from("jobs").update({ status: "cancelled" }).eq("id", escrow.job_id);
+
+    const { data: refundedJob } = await supabase.from("jobs").select("title").eq("id", escrow.job_id).maybeSingle();
+    const refundTitle = refundedJob?.title || "the job";
+
+    await notify(escrow.poster_id, {
+      type: "payment", category: "payment", icon: "↩️",
+      title: "Refund issued",
+      body: `$${escrow.amount} refunded · "${refundTitle}"`,
+      jobId: escrow.job_id,
+    });
+    await notify(escrow.worker_id, {
+      type: "cancelled", category: "alert", icon: "⚠️",
+      title: "Job refunded",
+      body: `"${refundTitle}" was refunded to the poster`,
+      jobId: escrow.job_id, relatedUserId: escrow.poster_id,
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -700,6 +800,62 @@ function timeAgo(dateStr) {
   return `${days} days ago`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Get all notifications for current user
+app.get("/api/notifications", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*, job:jobs(title)")
+    .eq("user_id", req.user.id)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) return res.json({ error: error.message });
+
+  const notifications = (data || []).map(n => ({
+    id: n.id,
+    type: n.type,
+    category: n.category,
+    icon: n.icon,
+    title: n.title,
+    body: n.body,
+    job: n.job?.title || null,
+    job_id: n.job_id,
+    unread: !n.read,
+    time: timeAgo(n.created_at),
+    created_at: n.created_at,
+  }));
+
+  res.json({ notifications });
+});
+
+// Mark notifications as read
+app.post("/api/notifications/read", requireAuth, async (req, res) => {
+  const { ids } = req.body; // array of IDs, or omit to mark all read
+  let query = supabase.from("notifications").update({ read: true }).eq("user_id", req.user.id);
+  if (ids?.length) query = query.in("id", ids);
+  const { error } = await query;
+  if (error) return res.json({ error: error.message });
+  res.json({ success: true });
+});
+
+// ── Notification helper ────────────────────────────────────────────────────
+async function notify(userId, { type, category, icon, title, body, jobId=null, relatedUserId=null }) {
+  if (!userId) return;
+  const { error } = await supabase.from("notifications").insert({
+    user_id: userId,
+    type, category, icon, title, body,
+    job_id: jobId || null,
+    related_user_id: relatedUserId || null,
+    read: false,
+    created_at: new Date().toISOString(),
+  });
+  if (error) console.warn("⚠️  Notify error:", error.message);
+}
+
 app.post("/api/jobs/:id/apply", async (req, res) => {
   const { message, availability, workerId, workerName } = req.body;
   const jobId = req.params.id;
@@ -762,7 +918,23 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
         created_at: new Date().toISOString(),
       });
       if (msgErr) console.warn("Message insert warning:", msgErr.message);
+
+      // Notify poster: new applicant
+      await notify(job.poster_id, {
+        type: "applied", category: "job", icon: "👤",
+        title: "New applicant!",
+        body: `${workerName || "Someone"} applied to ${job.title}`,
+        jobId, relatedUserId: workerId,
+      });
     }
+
+    // Notify worker: application submitted confirmation
+    await notify(workerId, {
+      type: "applied_sent", category: "job", icon: "📋",
+      title: "Application sent!",
+      body: `Your application for "${job?.title || "the job"}" was submitted`,
+      jobId,
+    });
 
     // 4. Get updated applicant count
     const { count } = await supabase

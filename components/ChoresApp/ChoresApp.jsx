@@ -2640,17 +2640,49 @@ function NotifIcon({ type, size=22 }) {
 }
 
 function NotificationsScreen({ role, onNavigate }) {
-  const notifs = role==="worker" ? NOTIFS_WORKER : NOTIFS_POSTER;
+  const [notifs, setNotifs] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = useState("all");
-  const [read, setRead] = useState([]);
   const [selectedNotif, setSelectedNotif] = useState(null);
   const notifRef = React.useRef(null);
+
+  // Fetch from DB on mount + poll every 20s
+  React.useEffect(() => {
+    fetchNotifs();
+    const interval = setInterval(fetchNotifs, 20000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function fetchNotifs() {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) { setLoading(false); return; }
+    try {
+      const res = await fetch(`${BACKEND}/api/notifications`, { headers: { "Authorization": `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.notifications) setNotifs(data.notifications);
+    } catch(e) { console.error("Notifications fetch error:", e); }
+    setLoading(false);
+  }
+
+  async function markRead(ids) {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    // Optimistic update
+    setNotifs(prev => prev.map(n => (!ids || ids.includes(n.id)) ? {...n, unread: false} : n));
+    await fetch(`${BACKEND}/api/notifications/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ ids }),
+    }).catch(() => {});
+  }
+
   React.useEffect(()=>{
     if(notifRef.current){let p=notifRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
   },[selectedNotif, filter]);
+
   const cats = ["all","job","payment","reminder","alert"];
   const filtered = filter==="all" ? notifs : notifs.filter(n=>n.category===filter);
-  const unreadCount = notifs.filter(n=>n.unread&&!read.includes(n.id)).length;
+  const unreadCount = notifs.filter(n=>n.unread).length;
   const colorMap = {job:G.greenPale,payment:"#EBF8FF",reminder:"#FFF4E0",alert:G.redLight};
   const textMap = {job:G.greenMid,payment:G.blue,reminder:G.gold,alert:G.red};
 
@@ -2762,11 +2794,14 @@ function NotificationsScreen({ role, onNavigate }) {
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text }}>Inbox</div>
-        {unreadCount>0&&<div className="tap" onClick={()=>setRead(notifs.map(n=>n.id))} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
+        {unreadCount>0&&<div className="tap" onClick={()=>markRead(null)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
       </div>
 
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {filtered.length===0 && (
+        {loading && notifs.length===0 && (
+          <div style={{ textAlign:"center", padding:"60px 20px", color:G.muted, fontSize:13 }}>Loading notifications...</div>
+        )}
+        {!loading && filtered.length===0 && (
           <div style={{ textAlign:"center", padding:"60px 20px", color:G.muted }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🔔</div>
             <div style={{ fontWeight:700, fontSize:15, color:G.text, marginBottom:6 }}>No notifications yet</div>
@@ -2774,9 +2809,9 @@ function NotificationsScreen({ role, onNavigate }) {
           </div>
         )}
         {filtered.map(n=>{
-          const isUnread = n.unread&&!read.includes(n.id);
+          const isUnread = n.unread;
           return (
-            <div key={n.id} className="tap card" onClick={()=>{setRead(r=>[...new Set([...r,n.id])]);setSelectedNotif(n);}} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"flex-start", borderLeft:`3px solid ${isUnread?G.green:"transparent"}`, opacity:isUnread?1:0.75 }}>
+            <div key={n.id} className="tap card" onClick={()=>{ if(n.unread) markRead([n.id]); setSelectedNotif(n); }} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"flex-start", borderLeft:`3px solid ${isUnread?G.green:"transparent"}`, opacity:isUnread?1:0.75 }}>
               <div style={{ width:40, height:40, borderRadius:12, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><NotifIcon type={n.type} size={20} /></div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
@@ -4655,7 +4690,22 @@ export default function ChoresApp() {
     if(contentRef.current) contentRef.current.scrollTop = 0;
   },[view]);
 
-  const notifCount = inboxMessages.filter(m=>m.unread).length;
+  const [notifCount, setNotifCount] = React.useState(0);
+  React.useEffect(() => {
+    if (appView !== "user") return;
+    const fetchNotifCount = async () => {
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      if (!token) return;
+      try {
+        const res = await fetch(`${BACKEND}/api/notifications`, { headers: { "Authorization": `Bearer ${token}` } });
+        const data = await res.json();
+        if (data.notifications) setNotifCount(data.notifications.filter(n=>n.unread).length);
+      } catch(e) {}
+    };
+    fetchNotifCount();
+    const interval = setInterval(fetchNotifCount, 20000);
+    return () => clearInterval(interval);
+  }, [appView]);
 
   // Geolocation: auto-detect zip code based on current position
   const detectLocation = React.useCallback(() => {
