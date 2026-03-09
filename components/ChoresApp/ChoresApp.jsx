@@ -755,7 +755,7 @@ function ProfileField({ label, value, onChange, type="text", rows, placeholder="
 
 function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
   const storedUser = currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
-  const fullName = storedUser ? `${storedUser.firstName} ${storedUser.lastName||""}`.trim() : "Jordan Davis";
+  const fullName = storedUser ? `${storedUser.firstName} ${storedUser.lastName||""}`.trim() : "You";
   const userEmail = storedUser?.email || "jordan@email.com";
   const userZipCode = storedUser?.zip || "60647";
   const [tab, setTab] = useState("profile");
@@ -820,12 +820,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   // Transactions state
   const [txFilter, setTxFilter] = useState("all");
   // Bank account state
-  const [bank, setBank] = useState({ name:"Chase", last4:"7890", routing:"•••••1234", type:"Checking", holder:"Jordan Davis" });
+  const [bank, setBank] = useState({ name:"Chase", last4:"7890", routing:"•••••1234", type:"Checking", holder:"You" });
   const [bankEditing, setBankEditing] = useState(false);
-  const [bankFields, setBankFields] = useState({ holder:"Jordan Davis", routing:"", account:"", bankName:"Chase", type:"Checking" });
+  const [bankFields, setBankFields] = useState({ holder:"You", routing:"", account:"", bankName:"Chase", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||"Jordan", last: storedUser?.lastName||"Davis", email: userEmail, phone: storedUser?.phone||"(312) 555-0123", bio:"Hardworking and reliable, available for jobs around the neighborhood.", age:"", zip: userZipCode, photo:null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||"", last: storedUser?.lastName||"", email: userEmail, phone: storedUser?.phone||"", bio:"Hardworking and reliable, available for jobs around the neighborhood.", age:"", zip: userZipCode, photo:null });
   const photoInputRef = React.useRef();
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(["lawn","cleaning","moving"]);
@@ -1754,7 +1754,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               Update Bank Details
             </div>
-            <BField label="Account Holder Name" value={editFields.holder} onChange={e=>setEditFields(f=>({...f,holder:e.target.value}))} placeholder="Jordan Davis" />
+            <BField label="Account Holder Name" value={editFields.holder} onChange={e=>setEditFields(f=>({...f,holder:e.target.value}))} placeholder="You" />
             <BField label="Bank Name" value={editFields.bankName} onChange={e=>setEditFields(f=>({...f,bankName:e.target.value}))} placeholder="Chase" />
             <div style={{ marginBottom:12 }}>
               <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 }}>Account Type</label>
@@ -2780,7 +2780,7 @@ function NotificationsScreen({ role, onNavigate }) {
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
 
-function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true }) {
+function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0 }) {
   const [discoverView, setDiscoverView] = useState("feed");
   const [activeCategory, setActiveCategory] = useState([]);
   const [payRange, setPayRange] = useState([0,100]);
@@ -2799,41 +2799,44 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
   const [jobsLoading, setJobsLoading] = useState(true);
   const discRef = React.useRef(null);
 
-  // Load real jobs from backend
-  React.useEffect(()=>{
-    setJobsLoading(true);
+  const normalizeJob = (j) => ({
+    id: j.id,
+    title: j.title,
+    category: j.category,
+    poster: j.poster_name || "Anonymous",
+    posterRating: j.poster_rating || 5.0,
+    posterJobs: j.poster_jobs_count || 0,
+    posterSince: j.poster_since || "",
+    loc: j.zip || userZip,
+    dist: j.dist || 0,
+    pay: parseFloat(j.pay) || 0,
+    date: j.date || j.scheduled_date || "",
+    tags: j.tags ? (typeof j.tags === "string" ? j.tags.split(",") : j.tags) : [],
+    verified: j.poster_verified || false,
+    urgent: j.urgent || false,
+    applicants: j.applicant_count || 0,
+    lat: j.lat || 41.88,
+    lng: j.lng || -87.63,
+    desc: j.description || "",
+    photos: [],
+    posterId: j.poster_id,
+  });
+
+  const fetchJobs = React.useCallback(() => {
     fetch(`${BACKEND}/api/jobs?zip=${userZip}&maxDist=${maxDist}`)
       .then(r=>r.json())
-      .then(data=>{
-        if (data.jobs) {
-          // Normalize backend fields to frontend shape
-          setLiveJobs(data.jobs.map(j=>({
-            id: j.id,
-            title: j.title,
-            category: j.category,
-            poster: j.poster_name || "Anonymous",
-            posterRating: j.poster_rating || 5.0,
-            posterJobs: j.poster_jobs_count || 0,
-            posterSince: j.poster_since || "",
-            loc: j.zip || userZip,
-            dist: j.dist || 0,
-            pay: parseFloat(j.pay) || 0,
-            date: j.date || j.scheduled_date || "",
-            tags: j.tags ? (typeof j.tags === "string" ? j.tags.split(",") : j.tags) : [],
-            verified: j.poster_verified || false,
-            urgent: j.urgent || false,
-            applicants: j.applicant_count || 0,
-            lat: j.lat || 41.88,
-            lng: j.lng || -87.63,
-            desc: j.description || "",
-            photos: [],
-            posterId: j.poster_id,
-          })));
-        }
-      })
+      .then(data=>{ if (data.jobs) setLiveJobs(data.jobs.map(normalizeJob)); })
       .catch(e=>console.error("Jobs fetch error:", e))
       .finally(()=>setJobsLoading(false));
   }, [userZip, maxDist]);
+
+  // Initial load + poll every 30 seconds for new postings
+  React.useEffect(()=>{
+    setJobsLoading(true);
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 30000);
+    return () => clearInterval(interval);
+  }, [fetchJobs, refreshSignal]);
 
   React.useEffect(()=>{
     if(discRef.current){let p=discRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
@@ -2895,8 +2898,22 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:16 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Applying as</div>
           <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-            <Avatar name="Jordan Davis" size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
-            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null; return u?`${u.firstName} ${u.lastName||""}`.trim():"Jordan Davis"; } catch { return "Jordan Davis"; } })()}</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
+            <Avatar name={(()=>{try{const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null;return u?`${u.firstName||""} ${u.lastName||""}`.trim():"?"}catch{return "?"}})()} size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
+            {(()=>{ 
+              try { 
+                const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null;
+                const name = u?`${u.firstName||""} ${u.lastName||""}`.trim():"You";
+                const rating = u?.rating||"5.0";
+                const jobs = u?.jobsCompleted||0;
+                return (<div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{name}</div>
+                  <div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    {rating} · {jobs} jobs
+                  </div>
+                </div>);
+              } catch { return <div style={{ fontWeight:700, fontSize:14 }}>You</div>; } 
+            })()}
           </div>
         </div>
         {/* Message */}
@@ -3836,23 +3853,9 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // REVIEWS DATA & MODAL
 // ═══════════════════════════════════════════════════════════════════════════
-const MY_REVIEWS = [
-  { id:1, from:"The Hendersons", avatar:"TH", job:"Mow & Edge Front Lawn", rating:5, text:"Jordan was punctual and did an amazing job. Lawn looks better than ever! Will definitely hire again.", date:"Feb 18, 2025", tags:["punctual","thorough","friendly"] },
-  { id:2, from:"Maria C.", avatar:"MC", job:"Dog Walking – 2 Labs", rating:5, text:"The dogs love Jordan. Always on time and sends me photos during the walk. Couldn't ask for more.", date:"Feb 10, 2025", tags:["reliable","caring","communicative"] },
-  { id:3, from:"Sunrise Café", avatar:"SC", job:"Deep Clean Kitchen & Baths", rating:4, text:"Great job on the deep clean. Kitchen was spotless. Minor thing — missed the baseboards, but overall very happy.", date:"Feb 3, 2025", tags:["hardworking","thorough"] },
-  { id:4, from:"DeAndre W.", avatar:"DW", job:"Paint Bedroom Accent Wall", rating:5, text:"Perfect paint job with clean edges. Jordan even helped me move furniture back. Above and beyond!", date:"Jan 25, 2025", tags:["skilled","helpful","detail-oriented"] },
-  { id:5, from:"The Patels", avatar:"TP", job:"Help Move Furniture", rating:5, text:"Strong and careful with our furniture. No scratches, no complaints. Finished in under 2 hours.", date:"Jan 15, 2025", tags:["strong","careful","efficient"] },
-  { id:6, from:"Mrs. Thompson", avatar:"MT", job:"Grocery Run & Errands", rating:5, text:"Such a sweet young person. Got everything on my list and even carried it inside for me.", date:"Jan 8, 2025", tags:["kind","reliable","helpful"] },
-];
-
-const COMPLETED_JOBS = [
-  { id:101, title:"Mow & Edge Front Lawn", person:"The Hendersons", pay:35, date:"Feb 18", reviewed:true },
-  { id:102, title:"Dog Walking – 2 Labs", person:"Maria C.", pay:20, date:"Feb 10", reviewed:true },
-  { id:103, title:"Deep Clean Kitchen & Baths", person:"Sunrise Café", pay:80, date:"Feb 3", reviewed:true },
-  { id:104, title:"Paint Bedroom Accent Wall", person:"DeAndre W.", pay:65, date:"Jan 25", reviewed:true },
-  { id:105, title:"Assemble IKEA Shelf", person:"Lisa N.", pay:40, date:"Feb 22", reviewed:false },
-  { id:106, title:"Pressure Wash Driveway", person:"Coach Williams", pay:55, date:"Feb 20", reviewed:false },
-];
+// Reviews and completed jobs loaded live from backend
+const MY_REVIEWS = [];
+const COMPLETED_JOBS = [];
 
 const REVIEW_TAGS = ["punctual","thorough","friendly","reliable","skilled","hardworking","communicative","careful","kind","efficient","detail-oriented","professional"];
 
@@ -4402,8 +4405,8 @@ export default function ChoresApp() {
   const [chatHistory, setChatHistory] = useState([]);
   const [inboxMessages, setInboxMessages] = useState([]);
 
-  // Load inbox messages from backend
-  React.useEffect(()=>{
+  // Load inbox messages from backend + poll every 20s for new ones
+  const fetchInbox = React.useCallback(()=>{
     const user = isBrowser ? (() => { try { return JSON.parse(localStorage.getItem("chores_user")||"{}"); } catch { return {}; } })() : {};
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
     if (!user.id || !token) return;
@@ -4415,6 +4418,12 @@ export default function ChoresApp() {
       .catch(()=>{});
   }, []);
 
+  React.useEffect(()=>{
+    fetchInbox();
+    const interval = setInterval(fetchInbox, 20000);
+    return () => clearInterval(interval);
+  }, [fetchInbox]);
+
   // Request push notification permission on load
   React.useEffect(()=>{
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
@@ -4423,6 +4432,7 @@ export default function ChoresApp() {
   }, []);
 
   const [showPostJob, setShowPostJob] = useState(false);
+  const [lastJobPost, setLastJobPost] = useState(0);
   const [postForm, setPostForm] = useState({title:"",category:"",pay:"",date:"",notes:"",photos:[]});
   const postPhotoRef = React.useRef();
   const [formPosted, setFormPosted] = useState(false);
@@ -4439,7 +4449,7 @@ export default function ChoresApp() {
     if(contentRef.current) contentRef.current.scrollTop = 0;
   },[view]);
 
-  const notifCount = (role==="worker"?NOTIFS_WORKER:NOTIFS_POSTER).filter(n=>n.unread).length;
+  const notifCount = inboxMessages.filter(m=>m.unread).length;
 
   // Geolocation: auto-detect zip code based on current position
   const detectLocation = React.useCallback(() => {
@@ -4474,12 +4484,9 @@ export default function ChoresApp() {
     if (appView === "user") detectLocation();
   }, [appView, detectLocation]);
 
-  const fireToast = () => {
-    if (!appToggles.push) return; // push notifications disabled
-    const samples = role==="worker"
-      ? [{icon:"🌿",title:`New job in ${userZip}`,body:"Mow & Edge Lawn · $35 · 0.3mi"},{icon:"✅",title:"Application accepted!",body:"The Hendersons want to hire you"},{icon:"💸",title:"Payment released!",body:"$46.00 deposited to your account"}]
-      : [{icon:"👤",title:"New applicant!",body:"Jordan M. applied to your lawn job"},{icon:"✅",title:"Job marked complete",body:"Carlos T. finished Deep Clean"}];
-    setToast(samples[Math.floor(Math.random()*samples.length)]);
+  const fireToast = (msg) => {
+    if (!appToggles.push) return;
+    if (msg) setToast(msg);
   };
 
   const handleConfirmSide = (id, side) => {
@@ -4559,7 +4566,7 @@ export default function ChoresApp() {
 
       {/* Content */}
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
-        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} />}
+        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
@@ -4694,7 +4701,7 @@ export default function ChoresApp() {
                         })
                       });
                     } catch(e) { console.error("Post job error:", e); }
-                    setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); }, 2200);
+                    setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); setLastJobPost(Date.now()); }, 2200);
                   }} style={{ width:"100%", padding:"14px" }}>Post Job →</Btn>
                 </div>
               </>
@@ -4709,7 +4716,7 @@ export default function ChoresApp() {
           { id:"home",      icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label:"Home" },
           { id:"map",       icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>, label:"Map" },
           { id:"notifications", icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>, label:"Inbox", badge:notifCount },
-          { id:"messages",      icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label:"Messages", badge:2 },
+          { id:"messages",      icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label:"Messages", badge:inboxMessages.filter(m=>m.unread).length },
           { id:"profile",       icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Profile" },
         ].map(tab=>(
           <button key={tab.id} className="btn" onClick={()=>{if(isGuest&&(tab.id==="messages"||tab.id==="profile")){setGuestPrompt(true);return;}setView(tab.id);if(tab.id!=="messages")setChatOpen(null);}} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"0 10px", position:"relative", background:"none", color:view===tab.id?G.green:G.muted }}>
