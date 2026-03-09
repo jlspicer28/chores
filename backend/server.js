@@ -778,27 +778,120 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
 });
 
 // Get inbox messages for logged-in user
+// ── Inbox: latest message per conversation (both sent + received) ──────────────
 app.get("/api/messages/inbox", requireAuth, async (req, res) => {
+  const uid = req.user.id;
+
+  // Fetch all messages involving this user (sent or received)
   const { data, error } = await supabase
     .from("messages")
-    .select("*, job:jobs(title), sender:users!sender_id(first_name, last_name)")
-    .eq("recipient_id", req.user.id)
+    .select("*, job:jobs(id,title), sender:users!sender_id(id,first_name,last_name), recipient:users!recipient_id(id,first_name,last_name)")
+    .or(`sender_id.eq.${uid},recipient_id.eq.${uid}`)
     .order("created_at", { ascending: false });
 
   if (error) return res.json({ error: error.message });
 
-  const messages = (data || []).map(m => ({
+  // Group into conversations keyed by other_user_id + job_id
+  const convMap = {};
+  for (const m of (data || [])) {
+    const otherId = m.sender_id === uid ? m.recipient_id : m.sender_id;
+    const otherUser = m.sender_id === uid ? m.recipient : m.sender;
+    const key = `${otherId}__${m.job_id || "nojob"}`;
+    if (!convMap[key]) {
+      convMap[key] = {
+        id: key,
+        other_user_id: otherId,
+        from: otherUser ? `${otherUser.first_name || ""} ${otherUser.last_name || ""}`.trim() || "User" : "User",
+        job: m.job?.title || "",
+        job_id: m.job_id || null,
+        preview: m.preview || m.body?.slice(0, 80) || "",
+        time: timeAgo(m.created_at),
+        unread: !m.read && m.recipient_id === uid,
+        latest_at: m.created_at,
+      };
+    }
+  }
+
+  const conversations = Object.values(convMap).sort((a,b) => new Date(b.latest_at) - new Date(a.latest_at));
+  res.json({ messages: conversations });
+});
+
+// ── Thread: all messages between two users on a job ────────────────────────
+app.get("/api/messages/thread/:otherUserId", requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  const { otherUserId } = req.params;
+  const { job_id } = req.query;
+
+  let query = supabase
+    .from("messages")
+    .select("*, sender:users!sender_id(id,first_name,last_name)")
+    .or(`and(sender_id.eq.${uid},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${uid})`)
+    .order("created_at", { ascending: true });
+
+  if (job_id && job_id !== "nojob") query = query.eq("job_id", job_id);
+
+  const { data, error } = await query;
+  if (error) return res.json({ error: error.message });
+
+  // Mark all received messages as read
+  await supabase.from("messages")
+    .update({ read: true })
+    .eq("recipient_id", uid)
+    .eq("sender_id", otherUserId);
+
+  const thread = (data || []).map(m => ({
     id: m.id,
-    from: m.sender ? `${m.sender.first_name} ${m.sender.last_name}`.trim() : "Someone",
-    job: m.job?.title || "",
-    preview: m.preview || m.body?.slice(0, 80) || "",
+    from_me: m.sender_id === uid,
+    sender_name: m.sender ? `${m.sender.first_name || ""} ${m.sender.last_name || ""}`.trim() : "User",
+    text: m.body || m.preview || "",
     time: timeAgo(m.created_at),
-    unread: !m.read,
+    created_at: m.created_at,
     type: m.type,
-    body: m.body,
   }));
 
-  res.json({ messages });
+  res.json({ thread });
+});
+
+// ── Send a message ──────────────────────────────────────────────────────────
+app.post("/api/messages/send", requireAuth, async (req, res) => {
+  const { recipientId, jobId, body } = req.body;
+  const uid = req.user.id;
+
+  if (!recipientId || !body?.trim()) return res.json({ error: "recipientId and body are required" });
+
+  // Get sender name
+  const { data: sender } = await supabase.from("users").select("first_name,last_name").eq("id", uid).maybeSingle();
+  const senderName = sender ? `${sender.first_name || ""} ${sender.last_name || ""}`.trim() : "Someone";
+
+  const { data, error } = await supabase.from("messages").insert({
+    sender_id: uid,
+    recipient_id: recipientId,
+    job_id: jobId || null,
+    type: "message",
+    preview: body.slice(0, 80),
+    body: body.trim(),
+    read: false,
+    created_at: new Date().toISOString(),
+  }).select().single();
+
+  if (error) {
+    console.error("❌ Send message error:", error);
+    return res.json({ error: error.message });
+  }
+
+  console.log(`✅ Message sent: ${senderName} → ${recipientId}`);
+  res.json({
+    success: true,
+    message: {
+      id: data.id,
+      from_me: true,
+      sender_name: senderName,
+      text: data.body,
+      time: "just now",
+      created_at: data.created_at,
+      type: "message",
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
