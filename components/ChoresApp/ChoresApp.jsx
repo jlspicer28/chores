@@ -3968,8 +3968,8 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
               localStorage.setItem("chores_token", data.token);
               localStorage.setItem("chores_user", JSON.stringify({
                 ...data.user,
-                firstName: data.user.first_name || form.first,
-                lastName: data.user.last_name || form.last,
+                firstName: data.user.firstName || form.first,
+                lastName: data.user.lastName || form.last,
                 email: form.email,
                 phone: form.phone,
                 zip: zip,
@@ -4422,8 +4422,8 @@ function LoginScreen({ onComplete, onBack, darkMode }) {
           localStorage.setItem("chores_token", data.token);
           localStorage.setItem("chores_user", JSON.stringify({
             ...data.user,
-            firstName: data.user.first_name,
-            lastName: data.user.last_name,
+            firstName: data.user.firstName,
+            lastName: data.user.lastName,
           }));
         }
         onComplete(data.user.role || "worker");

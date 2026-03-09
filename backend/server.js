@@ -63,43 +63,42 @@ app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
 
   try {
-    // 1. Try to create auth user in Supabase
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    // 1. Create auth user via admin API (bypasses email confirmation, gives us a real session)
+    const { data: adminData, error: adminError } = await supabase.auth.admin.createUser({
       email,
       password,
+      email_confirm: true,
     });
 
-    // 2. If already registered, just sign them in instead — no error shown to user
-    if (authError || authData?.user?.identities?.length === 0) {
-      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (loginError) return res.json({ error: loginError.message });
+    let userId;
 
-      const { data: profile } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", loginData.user.id)
-        .single();
+    if (adminError) {
+      // User already exists in auth — just sign them in
+      if (adminError.message?.includes("already been registered") || adminError.status === 422) {
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+        if (loginError) return res.json({ error: "An account with this email already exists. Please sign in instead." });
 
-      return res.json({
-        success: true,
-        userId: loginData.user.id,
-        token: loginData.session?.access_token,
-        user: {
-          id: loginData.user.id,
-          email,
-          firstName: profile?.first_name || firstName,
-          lastName: profile?.last_name || lastName,
-          role: profile?.role || role,
-        },
-      });
+        const { data: profile } = await supabase.from("users").select("*").eq("id", loginData.user.id).single();
+        return res.json({
+          success: true,
+          token: loginData.session.access_token,
+          user: {
+            id: loginData.user.id,
+            email,
+            firstName: profile?.first_name || firstName,
+            lastName: profile?.last_name || lastName,
+            role: profile?.role || role || "worker",
+            phone: profile?.phone || phone,
+            zip: profile?.zip || zip,
+          },
+        });
+      }
+      return res.json({ error: adminError.message });
     }
 
-    const userId = authData.user.id;
+    userId = adminData.user.id;
 
-    // 3. Store profile in users table (Stripe customer created on first payment)
+    // 2. Insert profile into users table
     const { error: dbError } = await supabase.from("users").insert({
       id: userId,
       email,
@@ -109,15 +108,24 @@ app.post("/api/auth/register", async (req, res) => {
       zip,
       role: role || "worker",
     });
-
-    // If profile insert fails (e.g. duplicate), still let them in
     if (dbError) console.warn("Profile insert warning:", dbError.message);
+
+    // 3. Sign in to get a real session token
+    const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({ email, password });
+    if (sessionError) return res.json({ error: sessionError.message });
 
     res.json({
       success: true,
-      userId,
-      token: authData.session?.access_token,
-      user: { id: userId, email, firstName, lastName, role },
+      token: sessionData.session.access_token,
+      user: {
+        id: userId,
+        email,
+        firstName,
+        lastName,
+        role: role || "worker",
+        phone,
+        zip,
+      },
     });
   } catch (err) {
     console.error("Register error:", err.message);
@@ -130,10 +138,7 @@ app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return res.json({ error: error.message });
 
     // Fetch full profile from users table
@@ -146,7 +151,15 @@ app.post("/api/auth/login", async (req, res) => {
     res.json({
       success: true,
       token: data.session.access_token,
-      user: profile,
+      user: {
+        id: data.user.id,
+        email: profile?.email || email,
+        firstName: profile?.first_name || "",
+        lastName: profile?.last_name || "",
+        role: profile?.role || "worker",
+        phone: profile?.phone || "",
+        zip: profile?.zip || "",
+      },
     });
   } catch (err) {
     res.json({ error: err.message });
