@@ -209,31 +209,11 @@ function Toast({ notif, onDismiss }) {
 // ═══════════════════════════════════════════════════════════════════════════
 function EscrowHoldModal({ job, onClose, onConfirm }) {
   const [step, setStep] = useState(0);
-  const [payMethod, setPayMethod] = useState(null);
+  const [payMethod, setPayMethod] = useState("visa");
   const [processing, setProcessing] = useState(false);
-  const [savedCards, setSavedCards] = useState([]);
-  const [cardsLoading, setCardsLoading] = useState(true);
   const fee = +(job.pay * 0.08).toFixed(2);
   const total = +(job.pay + fee).toFixed(2);
   const workerGets = +(job.pay * 0.92).toFixed(2);
-
-  const brandLabel = (brand) => ({ visa:"Visa", mastercard:"Mastercard", amex:"Amex", discover:"Discover" }[brand] || "Card");
-
-  React.useEffect(() => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) { setCardsLoading(false); return; }
-    fetch(`${BACKEND}/api/customer/cards`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => {
-        if (data.cards) {
-          setSavedCards(data.cards);
-          const def = data.cards.find(c => c.isDefault) || data.cards[0];
-          if (def) setPayMethod(def.id);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setCardsLoading(false));
-  }, []);
 
   if (step === 2) return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
@@ -301,22 +281,11 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
         {step===1 && (<>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Payment Method</div>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-            {cardsLoading ? (
-              <div style={{ textAlign:"center", padding:"16px 0", color:G.muted, fontSize:13 }}>Loading saved cards…</div>
-            ) : savedCards.length === 0 ? (
-              <div style={{ background:G.sand, borderRadius:14, padding:16, textAlign:"center", color:G.muted, fontSize:13 }}>
-                No saved cards. <span style={{ color:G.greenMid, fontWeight:700 }}>Add a card in Settings → Payments.</span>
-              </div>
-            ) : savedCards.map(m => (
+            {[{id:"visa",icon:"💳",label:"Visa •••• 4242",sub:"Expires 08/27"},{id:"apple",icon:"",label:"Apple Pay",sub:"Face ID"},{id:"google",icon:"G",label:"Google Pay",sub:"Linked account"}].map(m=>(
               <div key={m.id} className="tap" onClick={()=>setPayMethod(m.id)} style={{ display:"flex", gap:14, alignItems:"center", background:G.white, borderRadius:16, padding:"14px 16px", border:`2px solid ${payMethod===m.id?G.green:G.border}`, transition:"all .15s" }}>
-                <div style={{ width:44, height:44, borderRadius:12, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💳</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:14 }}>{brandLabel(m.brand)} •••• {m.last4}</div>
-                  <div style={{ fontSize:12, color:G.muted }}>Expires {String(m.expMonth||"").padStart(2,"0")}/{String(m.expYear||"").slice(-2)}{m.isDefault?" · Default":""}</div>
-                </div>
-                <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  {payMethod===m.id&&<div style={{ width:10, height:10, borderRadius:"50%", background:G.green }}/>}
-                </div>
+                <div style={{ width:44, height:44, borderRadius:12, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{m.icon}</div>
+                <div style={{ flex:1 }}><div style={{ fontWeight:700, fontSize:14 }}>{m.label}</div><div style={{ fontSize:12, color:G.muted, marginTop:1 }}>{m.sub}</div></div>
+                <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>{payMethod===m.id&&<div style={{ width:10, height:10, borderRadius:"50%", background:G.green }}/>}</div>
               </div>
             ))}
           </div>
@@ -328,24 +297,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
           </div>
           <div style={{ display:"flex", gap:10 }}>
             <Btn onClick={()=>setStep(0)} variant="ghost" style={{ padding:"15px 20px", borderRadius:16 }}>←</Btn>
-            <Btn onClick={async ()=>{
-              if (!payMethod) return;
-              setProcessing(true);
-              const token = isBrowser ? localStorage.getItem("chores_token") : null;
-              try {
-                const res = await fetch(`${BACKEND}/api/charge`, {
-                  method:"POST",
-                  headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
-                  body: JSON.stringify({ paymentMethodId: payMethod, amountCents: Math.round(total*100), jobId: String(job.id), jobTitle: job.title }),
-                });
-                const data = await res.json();
-                if (data.error) { alert(data.error); setProcessing(false); return; }
-                setProcessing(false);
-                setStep(2);
-              } catch { setProcessing(false); alert("Network error — please try again."); }
-            }} disabled={processing||!payMethod} style={{ flex:1, padding:15, borderRadius:16, fontSize:15, opacity:(!payMethod||processing)?.5:1 }}>
-              {processing?"Processing…":`Hold $${total.toFixed(2)}`}
-            </Btn>
+            <Btn onClick={()=>{setProcessing(true);setTimeout(()=>{setProcessing(false);setStep(2);},1500);}} disabled={processing} style={{ flex:1, padding:15, borderRadius:16, fontSize:15 }}>{processing?"Processing…":`Hold $${total.toFixed(2)}`}</Btn>
           </div>
         </>)}
       </div>
@@ -503,100 +455,69 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
 // ═══════════════════════════════════════════════════════════════════════════
 function CheckoutModal({ job, onClose, onComplete }) {
   const [step, setStep] = useState(0); // 0=summary, 1=card entry, 2=review, 3=processing, 4=success
-  const [card, setCard] = useState({ name:"", save:true });
-  const [payMethod, setPayMethod] = useState(null); // null = no selection yet, "new" = new card, or pm_xxx id
+  const [card, setCard] = useState({ number:"", expiry:"", cvc:"", name:"", save:true });
+  const [payMethod, setPayMethod] = useState("new"); // "new","visa","apple"
   const [tipPct, setTipPct] = useState(0);
-  const [stripeRef, setStripeRef] = useState(null);
+  const [stripeRef, setStripeRef] = useState(null); // { stripe, card } from StripeCardInput
   const [stripeError, setStripeError] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState(null);
   const [cardBrand, setCardBrand] = useState("");
   const [cardLast4, setCardLast4] = useState("");
-  const [savedCards, setSavedCards] = useState([]);
-  const [cardsLoading, setCardsLoading] = useState(true);
   const fee = +(job.pay * 0.08).toFixed(2);
   const tip = +(job.pay * tipPct / 100).toFixed(2);
   const total = +(job.pay + fee + tip).toFixed(2);
   const workerGets = +((job.pay + tip) * 0.92).toFixed(2);
 
-  // Load saved cards from Stripe via backend on mount
-  React.useEffect(() => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) { setCardsLoading(false); return; }
-    fetch(`${BACKEND}/api/customer/cards`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => {
-        if (data.cards) {
-          setSavedCards(data.cards);
-          const def = data.cards.find(c => c.isDefault) || data.cards[0];
-          if (def) setPayMethod(def.id);
-          else setPayMethod("new");
-        } else {
-          setPayMethod("new");
-        }
-      })
-      .catch(() => setPayMethod("new"))
-      .finally(() => setCardsLoading(false));
-  }, []);
-
-  const brandLabel = (brand) => ({ visa:"Visa", mastercard:"Mastercard", amex:"Amex", discover:"Discover" }[brand] || "Card");
-  const cardIcon = (brand) => ({ visa:"💳", mastercard:"💳", amex:"💳", discover:"💳" }[brand] || "💳");
-
+  // Called when "Pay" is tapped — tokenize the card with Stripe
   const handleStripeCharge = async () => {
     setStripeError("");
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-
     if (payMethod === "new") {
       if (!stripeRef) { setStripeError("Stripe is still loading, please wait."); return; }
       setStep(3);
       const { stripe, card: cardEl } = stripeRef;
       const result = await stripe.createPaymentMethod({
-        type: "card", card: cardEl,
+        type: "card",
+        card: cardEl,
         billing_details: { name: card.name || "Chores User" },
       });
-      if (result.error) { setStep(2); setStripeError(result.error.message); return; }
-
-      const pmId = result.paymentMethod.id;
+      if (result.error) {
+        setStep(2);
+        setStripeError(result.error.message);
+        return;
+      }
+      setPaymentMethodId(result.paymentMethod.id);
       setCardBrand(result.paymentMethod.card.brand);
       setCardLast4(result.paymentMethod.card.last4);
 
-      // Optionally save the card for future use
-      if (card.save && token) {
-        fetch(`${BACKEND}/api/customer/save-card`, {
+      // ── Real backend charge ──
+      try {
+        const res = await fetch(`${BACKEND}/api/charge`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paymentMethodId: pmId }),
-        }).catch(() => {});
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            paymentMethodId: result.paymentMethod.id,
+            amountCents: Math.round(total * 100),
+            jobId: String(job.id),
+            jobTitle: job.title,
+          }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setStep(2);
+          setStripeError(data.error);
+          return;
+        }
+        // data.intentId is the escrow ID — store it for release/refund later
+        setPaymentMethodId(result.paymentMethod.id + "|" + data.intentId);
+        setStep(4);
+      } catch (err) {
+        setStep(2);
+        setStripeError("Network error — please try again.");
       }
-
-      try {
-        const res = await fetch(`${BACKEND}/api/charge`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paymentMethodId: pmId, amountCents: Math.round(total * 100), jobId: String(job.id), jobTitle: job.title }),
-        });
-        const data = await res.json();
-        if (data.error) { setStep(2); setStripeError(data.error); return; }
-        setPaymentMethodId(pmId + "|" + data.intentId);
-        setStep(4);
-      } catch { setStep(2); setStripeError("Network error — please try again."); }
-
     } else {
-      // Use a saved card
-      const saved = savedCards.find(c => c.id === payMethod);
-      setCardBrand(saved?.brand || "");
-      setCardLast4(saved?.last4 || "");
+      // Saved card / Apple Pay — go straight to processing
       setStep(3);
-      try {
-        const res = await fetch(`${BACKEND}/api/charge`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paymentMethodId: payMethod, amountCents: Math.round(total * 100), jobId: String(job.id), jobTitle: job.title }),
-        });
-        const data = await res.json();
-        if (data.error) { setStep(2); setStripeError(data.error); return; }
-        setPaymentMethodId(payMethod + "|" + data.intentId);
-        setStep(4);
-      } catch { setStep(2); setStripeError("Network error — please try again."); }
+      setTimeout(() => setStep(4), 1800);
     }
   };
 
@@ -716,32 +637,21 @@ function CheckoutModal({ job, onClose, onComplete }) {
         </>)}
 
         {step===1 && (<>
-          {/* Saved payment methods */}
-          {cardsLoading ? (
-            <div style={{ textAlign:"center", padding:"20px 0", color:G.muted, fontSize:13 }}>Loading saved cards…</div>
-          ) : savedCards.length > 0 && (
-            <>
-              <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Saved Cards</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
-                {savedCards.map(m => (
-                  <div key={m.id} className="tap" onClick={()=>setPayMethod(m.id)} style={{ display:"flex", gap:12, alignItems:"center", background:G.white, borderRadius:14, padding:"12px 14px", border:`2px solid ${payMethod===m.id?G.green:G.border}`, transition:"all .15s" }}>
-                    <div style={{ width:40, height:40, borderRadius:10, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💳</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:700, fontSize:13 }}>{brandLabel(m.brand)} •••• {m.last4}</div>
-                      <div style={{ fontSize:11, color:G.muted }}>Expires {String(m.expMonth||"").padStart(2,"0")}/{String(m.expYear||"").slice(-2)}{m.isDefault?" · Default":""}</div>
-                    </div>
-                    <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      {payMethod===m.id&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green }}/>}
-                    </div>
-                  </div>
-                ))}
+          {/* Payment method selection */}
+          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Saved Methods</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+            {[{id:"visa",icon:"💳",label:"Visa •••• 4242",sub:"Expires 08/27"},{id:"apple",icon:"",label:"Apple Pay",sub:"Face ID"}].map(m=>(
+              <div key={m.id} className="tap" onClick={()=>setPayMethod(m.id)} style={{ display:"flex", gap:12, alignItems:"center", background:G.white, borderRadius:14, padding:"12px 14px", border:`2px solid ${payMethod===m.id?G.green:G.border}`, transition:"all .15s" }}>
+                <div style={{ width:40, height:40, borderRadius:10, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{m.icon}</div>
+                <div style={{ flex:1 }}><div style={{ fontWeight:700, fontSize:13 }}>{m.label}</div><div style={{ fontSize:11, color:G.muted }}>{m.sub}</div></div>
+                <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>{payMethod===m.id&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green }}/>}</div>
               </div>
-            </>
-          )}
+            ))}
+          </div>
 
-          {/* New card toggle */}
+          {/* New card */}
           <div className="tap" onClick={()=>setPayMethod("new")} style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <span>New Card {payMethod==="new"?"✓":""}</span>
+            <span>New Card {payMethod==="new"&&"✓"}</span>
             <span style={{ color:G.greenMid, fontWeight:700, fontSize:12 }}>{payMethod!=="new"?"+ Add":"Active"}</span>
           </div>
 
@@ -751,7 +661,9 @@ function CheckoutModal({ job, onClose, onComplete }) {
                 <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:6 }}>Card Details</label>
                 <StripeCardInput onReady={setStripeRef} />
                 {stripeError && (
-                  <div style={{ color:G.red, fontSize:12, fontWeight:600, marginTop:8, display:"flex", alignItems:"center", gap:5 }}>⚠️ {stripeError}</div>
+                  <div style={{ color:G.red, fontSize:12, fontWeight:600, marginTop:8, display:"flex", alignItems:"center", gap:5 }}>
+                    ⚠️ {stripeError}
+                  </div>
                 )}
               </div>
               <div style={{ marginBottom:12 }}>
@@ -761,14 +673,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
                   onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
                 />
               </div>
-              {/* Save card toggle */}
-              <div className="tap" onClick={()=>setCard(c=>({...c,save:!c.save}))} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderTop:`1px solid ${G.border}`, marginTop:4 }}>
-                <div style={{ width:22, height:22, borderRadius:6, border:`2px solid ${card.save?G.green:G.border}`, background:card.save?G.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                  {card.save && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
-                </div>
-                <span style={{ fontSize:13, color:G.text, fontWeight:600 }}>Save card for future payments</span>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:10 }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                 <span style={{ fontSize:11, color:G.muted }}>Secured by Stripe · PCI-DSS Level 1</span>
               </div>
@@ -806,21 +711,14 @@ function CheckoutModal({ job, onClose, onComplete }) {
             </div>
           </div>
 
-          {(() => {
-            const saved = savedCards.find(c => c.id === payMethod);
-            const label = saved ? `${brandLabel(saved.brand)} •••• ${saved.last4}` : "New Card";
-            const sub = saved ? `Expires ${String(saved.expMonth||"").padStart(2,"0")}/${String(saved.expYear||"").slice(-2)}` : "Charged immediately";
-            return (
-              <div style={{ background:G.white, borderRadius:14, padding:14, marginBottom:14, display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.04)" }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>💳</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:13 }}>{label}</div>
-                  <div style={{ fontSize:11, color:G.muted }}>{sub}</div>
-                </div>
-                <div className="tap" onClick={()=>setStep(1)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>
-              </div>
-            );
-          })()}
+          <div style={{ background:G.white, borderRadius:14, padding:14, marginBottom:14, display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.04)" }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{payMethod==="visa"?"💳":payMethod==="apple"?"":"💳"}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:700, fontSize:13 }}>{payMethod==="visa"?"Visa •••• 4242":payMethod==="apple"?"Apple Pay":`Card •••• ${card.number.slice(-4)}`}</div>
+              <div style={{ fontSize:11, color:G.muted }}>{payMethod==="apple"?"Face ID":"Charged immediately"}</div>
+            </div>
+            <div className="tap" onClick={()=>setStep(1)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>
+          </div>
 
           <div style={{ background:G.orangeLight, borderRadius:14, padding:14, marginBottom:18, display:"flex", gap:10, alignItems:"flex-start" }}>
             <span style={{ fontSize:16 }}>⚠️</span>
@@ -911,26 +809,14 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [badgeTab, setBadgeTab] = useState("badges");
   // Payment methods state
-  const [pmCards, setPmCards] = useState([]);
-  const [pmLoading, setPmLoading] = useState(false);
+  const [pmCards, setPmCards] = useState([
+    { id:"pm_visa_4242", brand:"visa", last4:"4242", exp_month:8, exp_year:2027, isDefault:true },
+    { id:"pm_mc_8910", brand:"mastercard", last4:"8910", exp_month:3, exp_year:2026, isDefault:false },
+  ]);
   const [pmAdding, setPmAdding] = useState(false);
   const [pmProcessing, setPmProcessing] = useState(false);
   const [pmAddSuccess, setPmAddSuccess] = useState(false);
   const [pmError, setPmError] = useState("");
-
-  // Load real saved cards from Stripe via backend
-  const fetchCards = React.useCallback(() => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) return;
-    setPmLoading(true);
-    fetch(`${BACKEND}/api/customer/cards`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => { if (data.cards) setPmCards(data.cards); })
-      .catch(() => {})
-      .finally(() => setPmLoading(false));
-  }, []);
-
-  React.useEffect(() => { fetchCards(); }, [fetchCards]);
   // Transactions state
   const [txFilter, setTxFilter] = useState("all");
   // Bank account state
@@ -1564,52 +1450,52 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     const brandLabels = { visa:"Visa", mastercard:"Mastercard", amex:"Amex", discover:"Discover", unknown:"Card" };
     const brandColors = { visa:"#1a1f71", mastercard:"#eb001b", amex:"#006fcf", discover:"#ff6000" };
 
-    // ── Real Stripe API helpers ──
+    // ── Stripe API helpers (replace with real fetch calls to your backend) ──
     const apiSetDefault = async (pmId) => {
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      setCards(c => c.map(x => ({ ...x, isDefault: x.id === pmId })));
-      await fetch(`${BACKEND}/api/customer/set-default`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ paymentMethodId: pmId }),
-      }).catch(() => {});
+      // POST /api/set-default-payment-method { paymentMethodId: pmId }
+      setCards(c=>c.map(x=>({...x,isDefault:x.id===pmId})));
     };
     const apiDetach = async (pmId) => {
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      const remaining = cards.filter(x => x.id !== pmId);
-      if (remaining.length && !remaining.some(x => x.isDefault)) remaining[0].isDefault = true;
-      setCards(remaining);
-      await fetch(`${BACKEND}/api/customer/delete-card`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ paymentMethodId: pmId }),
-      }).catch(() => {});
+      // POST /api/detach-payment-method { paymentMethodId: pmId }
+      const c = cards.filter(x=>x.id!==pmId);
+      if (c.length && !c.some(x=>x.isDefault)) c[0].isDefault = true;
+      setCards(c);
     };
+    // When Stripe is wired, this would:
+    // - Call backend POST /api/create-setup-intent to get clientSecret
+    // - stripe.confirmCardSetup with clientSecret and card element
+    // - On success, fetch updated payment methods list from backend
     const handleStripeAdd = async () => {
       setError("");
       setProcessing(true);
       const ref = window._settingsStripeRef;
-      if (!ref) { setError("Stripe is still loading, please wait."); setProcessing(false); return; }
+      if (!ref) {
+        setError("Stripe is still loading, please wait.");
+        setProcessing(false);
+        return;
+      }
       const { stripe, card: cardEl } = ref;
       const result = await stripe.createPaymentMethod({ type: "card", card: cardEl });
-      if (result.error) { setError(result.error.message); setProcessing(false); return; }
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      try {
-        const res = await fetch(`${BACKEND}/api/customer/save-card`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paymentMethodId: result.paymentMethod.id }),
-        });
-        const data = await res.json();
-        if (data.error) { setError(data.error); setProcessing(false); return; }
-        setCards(c => [...c, data.card]);
+      if (result.error) {
+        setError(result.error.message);
         setProcessing(false);
-        setAddSuccess(true);
-        setTimeout(() => { setAddSuccess(false); setAdding(false); fetchCards(); }, 1400);
-      } catch (e) {
-        setError("Network error — please try again.");
-        setProcessing(false);
+        return;
       }
+      const pm = result.paymentMethod;
+      const newCard = {
+        id: pm.id,
+        brand: pm.card.brand,
+        last4: pm.card.last4,
+        exp_month: pm.card.exp_month,
+        exp_year: pm.card.exp_year,
+        isDefault: !cards.length,
+      };
+      setCards(c => [...c, newCard]);
+      // ── Send pm.id to your backend to attach to a Stripe Customer ──
+      // e.g. POST /api/attach-payment-method { paymentMethodId: pm.id, customerId }
+      setProcessing(false);
+      setAddSuccess(true);
+      setTimeout(() => { setAddSuccess(false); setAdding(false); }, 1400);
     };
 
     return (
@@ -1619,47 +1505,33 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Payment Methods</div>
         </div>
 
-        {/* Loading state */}
-        {pmLoading && (
-          <div style={{ textAlign:"center", padding:"24px 0", color:G.muted, fontSize:14 }}>Loading cards…</div>
-        )}
-
-        {/* Empty state */}
-        {!pmLoading && cards.length === 0 && !adding && (
-          <div style={{ textAlign:"center", padding:"24px 20px", color:G.muted }}>
-            <div style={{ fontSize:36, marginBottom:8 }}>💳</div>
-            <div style={{ fontWeight:700, fontSize:15, color:G.text, marginBottom:4 }}>No cards saved yet</div>
-            <div style={{ fontSize:13 }}>Add a card to pay for jobs faster at checkout</div>
-          </div>
-        )}
-
         {/* Existing cards */}
-        {!pmLoading && (
         <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
           {cards.map(c=>{
             const label = brandLabels[c.brand]||"Card";
             return (
               <div key={c.id} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:c.isDefault?`2px solid ${G.green}`:`1.5px solid ${G.border}` }}>
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
-                  <div style={{ width:48, height:32, borderRadius:8, background:c.isDefault?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  {/* Brand icon */}
+                  <div style={{ width:48, height:32, borderRadius:8, background:c.isDefault?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
                     <div style={{ fontWeight:900, fontSize:10, color:brandColors[c.brand]||G.text, letterSpacing:-.5, textTransform:"uppercase" }}>{label}</div>
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:700, fontSize:14 }}>{label} •••• {c.last4}</div>
-                    <div style={{ fontSize:12, color:G.muted }}>Expires {String(c.expMonth||c.exp_month||"").padStart(2,"0")}/{String(c.expYear||c.exp_year||"").slice(-2)}</div>
+                    <div style={{ fontSize:12, color:G.muted }}>Expires {String(c.exp_month).padStart(2,"0")}/{String(c.exp_year).slice(-2)}</div>
                   </div>
                   {c.isDefault&&<div style={{ background:G.greenPale, color:G.green, fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:8 }}>Default</div>}
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   {!c.isDefault&&<div className="tap" onClick={()=>apiSetDefault(c.id)} style={{ fontSize:12, fontWeight:700, color:G.greenMid }}>Set Default</div>}
                   {!c.isDefault&&<div style={{ color:G.border }}>·</div>}
-                  <div className="tap" onClick={()=>apiDetach(c.id)} style={{ fontSize:12, fontWeight:700, color:G.red }}>Remove</div>
+                  {cards.length>1&&<div className="tap" onClick={()=>apiDetach(c.id)} style={{ fontSize:12, fontWeight:700, color:G.red }}>Remove</div>}
                 </div>
+                <div style={{ fontSize:10, color:G.muted, marginTop:8, fontFamily:"monospace" }}>id: {c.id}</div>
               </div>
             );
           })}
         </div>
-        )}
 
         {/* Add card — Stripe Elements zone */}
         {adding ? (
@@ -1702,6 +1574,15 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 </Btn>
               </div>
             )}
+
+            {/* Integration code reference */}
+            <div style={{ marginTop:16, background:G.sand, borderRadius:12, padding:14, fontSize:11, fontFamily:"'Courier New',monospace", color:G.muted, lineHeight:1.7 }}>
+              <div style={{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:11, color:G.text, marginBottom:6 }}>Integration Steps:</div>
+              <div>1. <span style={{ color:G.greenMid }}>stripe.confirmCardSetup</span>(clientSecret)</div>
+              <div>2. Returns <span style={{ color:G.greenMid }}>paymentMethod.id</span> (pm_xxx)</div>
+              <div>3. Attach to <span style={{ color:G.greenMid }}>Customer</span> on backend</div>
+              <div>4. Charge via <span style={{ color:G.greenMid }}>PaymentIntent</span> at checkout</div>
+            </div>
           </div>
         ) : (
           <div className="tap" onClick={()=>setAdding(true)} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:12, border:`1.5px dashed ${G.border}` }}>
@@ -2344,28 +2225,23 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── REVIEWS SUB-PAGE ──
   if (subPage==="reviews") {
-    const avg = MY_REVIEWS.length ? (MY_REVIEWS.reduce((s,r)=>s+r.rating,0)/MY_REVIEWS.length).toFixed(1) : "—";
+    const avg = (MY_REVIEWS.reduce((s,r)=>s+r.rating,0)/MY_REVIEWS.length).toFixed(1);
     const dist = [5,4,3,2,1].map(s=>({ s, count:MY_REVIEWS.filter(r=>r.rating===s).length }));
     const maxCount = Math.max(...dist.map(d=>d.count),1);
     const filtered = reviewFilter==="all"?MY_REVIEWS:MY_REVIEWS.filter(r=>r.rating===parseInt(reviewFilter));
 
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:80 }}>
+        {/* Header */}
         <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
           <div className="tap" onClick={()=>setSubPage(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>My Reviews</div>
         </div>
 
-        {MY_REVIEWS.length === 0 ? (
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12, textAlign:"center" }}>
-            <div style={{ fontSize:52 }}>⭐</div>
-            <div style={{ fontWeight:700, fontSize:18, color:G.text }}>No reviews yet</div>
-            <div style={{ fontSize:14, color:G.muted, lineHeight:1.5 }}>Complete jobs and your clients'<br/>ratings will appear here</div>
-          </div>
-        ) : (<>
         {/* Rating overview card */}
         <div style={{ background:G.white, borderRadius:20, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16 }}>
           <div style={{ display:"flex", gap:20, alignItems:"center" }}>
+            {/* Big score */}
             <div style={{ textAlign:"center", minWidth:80 }}>
               <div style={{ fontFamily:"'Playfair Display',serif", fontSize:44, fontWeight:800, color:G.greenMid, lineHeight:1 }}>{avg}</div>
               <div style={{ display:"flex", justifyContent:"center", gap:2, marginTop:6 }}>
@@ -2375,6 +2251,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               </div>
               <div style={{ fontSize:11, color:G.muted, marginTop:4 }}>{MY_REVIEWS.length} reviews</div>
             </div>
+            {/* Bar chart */}
             <div style={{ flex:1 }}>
               {dist.map(d=>(
                 <div key={d.s} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
@@ -2395,7 +2272,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Top Qualities</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {(() => {
-              const allTags = MY_REVIEWS.flatMap(r=>r.tags||[]);
+              const allTags = MY_REVIEWS.flatMap(r=>r.tags);
               const counts = {};
               allTags.forEach(t=>counts[t]=(counts[t]||0)+1);
               return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([tag,count])=>(
@@ -2432,13 +2309,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             </div>
             <div style={{ fontSize:13, color:G.text, lineHeight:1.5, marginBottom:8 }}>{r.text}</div>
             <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-              {(r.tags||[]).map(t=>(
+              {r.tags.map(t=>(
                 <div key={t} style={{ padding:"3px 8px", borderRadius:6, fontSize:10, fontWeight:600, background:G.sand, color:G.muted, textTransform:"capitalize" }}>{t}</div>
               ))}
             </div>
           </div>
         ))}
-        </>)}
       </div>
     );
   }
@@ -2472,14 +2348,16 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             }
             <div>
               <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800 }}>{`${profile.first} ${profile.last}`}</div>
-              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>Zip {profile.zip}{storedUser?.createdAt ? ` · Member since ${new Date(storedUser.createdAt).toLocaleDateString("en-US",{month:"short",year:"numeric"})}` : ""}</div>
+              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>Age {profile.age} · Zip {profile.zip} · Jan 2025</div>
               <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill={G.gold} stroke={G.gold} strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> 4.9</span></Tag>
+                <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Verified</span></Tag>
                 <Tag bg="#EBF8FF" color={G.blue}><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.blue} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> 0 Strikes</span></Tag>
               </div>
             </div>
           </div>
           <div style={{ display:"flex", gap:10, marginBottom:14 }}>
-            {[{l:"Jobs Done",v:"0"},{l:"Earned",v:"$0"},{l:"Repeat Clients",v:"0"}].map(s=>(
+            {[{l:"Jobs Done",v:"42"},{l:"Earned",v:"$1,240"},{l:"Repeat Clients",v:"8"}].map(s=>(
               <div key={s.l} className="stat-card" style={{ flex:1, background:G.white, borderRadius:16, padding:"14px 10px", textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.greenMid }}>{s.v}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{s.l}</div>
@@ -2507,15 +2385,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8 }}>Recent Reviews</div>
-              {MY_REVIEWS.length > 0 && <div className="tap" onClick={()=>setSubPage("reviews")} style={{ fontSize:11, fontWeight:700, color:G.greenMid }}>See All →</div>}
+              <div className="tap" onClick={()=>setSubPage("reviews")} style={{ fontSize:11, fontWeight:700, color:G.greenMid }}>See All →</div>
             </div>
-            {MY_REVIEWS.length === 0 ? (
-              <div style={{ textAlign:"center", padding:"16px 0", color:G.muted }}>
-                <div style={{ fontSize:28, marginBottom:6 }}>⭐</div>
-                <div style={{ fontSize:13, fontWeight:600, color:G.text }}>No reviews yet</div>
-                <div style={{ fontSize:12, marginTop:4 }}>Complete jobs to receive ratings</div>
-              </div>
-            ) : MY_REVIEWS.slice(0,2).map(r=>(
+            {MY_REVIEWS.slice(0,2).map(r=>(
               <div key={r.id} style={{ padding:"10px 0", borderBottom:`1px solid ${G.border}` }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
                   <div style={{ fontWeight:600, fontSize:13 }}>{r.from}</div>
@@ -2531,7 +2403,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            {[{icon:"⭐",label:"Reviews",sub:"Your ratings from clients"},{icon:"🏆",label:"Badges & Skills",sub:"Achievements & skills",last:true}].map(r=>(
+            {[{icon:"⭐",label:"Reviews",sub:"42 reviews · 4.9 avg"},{icon:"🏆",label:"Badges & Skills",sub:"8 earned",last:true}].map(r=>(
               <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Reviews"?()=>setSubPage("reviews"):r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             ))}
           </div>
@@ -2636,19 +2508,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div className="tap" onClick={()=>setSubPage("paymentMethods")} style={{ background:G.white, borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14, display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:12, background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>💳</div>
             <div style={{ flex:1 }}>
-              {pmCards.length > 0 ? (
-                <>
-                  <div style={{ fontWeight:700, fontSize:14 }}>
-                    {({visa:"Visa",mastercard:"Mastercard",amex:"Amex",discover:"Discover"}[(pmCards.find(c=>c.isDefault)||pmCards[0]).brand]||"Card")} •••• {(pmCards.find(c=>c.isDefault)||pmCards[0]).last4}
-                  </div>
-                  <div style={{ fontSize:12, color:G.muted }}>Default · Tap to manage cards</div>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontWeight:700, fontSize:14, color:G.muted }}>No cards saved</div>
-                  <div style={{ fontSize:12, color:G.muted }}>Tap to add a payment method</div>
-                </>
-              )}
+              <div style={{ fontWeight:700, fontSize:14 }}>Visa •••• 4242</div>
+              <div style={{ fontSize:12, color:G.muted }}>Default · Tap to manage cards</div>
             </div>
             <span style={{ fontSize:16, color:G.muted }}>›</span>
           </div>
@@ -2761,53 +2622,77 @@ function NotifIcon({ type, size=22 }) {
 }
 
 function NotificationsScreen({ role, onNavigate }) {
-  const [notifs, setNotifs] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+  const notifs = role==="worker" ? NOTIFS_WORKER : NOTIFS_POSTER;
   const [filter, setFilter] = useState("all");
+  const [read, setRead] = useState([]);
   const [selectedNotif, setSelectedNotif] = useState(null);
   const notifRef = React.useRef(null);
-
-  const fetchNotifs = React.useCallback(() => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) { setLoading(false); return; }
-    fetch(`${BACKEND}/api/notifications`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => { if (data.notifications) setNotifs(data.notifications); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  React.useEffect(() => { fetchNotifs(); }, [fetchNotifs]);
-
   React.useEffect(()=>{
     if(notifRef.current){let p=notifRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
   },[selectedNotif, filter]);
-
-  const markRead = (ids) => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) return;
-    fetch(`${BACKEND}/api/messages/mark-read`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ messageIds: ids }),
-    }).catch(() => {});
-    setNotifs(n => n.map(x => ids.includes(x.id) ? { ...x, unread: false } : x));
-  };
-
   const cats = ["all","job","payment","reminder","alert"];
   const filtered = filter==="all" ? notifs : notifs.filter(n=>n.category===filter);
-  const unreadCount = notifs.filter(n=>n.unread).length;
+  const unreadCount = notifs.filter(n=>n.unread&&!read.includes(n.id)).length;
   const colorMap = {job:G.greenPale,payment:"#EBF8FF",reminder:"#FFF4E0",alert:G.redLight};
   const textMap = {job:G.greenMid,payment:G.blue,reminder:G.gold,alert:G.red};
 
+  // Notification detail sub-page
   if (selectedNotif) {
     const n = selectedNotif;
     const details = {
-      applied:   { headline:"New Applicant",    actions:["View Applications","Message"], info:[{label:"From",value:n.title.replace("New applicant for ","")},{label:"Job",value:n.jobTitle},{label:"Status",value:"Awaiting your review"},{label:"When",value:n.time}] },
-      accepted:  { headline:"You're Hired!",    actions:["Message Poster","View Details"], info:[{label:"Status",value:"Application accepted"},{label:"Job",value:n.jobTitle},{label:"Next Step",value:"Message the poster to confirm details"},{label:"When",value:n.time}] },
-      noshow:    { headline:"Application Update", actions:["Browse Jobs","Dismiss"], info:[{label:"Status",value:"Not selected this time"},{label:"Job",value:n.jobTitle},{label:"When",value:n.time}] },
-      new_job:   { headline:"New Message",      actions:["Reply","Dismiss"], info:[{label:"From",value:n.title.replace("Message from ","")},{label:"Job",value:n.jobTitle},{label:"Message",value:n.body},{label:"When",value:n.time}] },
-      payment:   { headline:"Payment Update",   actions:["View Receipt","Transaction History"], info:[{label:"Details",value:n.body},{label:"When",value:n.time}] },
+      new_job: { headline:"New Job Available", actions:["View Job","Quick Apply"], info:[
+        {label:"Job",value:n.body.split("·")[0]?.trim()},
+        {label:"Pay",value:n.body.split("·")[1]?.trim()},
+        {label:"Distance",value:n.body.split("·")[2]?.trim()},
+        {label:"Posted",value:n.time},
+      ]},
+      accepted: { headline:"You're Hired!", actions:["Message Poster","View Details"], info:[
+        {label:"Status",value:"Application accepted"},
+        {label:"Client",value:n.body.replace("accepted your application","").trim()},
+        {label:"Next Step",value:"Message the poster to confirm details"},
+        {label:"When",value:n.time},
+      ]},
+      reminder: { headline:"Upcoming Job", actions:["Get Directions","Message"], info:[
+        {label:"Job",value:n.body.split("·")[0]?.trim()},
+        {label:"Client",value:n.body.split("·")[1]?.trim()},
+        {label:"Location",value:n.body.split("·")[2]?.trim()},
+        {label:"When",value:n.title.replace("Job ","")},
+      ]},
+      payment: { headline:"Payment Update", actions:["View Receipt","Transaction History"], info:[
+        {label:"Amount",value:n.body.split("·")[0]?.trim()},
+        {label:"Job",value:n.body.split("·")[1]?.trim()},
+        {label:"From",value:n.body.split("·")[2]?.trim()},
+        {label:"When",value:n.time},
+      ]},
+      noshow: { headline:"Cancellation Notice", actions:["View Policy","Contact Support"], info:[
+        {label:"Client",value:n.body.split("cancelled")[0]?.trim()},
+        {label:"Reason",value:"Cancelled with less than 12hrs notice"},
+        {label:"Impact",value:"You may be eligible for a cancellation fee"},
+        {label:"When",value:n.time},
+      ]},
+      applied: { headline:"New Applicant", actions:["View Profile","Message"], info:[
+        {label:"Applicant",value:n.body.split("applied")[0]?.trim()},
+        {label:"Job",value:n.body.split("to ")[1]?.trim()},
+        {label:"Status",value:"Awaiting your review"},
+        {label:"When",value:n.time},
+      ]},
+      confirmed: { headline:"Worker Confirmed", actions:["Message Worker","Get Directions"], info:[
+        {label:"Worker",value:n.body.split("is ")[0]?.trim()},
+        {label:"Time",value:n.body.split("for ")[1]?.trim()},
+        {label:"Status",value:"On their way"},
+        {label:"When",value:n.time},
+      ]},
+      complete: { headline:"Job Complete", actions:["Leave Review","View Receipt"], info:[
+        {label:"Job",value:n.body.split("·")[0]?.trim()},
+        {label:"Worker",value:n.body.split("·")[1]?.trim()},
+        {label:"Status",value:"Completed — ready for review"},
+        {label:"When",value:n.time},
+      ]},
+      rating: { headline:"Review Reminder", actions:["Leave Review","Skip"], info:[
+        {label:"Worker",value:n.body.split("do?")[0]?.replace("How did","").trim()},
+        {label:"Action",value:"Share your experience to help others"},
+        {label:"When",value:n.time},
+      ]},
     };
     const d = details[n.type] || { headline:n.title, actions:["Dismiss"], info:[{label:"Details",value:n.body},{label:"When",value:n.time}] };
 
@@ -2817,12 +2702,16 @@ function NotificationsScreen({ role, onNavigate }) {
           <div className="tap" onClick={()=>setSelectedNotif(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>{d.headline}</div>
         </div>
+
+        {/* Icon + title card */}
         <div style={{ background:G.white, borderRadius:18, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16, textAlign:"center" }}>
           <div style={{ width:56, height:56, borderRadius:16, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px" }}><NotifIcon type={n.type} size={26} /></div>
           <div style={{ fontWeight:700, fontSize:16, color:G.text }}>{n.title}</div>
           <div style={{ fontSize:13, color:G.muted, marginTop:4 }}>{n.body}</div>
           <div style={{ marginTop:10 }}><Tag bg={colorMap[n.category]||G.greenPale} color={textMap[n.category]||G.greenMid}>{n.category}</Tag></div>
         </div>
+
+        {/* Details card */}
         <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
           {d.info.filter(i=>i.value).map((item,i,a)=>(
             <div key={item.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:i<a.length-1?`1px solid ${G.border}`:"none" }}>
@@ -2831,15 +2720,21 @@ function NotificationsScreen({ role, onNavigate }) {
             </div>
           ))}
         </div>
+
+        {/* Action buttons */}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {d.actions.map((action,i)=>{
-            const dest = action.toLowerCase().includes("application") ? "messages"
-              : action.toLowerCase().includes("message")||action.toLowerCase().includes("reply") ? "messages"
+            const dest = action.toLowerCase().includes("job")||action.toLowerCase().includes("apply") ? "home"
+              : action.toLowerCase().includes("message") ? "messages"
               : action.toLowerCase().includes("receipt")||action.toLowerCase().includes("transaction") ? "profile"
-              : action.toLowerCase().includes("browse") ? "home" : null;
-            return <Btn key={action} onClick={()=>{ setSelectedNotif(null); if(dest&&onNavigate) onNavigate(dest); }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>;
+              : action.toLowerCase().includes("map")||action.toLowerCase().includes("direction") ? "map"
+              : null;
+            return (
+              <Btn key={action} onClick={()=>{ setSelectedNotif(null); if(dest&&onNavigate) onNavigate(dest); }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>
+            );
           })}
         </div>
+
         <div style={{ textAlign:"center", marginTop:12, fontSize:11, color:G.muted }}>{n.time}</div>
       </div>
     );
@@ -2849,38 +2744,39 @@ function NotificationsScreen({ role, onNavigate }) {
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text }}>Inbox</div>
-        {unreadCount>0&&<div className="tap" onClick={()=>markRead(notifs.map(n=>n.id))} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
+        {unreadCount>0&&<div className="tap" onClick={()=>setRead(notifs.map(n=>n.id))} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
       </div>
 
-      {loading && <div style={{ textAlign:"center", padding:"48px 0", color:G.muted, fontSize:14 }}>Loading…</div>}
-
-      {!loading && filtered.length===0 && (
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
-          <div style={{ fontSize:48 }}>🔔</div>
-          <div style={{ fontWeight:700, fontSize:17, color:G.text }}>No notifications yet</div>
-          <div style={{ fontSize:14, color:G.muted, textAlign:"center", lineHeight:1.5 }}>Job updates and activity<br/>will appear here</div>
-        </div>
-      )}
-
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {filtered.map(n=>(
-          <div key={n.id} className="tap card" onClick={()=>{ markRead([n.id]); setSelectedNotif(n); }} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"flex-start", borderLeft:`3px solid ${n.unread?G.green:"transparent"}`, opacity:n.unread?1:0.75 }}>
-            <div style={{ width:40, height:40, borderRadius:12, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><NotifIcon type={n.type} size={20} /></div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                <div style={{ fontWeight:n.unread?700:500, fontSize:14, color:G.text, lineHeight:1.3 }}>{n.title}</div>
-                <div style={{ fontSize:10, color:G.muted, flexShrink:0, marginTop:2 }}>{n.time}</div>
-              </div>
-              <div style={{ fontSize:12, color:G.muted, marginTop:3, lineHeight:1.4 }}>{n.body?.slice(0,80)}{n.body?.length>80?"…":""}</div>
-            </div>
-            {n.unread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0, marginTop:4 }}/>}
+        {filtered.length===0 && (
+          <div style={{ textAlign:"center", padding:"60px 20px", color:G.muted }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>🔔</div>
+            <div style={{ fontWeight:700, fontSize:15, color:G.text, marginBottom:6 }}>No notifications yet</div>
+            <div style={{ fontSize:13, lineHeight:1.6 }}>{role==="worker" ? "Apply to jobs to get updates here" : "You'll be notified when someone applies"}</div>
           </div>
-        ))}
+        )}
+        {filtered.map(n=>{
+          const isUnread = n.unread&&!read.includes(n.id);
+          return (
+            <div key={n.id} className="tap card" onClick={()=>{setRead(r=>[...new Set([...r,n.id])]);setSelectedNotif(n);}} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"flex-start", borderLeft:`3px solid ${isUnread?G.green:"transparent"}`, opacity:isUnread?1:0.75 }}>
+              <div style={{ width:40, height:40, borderRadius:12, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><NotifIcon type={n.type} size={20} /></div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                  <div style={{ fontWeight:isUnread?700:500, fontSize:14, color:G.text, lineHeight:1.3 }}>{n.title}</div>
+                  <div style={{ fontSize:10, color:G.muted, flexShrink:0, marginTop:2 }}>{n.time}</div>
+                </div>
+                <div style={{ fontSize:12, color:G.muted, marginTop:3, lineHeight:1.4 }}>{n.body}</div>
+                <div style={{ marginTop:6 }}><Tag bg={colorMap[n.category]||G.greenPale} color={textMap[n.category]||G.greenMid}>{n.category}</Tag></div>
+              </div>
+              {isUnread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0, marginTop:4 }}/>}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:12 }}><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
-
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3064,7 +2960,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Applying as</div>
           <div style={{ display:"flex", gap:12, alignItems:"center" }}>
             <Avatar name="Jordan Davis" size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
-            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null; return u?`${u.firstName} ${u.lastName||""}`.trim():""; } catch { return ""; } })()}</div><div style={{ fontSize:12, color:G.muted }}>{role==="worker"?"Worker":"Job Poster"}</div></div>
+            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null; return u?`${u.firstName} ${u.lastName||""}`.trim():"Jordan Davis"; } catch { return "Jordan Davis"; } })()}</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
           </div>
         </div>
         {/* Message */}
@@ -3100,16 +2996,20 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           setApplyStep(1);
           try {
             const token = isBrowser ? localStorage.getItem("chores_token") : null;
+            const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+            const workerName = `${user.firstName||""} ${user.lastName||""}`.trim() || "Someone";
             const res = await fetch(`${BACKEND}/api/jobs/${job.id}/apply`, {
               method:"POST",
-              headers:{"Content-Type":"application/json", "Authorization":`Bearer ${token}`},
-              body: JSON.stringify({ message: applyMsg, availability: applyAvail })
+              headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+              body: JSON.stringify({ message: applyMsg, availability: applyAvail, workerId: user.id, workerName })
             });
             const data = await res.json();
             if (data.success) {
+              // Update applicant count in local job list
               setLiveJobs(prev => prev.map(j => j.id===job.id ? {...j, applicants: (j.applicants||0)+1} : j));
+              // Push notification to browser
               if (Notification && Notification.permission === "granted") {
-                new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent.`, icon: "/favicon.ico" });
+                new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent to ${job.poster}`, icon: "/favicon.ico" });
               }
             }
           } catch(e) { console.error("Apply error:", e); }
@@ -3957,26 +3857,33 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
             })
           });
           const data = await res.json();
+          if (data.alreadyExists) {
+            // User already registered — send them to login with email pre-filled
+            btn.disabled = false;
+            btn.textContent = "Enter Chores →";
+            onShowLogin && onShowLogin(form.email);
+            return;
+          }
           if (data.error) {
             btn.disabled = false;
             btn.textContent = "Enter Chores →";
             alert(`Registration failed: ${data.error}`);
             return;
           }
-          if (data.token) {
+          if (data.success) {
             if (isBrowser) {
-              localStorage.setItem("chores_token", data.token);
+              if (data.token) localStorage.setItem("chores_token", data.token);
               localStorage.setItem("chores_user", JSON.stringify({
-                ...data.user,
+                id: data.user.id,
+                email: data.user.email || form.email,
                 firstName: data.user.firstName || form.first,
                 lastName: data.user.lastName || form.last,
-                email: form.email,
-                phone: form.phone,
-                zip: zip,
-                role: onbRole || "worker",
+                phone: data.user.phone || form.phone,
+                zip: data.user.zip || zip,
+                role: data.user.role || onbRole || "worker",
               }));
             }
-            onComplete(onbRole==="poster"?"poster":"worker");
+            onComplete(data.user.role === "poster" ? "poster" : "worker");
           } else {
             btn.disabled = false;
             btn.textContent = "Enter Chores →";
@@ -3996,8 +3903,23 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // REVIEWS DATA & MODAL
 // ═══════════════════════════════════════════════════════════════════════════
-const MY_REVIEWS = [];
-const COMPLETED_JOBS = [];
+const MY_REVIEWS = [
+  { id:1, from:"The Hendersons", avatar:"TH", job:"Mow & Edge Front Lawn", rating:5, text:"Jordan was punctual and did an amazing job. Lawn looks better than ever! Will definitely hire again.", date:"Feb 18, 2025", tags:["punctual","thorough","friendly"] },
+  { id:2, from:"Maria C.", avatar:"MC", job:"Dog Walking – 2 Labs", rating:5, text:"The dogs love Jordan. Always on time and sends me photos during the walk. Couldn't ask for more.", date:"Feb 10, 2025", tags:["reliable","caring","communicative"] },
+  { id:3, from:"Sunrise Café", avatar:"SC", job:"Deep Clean Kitchen & Baths", rating:4, text:"Great job on the deep clean. Kitchen was spotless. Minor thing — missed the baseboards, but overall very happy.", date:"Feb 3, 2025", tags:["hardworking","thorough"] },
+  { id:4, from:"DeAndre W.", avatar:"DW", job:"Paint Bedroom Accent Wall", rating:5, text:"Perfect paint job with clean edges. Jordan even helped me move furniture back. Above and beyond!", date:"Jan 25, 2025", tags:["skilled","helpful","detail-oriented"] },
+  { id:5, from:"The Patels", avatar:"TP", job:"Help Move Furniture", rating:5, text:"Strong and careful with our furniture. No scratches, no complaints. Finished in under 2 hours.", date:"Jan 15, 2025", tags:["strong","careful","efficient"] },
+  { id:6, from:"Mrs. Thompson", avatar:"MT", job:"Grocery Run & Errands", rating:5, text:"Such a sweet young person. Got everything on my list and even carried it inside for me.", date:"Jan 8, 2025", tags:["kind","reliable","helpful"] },
+];
+
+const COMPLETED_JOBS = [
+  { id:101, title:"Mow & Edge Front Lawn", person:"The Hendersons", pay:35, date:"Feb 18", reviewed:true },
+  { id:102, title:"Dog Walking – 2 Labs", person:"Maria C.", pay:20, date:"Feb 10", reviewed:true },
+  { id:103, title:"Deep Clean Kitchen & Baths", person:"Sunrise Café", pay:80, date:"Feb 3", reviewed:true },
+  { id:104, title:"Paint Bedroom Accent Wall", person:"DeAndre W.", pay:65, date:"Jan 25", reviewed:true },
+  { id:105, title:"Assemble IKEA Shelf", person:"Lisa N.", pay:40, date:"Feb 22", reviewed:false },
+  { id:106, title:"Pressure Wash Driveway", person:"Coach Williams", pay:55, date:"Feb 20", reviewed:false },
+];
 
 const REVIEW_TAGS = ["punctual","thorough","friendly","reliable","skilled","hardworking","communicative","careful","kind","efficient","detail-oriented","professional"];
 
@@ -4397,8 +4319,8 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 // ═══════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════
-function LoginScreen({ onComplete, onBack, darkMode }) {
-  const [email, setEmail] = useState("");
+function LoginScreen({ onComplete, onBack, darkMode, prefillEmail="" }) {
+  const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -4422,8 +4344,8 @@ function LoginScreen({ onComplete, onBack, darkMode }) {
           localStorage.setItem("chores_token", data.token);
           localStorage.setItem("chores_user", JSON.stringify({
             ...data.user,
-            firstName: data.user.firstName,
-            lastName: data.user.lastName,
+            firstName: data.user.first_name,
+            lastName: data.user.last_name,
           }));
         }
         onComplete(data.user.role || "worker");
@@ -4442,7 +4364,12 @@ function LoginScreen({ onComplete, onBack, darkMode }) {
       </div>
       <div style={{ flex:1, padding:"40px 32px", display:"flex", flexDirection:"column" }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:800, color:G.text, lineHeight:1.2, marginBottom:8 }}>Welcome back</div>
-        <div style={{ fontSize:14, color:G.muted, marginBottom:32 }}>Sign in to your Chores account</div>
+        <div style={{ fontSize:14, color:G.muted, marginBottom: prefillEmail ? 12 : 32 }}>Sign in to your Chores account</div>
+        {prefillEmail && (
+          <div style={{ padding:"10px 14px", borderRadius:10, background:G.greenPale, color:G.greenMid, fontSize:13, fontWeight:600, marginBottom:20 }}>
+            ✅ Looks like you already have an account. Sign in below!
+          </div>
+        )}
 
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
           <div style={{ position:"relative" }}>
@@ -4493,6 +4420,7 @@ export default function ChoresApp() {
   const storedUser = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
   const storedToken = isBrowser ? localStorage.getItem("chores_token") : null;
   const [appView, setAppView] = useState((storedToken && storedUser) ? "user" : "onboarding");
+  const [loginPrefillEmail, setLoginPrefillEmail] = useState("");
   const [role, setRole] = useState(storedUser?.role || "worker");
   const [currentUserData, setCurrentUserData] = useState(storedUser);
 
@@ -4645,8 +4573,8 @@ export default function ChoresApp() {
   const handleDispute = (id) => { setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"}); };
   const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); };
 
-  if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} />;
-  if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);}} onShowLogin={()=>setAppView("login")} darkMode={darkMode} />;
+  if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
+  if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
 
   if (appView==="admin") return (
     <div style={{ maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)" }}>
@@ -4714,14 +4642,7 @@ export default function ChoresApp() {
                   </div>
                 )}
                 {inboxMessages.map(m=>(
-                  <div key={m.id} className="tap" onClick={()=>{
-                    setChatOpen(m);
-                    if (m.unread) {
-                      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-                      fetch(`${BACKEND}/api/messages/mark-read`, { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`}, body:JSON.stringify({messageIds:[m.id]}) }).catch(()=>{});
-                      setInboxMessages(prev => prev.map(x => x.id===m.id ? {...x, unread:false} : x));
-                    }
-                  }} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
+                  <div key={m.id} className="tap" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
                     <Avatar name={m.from} />
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span><span style={{ fontSize:11, color:G.muted }}>{m.time}</span></div>
@@ -4747,8 +4668,8 @@ export default function ChoresApp() {
                   ))}
                 </div>
                 <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
-                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){const msg=chatMsg;setChatMsg("");setChatHistory(h=>[...h,{from:"me",text:msg}]);const token=isBrowser?localStorage.getItem("chores_token"):null;fetch(`${BACKEND}/api/messages/send`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({recipientId:chatOpen.senderId||chatOpen.id,jobId:chatOpen.jobId||chatOpen.job_id,body:msg})}).catch(()=>{});}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
-                  <button className="btn" onClick={()=>{if(chatMsg.trim()){const msg=chatMsg;setChatMsg("");setChatHistory(h=>[...h,{from:"me",text:msg}]);const token=isBrowser?localStorage.getItem("chores_token"):null;fetch(`${BACKEND}/api/messages/send`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({recipientId:chatOpen.senderId||chatOpen.id,jobId:chatOpen.jobId||chatOpen.job_id,body:msg})}).catch(()=>{});}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
+                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
+                  <button className="btn" onClick={()=>{if(chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
                 </div>
               </div>
             )}

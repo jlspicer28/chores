@@ -16,7 +16,9 @@
 
 require("dotenv").config();
 const express = require("express");
+const Anthropic = require("@anthropic-ai/sdk");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -63,69 +65,56 @@ app.post("/api/auth/register", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role } = req.body;
 
   try {
-    // 1. Create auth user via admin API (bypasses email confirmation, gives us a real session)
-    const { data: adminData, error: adminError } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
+    // 1. Check if user already exists in our users table
+    const { data: existingUser } = await supabase
+      .from("users")
+      .select("id, email, role")
+      .eq("email", email.toLowerCase().trim())
+      .maybeSingle();
 
-    let userId;
-
-    if (adminError) {
-      // User already exists in auth — just sign them in
-      if (adminError.message?.includes("already been registered") || adminError.status === 422) {
-        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-        if (loginError) return res.json({ error: "An account with this email already exists. Please sign in instead." });
-
-        const { data: profile } = await supabase.from("users").select("*").eq("id", loginData.user.id).single();
-        return res.json({
-          success: true,
-          token: loginData.session.access_token,
-          user: {
-            id: loginData.user.id,
-            email,
-            firstName: profile?.first_name || firstName,
-            lastName: profile?.last_name || lastName,
-            role: profile?.role || role || "worker",
-            phone: profile?.phone || phone,
-            zip: profile?.zip || zip,
-          },
-        });
-      }
-      return res.json({ error: adminError.message });
+    if (existingUser) {
+      // User already registered — tell frontend to redirect to login
+      return res.json({ alreadyExists: true });
     }
 
-    userId = adminData.user.id;
+    // 2. Create auth user in Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+    });
 
-    // 2. Insert profile into users table
+    // Supabase returns identities:[] when email already exists in auth but not our table
+    if (authError || authData?.user?.identities?.length === 0) {
+      return res.json({ alreadyExists: true });
+    }
+
+    const userId = authData.user.id;
+
+    // 3. Write profile to our custom users table (NOT Supabase's auth.users)
     const { error: dbError } = await supabase.from("users").insert({
       id: userId,
-      email,
+      email: email.toLowerCase().trim(),
       first_name: firstName,
       last_name: lastName,
-      phone,
-      zip,
+      phone: phone || null,
+      zip: zip || null,
       role: role || "worker",
+      rating: 5.0,
+      jobs_completed: 0,
+      identity_verified: false,
+      created_at: new Date().toISOString(),
     });
-    if (dbError) console.warn("Profile insert warning:", dbError.message);
 
-    // 3. Sign in to get a real session token
-    const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({ email, password });
-    if (sessionError) return res.json({ error: sessionError.message });
+    if (dbError) {
+      console.error("Profile insert error:", dbError.message);
+      return res.json({ error: "Account created but profile save failed: " + dbError.message });
+    }
 
     res.json({
       success: true,
-      token: sessionData.session.access_token,
-      user: {
-        id: userId,
-        email,
-        firstName,
-        lastName,
-        role: role || "worker",
-        phone,
-        zip,
-      },
+      userId,
+      token: authData.session?.access_token || null,
+      user: { id: userId, email, firstName, lastName, phone, zip, role: role || "worker" },
     });
   } catch (err) {
     console.error("Register error:", err.message);
@@ -141,7 +130,7 @@ app.post("/api/auth/login", async (req, res) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return res.json({ error: error.message });
 
-    // Fetch full profile from users table
+    // Fetch full profile from our custom users table
     const { data: profile } = await supabase
       .from("users")
       .select("*")
@@ -156,9 +145,11 @@ app.post("/api/auth/login", async (req, res) => {
         email: profile?.email || email,
         firstName: profile?.first_name || "",
         lastName: profile?.last_name || "",
-        role: profile?.role || "worker",
         phone: profile?.phone || "",
         zip: profile?.zip || "",
+        role: profile?.role || "worker",
+        rating: profile?.rating || 5.0,
+        jobsCompleted: profile?.jobs_completed || 0,
       },
     });
   } catch (err) {
@@ -280,8 +271,20 @@ app.post("/api/charge", requireAuth, async (req, res) => {
     const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
     if (!job) return res.json({ error: "Job not found" });
 
-    // Fetch poster — ensure they have a Stripe customer
-    let stripeCustomerId = await ensureStripeCustomer(req.user.id);
+    // Fetch poster — create Stripe customer on first payment if needed
+    const { data: poster } = await supabase
+      .from("users").select("stripe_customer_id, email, first_name, last_name").eq("id", req.user.id).single();
+
+    let stripeCustomerId = poster.stripe_customer_id;
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: poster.email,
+        name: `${poster.first_name} ${poster.last_name}`,
+        metadata: { userId: req.user.id },
+      });
+      stripeCustomerId = customer.id;
+      await supabase.from("users").update({ stripe_customer_id: stripeCustomerId }).eq("id", req.user.id);
+    }
 
     const amountCents = Math.round(job.pay * 100);
     const feeCents = Math.round(amountCents * 0.08);
@@ -484,122 +487,38 @@ app.get("/api/connect/status", requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // SAVED CARDS
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// PAYMENT METHODS — save, list, set default, delete
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Helper: ensure user has a Stripe customer, return their customer ID
-async function ensureStripeCustomer(userId) {
-  const { data: user } = await supabase
-    .from("users")
-    .select("stripe_customer_id, email, first_name, last_name")
-    .eq("id", userId)
-    .single();
-
-  if (user?.stripe_customer_id) return user.stripe_customer_id;
-
-  const customer = await stripe.customers.create({
-    email: user.email,
-    name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-    metadata: { userId },
-  });
-  await supabase.from("users").update({ stripe_customer_id: customer.id }).eq("id", userId);
-  return customer.id;
-}
-
-// Save a new card to the logged-in user's Stripe customer
 app.post("/api/customer/save-card", requireAuth, async (req, res) => {
   const { paymentMethodId } = req.body;
-  if (!paymentMethodId) return res.json({ error: "paymentMethodId required" });
+
+  const { data: user } = await supabase
+    .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+
   try {
-    const customerId = await ensureStripeCustomer(req.user.id);
-    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
-
-    // Make default if first card
-    const existing = await stripe.paymentMethods.list({ customer: customerId, type: "card" });
-    if (existing.data.length === 1) {
-      await stripe.customers.update(customerId, {
-        invoice_settings: { default_payment_method: paymentMethodId },
-      });
-    }
-
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
-    res.json({
-      success: true,
-      card: {
-        id: pm.id,
-        brand: pm.card.brand,
-        last4: pm.card.last4,
-        expMonth: pm.card.exp_month,
-        expYear: pm.card.exp_year,
-        isDefault: existing.data.length === 1,
-      },
-    });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-// List saved cards
-app.get("/api/customer/cards", requireAuth, async (req, res) => {
-  try {
-    const { data: user } = await supabase
-      .from("users")
-      .select("stripe_customer_id")
-      .eq("id", req.user.id)
-      .single();
-
-    if (!user?.stripe_customer_id) return res.json({ cards: [] });
-
-    const [pms, customer] = await Promise.all([
-      stripe.paymentMethods.list({ customer: user.stripe_customer_id, type: "card" }),
-      stripe.customers.retrieve(user.stripe_customer_id),
-    ]);
-
-    const defaultId = customer.invoice_settings?.default_payment_method;
-
-    res.json({
-      cards: pms.data.map(pm => ({
-        id: pm.id,
-        brand: pm.card.brand,
-        last4: pm.card.last4,
-        expMonth: pm.card.exp_month,
-        expYear: pm.card.exp_year,
-        isDefault: pm.id === defaultId,
-      })),
-    });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-// Set a card as default
-app.post("/api/customer/set-default", requireAuth, async (req, res) => {
-  const { paymentMethodId } = req.body;
-  try {
-    const { data: user } = await supabase
-      .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: user.stripe_customer_id });
     await stripe.customers.update(user.stripe_customer_id, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
-    res.json({ success: true });
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    res.json({ success: true, card: { brand: pm.card.brand, last4: pm.card.last4 } });
   } catch (err) {
     res.json({ error: err.message });
   }
 });
 
-// Delete (detach) a card
-app.post("/api/customer/delete-card", requireAuth, async (req, res) => {
-  const { paymentMethodId } = req.body;
+app.get("/api/customer/cards", requireAuth, async (req, res) => {
+  const { data: user } = await supabase
+    .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+
   try {
-    await stripe.paymentMethods.detach(paymentMethodId);
-    res.json({ success: true });
+    const pms = await stripe.paymentMethods.list({ customer: user.stripe_customer_id, type: "card" });
+    res.json({ cards: pms.data.map(pm => ({
+      id: pm.id, brand: pm.card.brand, last4: pm.card.last4,
+      expMonth: pm.card.exp_month, expYear: pm.card.exp_year,
+    }))});
   } catch (err) {
     res.json({ error: err.message });
   }
 });
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IDENTITY VERIFICATION
@@ -740,89 +659,43 @@ function timeAgo(dateStr) {
   return `${days} days ago`;
 }
 
-app.post("/api/jobs/:id/apply", requireAuth, async (req, res) => {
-  const { message, availability } = req.body;
+app.post("/api/jobs/:id/apply", async (req, res) => {
+  const { message, availability, workerId, workerName } = req.body;
   const jobId = req.params.id;
-  const workerId = req.user.id;
-
   try {
-    // 1. Get worker info
-    const { data: worker } = await supabase
-      .from("users")
-      .select("first_name, last_name, email")
-      .eq("id", workerId)
-      .single();
-    const workerName = worker ? `${worker.first_name} ${worker.last_name}`.trim() : "Someone";
-
-    // 2. Check for duplicate application
-    const { data: existing } = await supabase
-      .from("applications")
-      .select("id")
-      .eq("job_id", jobId)
-      .eq("worker_id", workerId)
-      .single();
-    if (existing) return res.json({ error: "You have already applied to this job." });
-
-    // 3. Save application
-    const { error: appError } = await supabase.from("applications").insert({
+    // 1. Save application
+    const { error } = await supabase.from("applications").insert({
       job_id: jobId,
       worker_id: workerId,
       message,
-      availability: Array.isArray(availability) ? availability.join(", ") : availability,
+      availability: availability?.join(", "),
       status: "pending",
       created_at: new Date().toISOString(),
     });
-    if (appError) return res.json({ error: appError.message });
+    if (error) return res.json({ error: error.message });
 
-    // 4. Get job + poster info
+    // 2. Get job + poster info
     const { data: job } = await supabase
       .from("jobs")
       .select("id, title, poster_id, pay")
       .eq("id", jobId)
       .single();
 
+    // 3. Write message to poster's inbox
     if (job?.poster_id) {
-      const preview = `${workerName} applied to your job`;
-      const body = message || `${workerName} has applied to "${job.title}".`;
-
-      // 5. Write message to poster's inbox
       await supabase.from("messages").insert({
         sender_id: workerId,
         recipient_id: job.poster_id,
         job_id: jobId,
         type: "application",
-        preview,
-        body,
+        preview: `${workerName || "Someone"} applied to your job`,
+        body: message,
         read: false,
         created_at: new Date().toISOString(),
-      }).catch(() => {});
-
-      // 6. Email the poster via Resend
-      const { data: poster } = await supabase
-        .from("users")
-        .select("email, first_name")
-        .eq("id", job.poster_id)
-        .single();
-
-      if (poster?.email && process.env.RESEND_API_KEY) {
-        fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            from: "Chores App <noreply@choresnearme.com>",
-            to: [poster.email],
-            subject: `New applicant for "${job.title}"`,
-            html: `<p>Hi ${poster.first_name || "there"},</p>
-<p><strong>${workerName}</strong> has applied to your job <strong>"${job.title}"</strong>.</p>
-${message ? `<p>Their message: <em>"${message}"</em></p>` : ""}
-<p>Log in to the app to review and accept or decline.</p>
-<p>— The Chores Team</p>`,
-          }),
-        }).catch(() => {});
-      }
+      }).catch(()=>{});
     }
 
-    // 7. Get updated applicant count
+    // 4. Get updated applicant count
     const { count } = await supabase
       .from("applications")
       .select("*", { count: "exact", head: true })
@@ -834,120 +707,6 @@ ${message ? `<p>Their message: <em>"${message}"</em></p>` : ""}
     res.json({ error: err.message });
   }
 });
-
-// Send an in-app message
-app.post("/api/messages/send", requireAuth, async (req, res) => {
-  const { recipientId, jobId, body } = req.body;
-  if (!recipientId || !body?.trim()) return res.json({ error: "recipientId and body required" });
-
-  try {
-    const { data: sender } = await supabase
-      .from("users")
-      .select("first_name, last_name")
-      .eq("id", req.user.id)
-      .single();
-    const senderName = sender ? `${sender.first_name} ${sender.last_name}`.trim() : "Someone";
-
-    const { data: msg, error } = await supabase.from("messages").insert({
-      sender_id: req.user.id,
-      recipient_id: recipientId,
-      job_id: jobId || null,
-      type: "chat",
-      preview: body.slice(0, 80),
-      body,
-      read: false,
-      created_at: new Date().toISOString(),
-    }).select().single();
-
-    if (error) return res.json({ error: error.message });
-
-    // Email the recipient if Resend is configured
-    const { data: recipient } = await supabase
-      .from("users")
-      .select("email, first_name")
-      .eq("id", recipientId)
-      .single();
-
-    if (recipient?.email && process.env.RESEND_API_KEY) {
-      fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: "Chores App <noreply@choresnearme.com>",
-          to: [recipient.email],
-          subject: `New message from ${senderName}`,
-          html: `<p>Hi ${recipient.first_name || "there"},</p>
-<p><strong>${senderName}</strong> sent you a message on Chores:</p>
-<blockquote style="border-left:3px solid #52b788;padding-left:12px;color:#555">"${body}"</blockquote>
-<p>Open the app to reply.</p>
-<p>— The Chores Team</p>`,
-        }),
-      }).catch(() => {});
-    }
-
-    res.json({ success: true, messageId: msg?.id });
-  } catch (err) {
-    console.error("Send message error:", err.message);
-    res.json({ error: err.message });
-  }
-});
-
-// Mark messages as read
-app.post("/api/messages/mark-read", requireAuth, async (req, res) => {
-  const { messageIds } = req.body; // array of ids, or omit to mark all
-  try {
-    let query = supabase.from("messages").update({ read: true }).eq("recipient_id", req.user.id);
-    if (messageIds?.length) query = query.in("id", messageIds);
-    await query;
-    res.json({ success: true });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-// Get notifications for the logged-in user (from messages table)
-app.get("/api/notifications", requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*, job:jobs(title), sender:users!sender_id(first_name, last_name)")
-      .eq("recipient_id", req.user.id)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (error) return res.json({ error: error.message });
-
-    const typeMap = {
-      application: { category: "job",     icon: "applied",    title: (m) => `New applicant for "${m.job?.title || "your job"}"` },
-      accepted:    { category: "job",     icon: "accepted",   title: (m) => `Application accepted` },
-      declined:    { category: "job",     icon: "noshow",     title: (m) => `Application update` },
-      chat:        { category: "job",     icon: "new_job",    title: (m) => `Message from ${m.sender ? `${m.sender.first_name} ${m.sender.last_name}`.trim() : "Someone"}` },
-      payment:     { category: "payment", icon: "payment",    title: (m) => `Payment update` },
-    };
-
-    const notifications = (data || []).map(m => {
-      const t = typeMap[m.type] || { category: "job", icon: "new_job", title: () => m.preview || "Notification" };
-      return {
-        id: m.id,
-        type: t.icon,
-        category: t.category,
-        title: t.title(m),
-        body: m.body || m.preview || "",
-        time: timeAgo(m.created_at),
-        unread: !m.read,
-        senderId: m.sender_id,
-        jobId: m.job_id,
-        jobTitle: m.job?.title || "",
-      };
-    });
-
-    res.json({ notifications });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-
 
 // Get inbox messages for logged-in user
 app.get("/api/messages/inbox", requireAuth, async (req, res) => {
@@ -1029,6 +788,58 @@ ${description}`);
   res.json({ success: true });
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI — Generate application message
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/write-application", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.json({ error: "No prompt provided" });
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 300,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = message.content?.[0]?.text?.trim();
+    res.json({ text });
+  } catch(err) {
+    console.error("AI error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI - Write application message via Claude
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/ai/write-application", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.json({ error: "No prompt provided" });
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text?.trim();
+    if (!text) return res.json({ error: "No response from AI" });
+    res.json({ text });
+  } catch(err) {
+    console.error("AI write error:", err.message);
+    res.json({ error: err.message });
+  }
+});
 
 // WEBHOOKS
 // ─────────────────────────────────────────────────────────────────────────────
