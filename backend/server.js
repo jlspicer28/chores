@@ -269,20 +269,8 @@ app.post("/api/charge", requireAuth, async (req, res) => {
     const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
     if (!job) return res.json({ error: "Job not found" });
 
-    // Fetch poster — create Stripe customer on first payment if needed
-    const { data: poster } = await supabase
-      .from("users").select("stripe_customer_id, email, first_name, last_name").eq("id", req.user.id).single();
-
-    let stripeCustomerId = poster.stripe_customer_id;
-    if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
-        email: poster.email,
-        name: `${poster.first_name} ${poster.last_name}`,
-        metadata: { userId: req.user.id },
-      });
-      stripeCustomerId = customer.id;
-      await supabase.from("users").update({ stripe_customer_id: stripeCustomerId }).eq("id", req.user.id);
-    }
+    // Fetch poster — ensure they have a Stripe customer
+    let stripeCustomerId = await ensureStripeCustomer(req.user.id);
 
     const amountCents = Math.round(job.pay * 100);
     const feeCents = Math.round(amountCents * 0.08);
@@ -485,38 +473,122 @@ app.get("/api/connect/status", requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // SAVED CARDS
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENT METHODS — save, list, set default, delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: ensure user has a Stripe customer, return their customer ID
+async function ensureStripeCustomer(userId) {
+  const { data: user } = await supabase
+    .from("users")
+    .select("stripe_customer_id, email, first_name, last_name")
+    .eq("id", userId)
+    .single();
+
+  if (user?.stripe_customer_id) return user.stripe_customer_id;
+
+  const customer = await stripe.customers.create({
+    email: user.email,
+    name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
+    metadata: { userId },
+  });
+  await supabase.from("users").update({ stripe_customer_id: customer.id }).eq("id", userId);
+  return customer.id;
+}
+
+// Save a new card to the logged-in user's Stripe customer
 app.post("/api/customer/save-card", requireAuth, async (req, res) => {
   const { paymentMethodId } = req.body;
-
-  const { data: user } = await supabase
-    .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
-
+  if (!paymentMethodId) return res.json({ error: "paymentMethodId required" });
   try {
-    await stripe.paymentMethods.attach(paymentMethodId, { customer: user.stripe_customer_id });
+    const customerId = await ensureStripeCustomer(req.user.id);
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+
+    // Make default if first card
+    const existing = await stripe.paymentMethods.list({ customer: customerId, type: "card" });
+    if (existing.data.length === 1) {
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+    }
+
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    res.json({
+      success: true,
+      card: {
+        id: pm.id,
+        brand: pm.card.brand,
+        last4: pm.card.last4,
+        expMonth: pm.card.exp_month,
+        expYear: pm.card.exp_year,
+        isDefault: existing.data.length === 1,
+      },
+    });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// List saved cards
+app.get("/api/customer/cards", requireAuth, async (req, res) => {
+  try {
+    const { data: user } = await supabase
+      .from("users")
+      .select("stripe_customer_id")
+      .eq("id", req.user.id)
+      .single();
+
+    if (!user?.stripe_customer_id) return res.json({ cards: [] });
+
+    const [pms, customer] = await Promise.all([
+      stripe.paymentMethods.list({ customer: user.stripe_customer_id, type: "card" }),
+      stripe.customers.retrieve(user.stripe_customer_id),
+    ]);
+
+    const defaultId = customer.invoice_settings?.default_payment_method;
+
+    res.json({
+      cards: pms.data.map(pm => ({
+        id: pm.id,
+        brand: pm.card.brand,
+        last4: pm.card.last4,
+        expMonth: pm.card.exp_month,
+        expYear: pm.card.exp_year,
+        isDefault: pm.id === defaultId,
+      })),
+    });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Set a card as default
+app.post("/api/customer/set-default", requireAuth, async (req, res) => {
+  const { paymentMethodId } = req.body;
+  try {
+    const { data: user } = await supabase
+      .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
     await stripe.customers.update(user.stripe_customer_id, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
-    res.json({ success: true, card: { brand: pm.card.brand, last4: pm.card.last4 } });
+    res.json({ success: true });
   } catch (err) {
     res.json({ error: err.message });
   }
 });
 
-app.get("/api/customer/cards", requireAuth, async (req, res) => {
-  const { data: user } = await supabase
-    .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
-
+// Delete (detach) a card
+app.post("/api/customer/delete-card", requireAuth, async (req, res) => {
+  const { paymentMethodId } = req.body;
   try {
-    const pms = await stripe.paymentMethods.list({ customer: user.stripe_customer_id, type: "card" });
-    res.json({ cards: pms.data.map(pm => ({
-      id: pm.id, brand: pm.card.brand, last4: pm.card.last4,
-      expMonth: pm.card.exp_month, expYear: pm.card.exp_year,
-    }))});
+    await stripe.paymentMethods.detach(paymentMethodId);
+    res.json({ success: true });
   } catch (err) {
     res.json({ error: err.message });
   }
 });
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IDENTITY VERIFICATION
@@ -730,95 +802,8 @@ app.get("/api/messages/inbox", requireAuth, async (req, res) => {
   res.json({ messages });
 });
 
-// Get all applications for jobs posted by the logged-in poster
-app.get("/api/poster/applications", requireAuth, async (req, res) => {
-  try {
-    // Get all jobs owned by this poster
-    const { data: jobs, error: jobsError } = await supabase
-      .from("jobs")
-      .select("id, title, pay, category")
-      .eq("poster_id", req.user.id);
-
-    if (jobsError) return res.json({ error: jobsError.message });
-    if (!jobs?.length) return res.json({ applications: [] });
-
-    const jobIds = jobs.map(j => j.id);
-    const jobMap = Object.fromEntries(jobs.map(j => [j.id, j]));
-
-    // Get all applications for those jobs with worker info
-    const { data: apps, error: appsError } = await supabase
-      .from("applications")
-      .select("*, worker:users!worker_id(id, first_name, last_name, email, phone)")
-      .in("job_id", jobIds)
-      .order("created_at", { ascending: false });
-
-    if (appsError) return res.json({ error: appsError.message });
-
-    const applications = (apps || []).map(a => ({
-      id: a.id,
-      jobId: a.job_id,
-      jobTitle: jobMap[a.job_id]?.title || "Unknown job",
-      jobPay: jobMap[a.job_id]?.pay || 0,
-      jobCategory: jobMap[a.job_id]?.category || "",
-      workerId: a.worker_id,
-      workerName: a.worker ? `${a.worker.first_name} ${a.worker.last_name}`.trim() : "Unknown",
-      workerEmail: a.worker?.email || "",
-      message: a.message || "",
-      availability: a.availability || "",
-      status: a.status || "pending",
-      time: timeAgo(a.created_at),
-      createdAt: a.created_at,
-    }));
-
-    res.json({ applications });
-  } catch (err) {
-    console.error("Poster applications error:", err.message);
-    res.json({ error: err.message });
-  }
-});
-
-// Accept or decline an application
-app.post("/api/applications/:id/status", requireAuth, async (req, res) => {
-  const { status } = req.body; // "accepted" | "declined"
-  const appId = req.params.id;
-
-  try {
-    const { data: app, error: fetchError } = await supabase
-      .from("applications")
-      .select("*, job:jobs!job_id(title, poster_id)")
-      .eq("id", appId)
-      .single();
-
-    if (fetchError || !app) return res.json({ error: "Application not found" });
-    if (app.job?.poster_id !== req.user.id) return res.status(403).json({ error: "Not authorized" });
-
-    await supabase.from("applications").update({ status }).eq("id", appId);
-
-    // Notify the worker via messages
-    if (app.worker_id) {
-      const msg = status === "accepted"
-        ? `Great news! Your application for "${app.job.title}" was accepted.`
-        : `Your application for "${app.job.title}" was not selected this time.`;
-      await supabase.from("messages").insert({
-        sender_id: req.user.id,
-        recipient_id: app.worker_id,
-        job_id: app.job_id,
-        type: status === "accepted" ? "accepted" : "declined",
-        preview: msg,
-        body: msg,
-        read: false,
-        created_at: new Date().toISOString(),
-      }).catch(() => {});
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Application status error:", err.message);
-    res.json({ error: err.message });
-  }
-});
-
- (stored in Supabase, emailed if Resend configured)
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPORT SUBMISSIONS (stored in Supabase, emailed if Resend configured)
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendSupportEmail(subject, body) {
   if (!process.env.RESEND_API_KEY) return;

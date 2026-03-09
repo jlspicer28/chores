@@ -209,11 +209,31 @@ function Toast({ notif, onDismiss }) {
 // ═══════════════════════════════════════════════════════════════════════════
 function EscrowHoldModal({ job, onClose, onConfirm }) {
   const [step, setStep] = useState(0);
-  const [payMethod, setPayMethod] = useState("visa");
+  const [payMethod, setPayMethod] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [savedCards, setSavedCards] = useState([]);
+  const [cardsLoading, setCardsLoading] = useState(true);
   const fee = +(job.pay * 0.08).toFixed(2);
   const total = +(job.pay + fee).toFixed(2);
   const workerGets = +(job.pay * 0.92).toFixed(2);
+
+  const brandLabel = (brand) => ({ visa:"Visa", mastercard:"Mastercard", amex:"Amex", discover:"Discover" }[brand] || "Card");
+
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) { setCardsLoading(false); return; }
+    fetch(`${BACKEND}/api/customer/cards`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.cards) {
+          setSavedCards(data.cards);
+          const def = data.cards.find(c => c.isDefault) || data.cards[0];
+          if (def) setPayMethod(def.id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCardsLoading(false));
+  }, []);
 
   if (step === 2) return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
@@ -281,11 +301,22 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
         {step===1 && (<>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Payment Method</div>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-            {[{id:"visa",icon:"💳",label:"Visa •••• 4242",sub:"Expires 08/27"},{id:"apple",icon:"",label:"Apple Pay",sub:"Face ID"},{id:"google",icon:"G",label:"Google Pay",sub:"Linked account"}].map(m=>(
+            {cardsLoading ? (
+              <div style={{ textAlign:"center", padding:"16px 0", color:G.muted, fontSize:13 }}>Loading saved cards…</div>
+            ) : savedCards.length === 0 ? (
+              <div style={{ background:G.sand, borderRadius:14, padding:16, textAlign:"center", color:G.muted, fontSize:13 }}>
+                No saved cards. <span style={{ color:G.greenMid, fontWeight:700 }}>Add a card in Settings → Payments.</span>
+              </div>
+            ) : savedCards.map(m => (
               <div key={m.id} className="tap" onClick={()=>setPayMethod(m.id)} style={{ display:"flex", gap:14, alignItems:"center", background:G.white, borderRadius:16, padding:"14px 16px", border:`2px solid ${payMethod===m.id?G.green:G.border}`, transition:"all .15s" }}>
-                <div style={{ width:44, height:44, borderRadius:12, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{m.icon}</div>
-                <div style={{ flex:1 }}><div style={{ fontWeight:700, fontSize:14 }}>{m.label}</div><div style={{ fontSize:12, color:G.muted, marginTop:1 }}>{m.sub}</div></div>
-                <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>{payMethod===m.id&&<div style={{ width:10, height:10, borderRadius:"50%", background:G.green }}/>}</div>
+                <div style={{ width:44, height:44, borderRadius:12, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💳</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{brandLabel(m.brand)} •••• {m.last4}</div>
+                  <div style={{ fontSize:12, color:G.muted }}>Expires {String(m.expMonth||"").padStart(2,"0")}/{String(m.expYear||"").slice(-2)}{m.isDefault?" · Default":""}</div>
+                </div>
+                <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  {payMethod===m.id&&<div style={{ width:10, height:10, borderRadius:"50%", background:G.green }}/>}
+                </div>
               </div>
             ))}
           </div>
@@ -297,7 +328,24 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
           </div>
           <div style={{ display:"flex", gap:10 }}>
             <Btn onClick={()=>setStep(0)} variant="ghost" style={{ padding:"15px 20px", borderRadius:16 }}>←</Btn>
-            <Btn onClick={()=>{setProcessing(true);setTimeout(()=>{setProcessing(false);setStep(2);},1500);}} disabled={processing} style={{ flex:1, padding:15, borderRadius:16, fontSize:15 }}>{processing?"Processing…":`Hold $${total.toFixed(2)}`}</Btn>
+            <Btn onClick={async ()=>{
+              if (!payMethod) return;
+              setProcessing(true);
+              const token = isBrowser ? localStorage.getItem("chores_token") : null;
+              try {
+                const res = await fetch(`${BACKEND}/api/charge`, {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
+                  body: JSON.stringify({ paymentMethodId: payMethod, amountCents: Math.round(total*100), jobId: String(job.id), jobTitle: job.title }),
+                });
+                const data = await res.json();
+                if (data.error) { alert(data.error); setProcessing(false); return; }
+                setProcessing(false);
+                setStep(2);
+              } catch { setProcessing(false); alert("Network error — please try again."); }
+            }} disabled={processing||!payMethod} style={{ flex:1, padding:15, borderRadius:16, fontSize:15, opacity:(!payMethod||processing)?.5:1 }}>
+              {processing?"Processing…":`Hold $${total.toFixed(2)}`}
+            </Btn>
           </div>
         </>)}
       </div>
@@ -455,69 +503,100 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
 // ═══════════════════════════════════════════════════════════════════════════
 function CheckoutModal({ job, onClose, onComplete }) {
   const [step, setStep] = useState(0); // 0=summary, 1=card entry, 2=review, 3=processing, 4=success
-  const [card, setCard] = useState({ number:"", expiry:"", cvc:"", name:"", save:true });
-  const [payMethod, setPayMethod] = useState("new"); // "new","visa","apple"
+  const [card, setCard] = useState({ name:"", save:true });
+  const [payMethod, setPayMethod] = useState(null); // null = no selection yet, "new" = new card, or pm_xxx id
   const [tipPct, setTipPct] = useState(0);
-  const [stripeRef, setStripeRef] = useState(null); // { stripe, card } from StripeCardInput
+  const [stripeRef, setStripeRef] = useState(null);
   const [stripeError, setStripeError] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState(null);
   const [cardBrand, setCardBrand] = useState("");
   const [cardLast4, setCardLast4] = useState("");
+  const [savedCards, setSavedCards] = useState([]);
+  const [cardsLoading, setCardsLoading] = useState(true);
   const fee = +(job.pay * 0.08).toFixed(2);
   const tip = +(job.pay * tipPct / 100).toFixed(2);
   const total = +(job.pay + fee + tip).toFixed(2);
   const workerGets = +((job.pay + tip) * 0.92).toFixed(2);
 
-  // Called when "Pay" is tapped — tokenize the card with Stripe
+  // Load saved cards from Stripe via backend on mount
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) { setCardsLoading(false); return; }
+    fetch(`${BACKEND}/api/customer/cards`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.cards) {
+          setSavedCards(data.cards);
+          const def = data.cards.find(c => c.isDefault) || data.cards[0];
+          if (def) setPayMethod(def.id);
+          else setPayMethod("new");
+        } else {
+          setPayMethod("new");
+        }
+      })
+      .catch(() => setPayMethod("new"))
+      .finally(() => setCardsLoading(false));
+  }, []);
+
+  const brandLabel = (brand) => ({ visa:"Visa", mastercard:"Mastercard", amex:"Amex", discover:"Discover" }[brand] || "Card");
+  const cardIcon = (brand) => ({ visa:"💳", mastercard:"💳", amex:"💳", discover:"💳" }[brand] || "💳");
+
   const handleStripeCharge = async () => {
     setStripeError("");
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+
     if (payMethod === "new") {
       if (!stripeRef) { setStripeError("Stripe is still loading, please wait."); return; }
       setStep(3);
       const { stripe, card: cardEl } = stripeRef;
       const result = await stripe.createPaymentMethod({
-        type: "card",
-        card: cardEl,
+        type: "card", card: cardEl,
         billing_details: { name: card.name || "Chores User" },
       });
-      if (result.error) {
-        setStep(2);
-        setStripeError(result.error.message);
-        return;
-      }
-      setPaymentMethodId(result.paymentMethod.id);
+      if (result.error) { setStep(2); setStripeError(result.error.message); return; }
+
+      const pmId = result.paymentMethod.id;
       setCardBrand(result.paymentMethod.card.brand);
       setCardLast4(result.paymentMethod.card.last4);
 
-      // ── Real backend charge ──
+      // Optionally save the card for future use
+      if (card.save && token) {
+        fetch(`${BACKEND}/api/customer/save-card`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ paymentMethodId: pmId }),
+        }).catch(() => {});
+      }
+
       try {
         const res = await fetch(`${BACKEND}/api/charge`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            paymentMethodId: result.paymentMethod.id,
-            amountCents: Math.round(total * 100),
-            jobId: String(job.id),
-            jobTitle: job.title,
-          }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ paymentMethodId: pmId, amountCents: Math.round(total * 100), jobId: String(job.id), jobTitle: job.title }),
         });
         const data = await res.json();
-        if (data.error) {
-          setStep(2);
-          setStripeError(data.error);
-          return;
-        }
-        // data.intentId is the escrow ID — store it for release/refund later
-        setPaymentMethodId(result.paymentMethod.id + "|" + data.intentId);
+        if (data.error) { setStep(2); setStripeError(data.error); return; }
+        setPaymentMethodId(pmId + "|" + data.intentId);
         setStep(4);
-      } catch (err) {
-        setStep(2);
-        setStripeError("Network error — please try again.");
-      }
+      } catch { setStep(2); setStripeError("Network error — please try again."); }
+
     } else {
-      // Saved card / Apple Pay — go straight to processing
+      // Use a saved card
+      const saved = savedCards.find(c => c.id === payMethod);
+      setCardBrand(saved?.brand || "");
+      setCardLast4(saved?.last4 || "");
       setStep(3);
-      setTimeout(() => setStep(4), 1800);
+      try {
+        const res = await fetch(`${BACKEND}/api/charge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ paymentMethodId: payMethod, amountCents: Math.round(total * 100), jobId: String(job.id), jobTitle: job.title }),
+        });
+        const data = await res.json();
+        if (data.error) { setStep(2); setStripeError(data.error); return; }
+        setPaymentMethodId(payMethod + "|" + data.intentId);
+        setStep(4);
+      } catch { setStep(2); setStripeError("Network error — please try again."); }
     }
   };
 
@@ -637,21 +716,32 @@ function CheckoutModal({ job, onClose, onComplete }) {
         </>)}
 
         {step===1 && (<>
-          {/* Payment method selection */}
-          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Saved Methods</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
-            {[{id:"visa",icon:"💳",label:"Visa •••• 4242",sub:"Expires 08/27"},{id:"apple",icon:"",label:"Apple Pay",sub:"Face ID"}].map(m=>(
-              <div key={m.id} className="tap" onClick={()=>setPayMethod(m.id)} style={{ display:"flex", gap:12, alignItems:"center", background:G.white, borderRadius:14, padding:"12px 14px", border:`2px solid ${payMethod===m.id?G.green:G.border}`, transition:"all .15s" }}>
-                <div style={{ width:40, height:40, borderRadius:10, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{m.icon}</div>
-                <div style={{ flex:1 }}><div style={{ fontWeight:700, fontSize:13 }}>{m.label}</div><div style={{ fontSize:11, color:G.muted }}>{m.sub}</div></div>
-                <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>{payMethod===m.id&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green }}/>}</div>
+          {/* Saved payment methods */}
+          {cardsLoading ? (
+            <div style={{ textAlign:"center", padding:"20px 0", color:G.muted, fontSize:13 }}>Loading saved cards…</div>
+          ) : savedCards.length > 0 && (
+            <>
+              <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Saved Cards</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+                {savedCards.map(m => (
+                  <div key={m.id} className="tap" onClick={()=>setPayMethod(m.id)} style={{ display:"flex", gap:12, alignItems:"center", background:G.white, borderRadius:14, padding:"12px 14px", border:`2px solid ${payMethod===m.id?G.green:G.border}`, transition:"all .15s" }}>
+                    <div style={{ width:40, height:40, borderRadius:10, background:payMethod===m.id?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💳</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{brandLabel(m.brand)} •••• {m.last4}</div>
+                      <div style={{ fontSize:11, color:G.muted }}>Expires {String(m.expMonth||"").padStart(2,"0")}/{String(m.expYear||"").slice(-2)}{m.isDefault?" · Default":""}</div>
+                    </div>
+                    <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${payMethod===m.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      {payMethod===m.id&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green }}/>}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
 
-          {/* New card */}
+          {/* New card toggle */}
           <div className="tap" onClick={()=>setPayMethod("new")} style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <span>New Card {payMethod==="new"&&"✓"}</span>
+            <span>New Card {payMethod==="new"?"✓":""}</span>
             <span style={{ color:G.greenMid, fontWeight:700, fontSize:12 }}>{payMethod!=="new"?"+ Add":"Active"}</span>
           </div>
 
@@ -661,9 +751,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
                 <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:6 }}>Card Details</label>
                 <StripeCardInput onReady={setStripeRef} />
                 {stripeError && (
-                  <div style={{ color:G.red, fontSize:12, fontWeight:600, marginTop:8, display:"flex", alignItems:"center", gap:5 }}>
-                    ⚠️ {stripeError}
-                  </div>
+                  <div style={{ color:G.red, fontSize:12, fontWeight:600, marginTop:8, display:"flex", alignItems:"center", gap:5 }}>⚠️ {stripeError}</div>
                 )}
               </div>
               <div style={{ marginBottom:12 }}>
@@ -673,7 +761,14 @@ function CheckoutModal({ job, onClose, onComplete }) {
                   onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
                 />
               </div>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:10 }}>
+              {/* Save card toggle */}
+              <div className="tap" onClick={()=>setCard(c=>({...c,save:!c.save}))} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderTop:`1px solid ${G.border}`, marginTop:4 }}>
+                <div style={{ width:22, height:22, borderRadius:6, border:`2px solid ${card.save?G.green:G.border}`, background:card.save?G.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                  {card.save && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+                </div>
+                <span style={{ fontSize:13, color:G.text, fontWeight:600 }}>Save card for future payments</span>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                 <span style={{ fontSize:11, color:G.muted }}>Secured by Stripe · PCI-DSS Level 1</span>
               </div>
@@ -711,14 +806,21 @@ function CheckoutModal({ job, onClose, onComplete }) {
             </div>
           </div>
 
-          <div style={{ background:G.white, borderRadius:14, padding:14, marginBottom:14, display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.04)" }}>
-            <div style={{ width:36, height:36, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{payMethod==="visa"?"💳":payMethod==="apple"?"":"💳"}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:700, fontSize:13 }}>{payMethod==="visa"?"Visa •••• 4242":payMethod==="apple"?"Apple Pay":`Card •••• ${card.number.slice(-4)}`}</div>
-              <div style={{ fontSize:11, color:G.muted }}>{payMethod==="apple"?"Face ID":"Charged immediately"}</div>
-            </div>
-            <div className="tap" onClick={()=>setStep(1)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>
-          </div>
+          {(() => {
+            const saved = savedCards.find(c => c.id === payMethod);
+            const label = saved ? `${brandLabel(saved.brand)} •••• ${saved.last4}` : "New Card";
+            const sub = saved ? `Expires ${String(saved.expMonth||"").padStart(2,"0")}/${String(saved.expYear||"").slice(-2)}` : "Charged immediately";
+            return (
+              <div style={{ background:G.white, borderRadius:14, padding:14, marginBottom:14, display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.04)" }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>💳</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:13 }}>{label}</div>
+                  <div style={{ fontSize:11, color:G.muted }}>{sub}</div>
+                </div>
+                <div className="tap" onClick={()=>setStep(1)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>
+              </div>
+            );
+          })()}
 
           <div style={{ background:G.orangeLight, borderRadius:14, padding:14, marginBottom:18, display:"flex", gap:10, alignItems:"flex-start" }}>
             <span style={{ fontSize:16 }}>⚠️</span>
@@ -809,14 +911,26 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [badgeTab, setBadgeTab] = useState("badges");
   // Payment methods state
-  const [pmCards, setPmCards] = useState([
-    { id:"pm_visa_4242", brand:"visa", last4:"4242", exp_month:8, exp_year:2027, isDefault:true },
-    { id:"pm_mc_8910", brand:"mastercard", last4:"8910", exp_month:3, exp_year:2026, isDefault:false },
-  ]);
+  const [pmCards, setPmCards] = useState([]);
+  const [pmLoading, setPmLoading] = useState(false);
   const [pmAdding, setPmAdding] = useState(false);
   const [pmProcessing, setPmProcessing] = useState(false);
   const [pmAddSuccess, setPmAddSuccess] = useState(false);
   const [pmError, setPmError] = useState("");
+
+  // Load real saved cards from Stripe via backend
+  const fetchCards = React.useCallback(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    setPmLoading(true);
+    fetch(`${BACKEND}/api/customer/cards`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.cards) setPmCards(data.cards); })
+      .catch(() => {})
+      .finally(() => setPmLoading(false));
+  }, []);
+
+  React.useEffect(() => { fetchCards(); }, [fetchCards]);
   // Transactions state
   const [txFilter, setTxFilter] = useState("all");
   // Bank account state
@@ -1450,52 +1564,52 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     const brandLabels = { visa:"Visa", mastercard:"Mastercard", amex:"Amex", discover:"Discover", unknown:"Card" };
     const brandColors = { visa:"#1a1f71", mastercard:"#eb001b", amex:"#006fcf", discover:"#ff6000" };
 
-    // ── Stripe API helpers (replace with real fetch calls to your backend) ──
+    // ── Real Stripe API helpers ──
     const apiSetDefault = async (pmId) => {
-      // POST /api/set-default-payment-method { paymentMethodId: pmId }
-      setCards(c=>c.map(x=>({...x,isDefault:x.id===pmId})));
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      setCards(c => c.map(x => ({ ...x, isDefault: x.id === pmId })));
+      await fetch(`${BACKEND}/api/customer/set-default`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ paymentMethodId: pmId }),
+      }).catch(() => {});
     };
     const apiDetach = async (pmId) => {
-      // POST /api/detach-payment-method { paymentMethodId: pmId }
-      const c = cards.filter(x=>x.id!==pmId);
-      if (c.length && !c.some(x=>x.isDefault)) c[0].isDefault = true;
-      setCards(c);
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      const remaining = cards.filter(x => x.id !== pmId);
+      if (remaining.length && !remaining.some(x => x.isDefault)) remaining[0].isDefault = true;
+      setCards(remaining);
+      await fetch(`${BACKEND}/api/customer/delete-card`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ paymentMethodId: pmId }),
+      }).catch(() => {});
     };
-    // When Stripe is wired, this would:
-    // - Call backend POST /api/create-setup-intent to get clientSecret
-    // - stripe.confirmCardSetup with clientSecret and card element
-    // - On success, fetch updated payment methods list from backend
     const handleStripeAdd = async () => {
       setError("");
       setProcessing(true);
       const ref = window._settingsStripeRef;
-      if (!ref) {
-        setError("Stripe is still loading, please wait.");
-        setProcessing(false);
-        return;
-      }
+      if (!ref) { setError("Stripe is still loading, please wait."); setProcessing(false); return; }
       const { stripe, card: cardEl } = ref;
       const result = await stripe.createPaymentMethod({ type: "card", card: cardEl });
-      if (result.error) {
-        setError(result.error.message);
+      if (result.error) { setError(result.error.message); setProcessing(false); return; }
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      try {
+        const res = await fetch(`${BACKEND}/api/customer/save-card`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ paymentMethodId: result.paymentMethod.id }),
+        });
+        const data = await res.json();
+        if (data.error) { setError(data.error); setProcessing(false); return; }
+        setCards(c => [...c, data.card]);
         setProcessing(false);
-        return;
+        setAddSuccess(true);
+        setTimeout(() => { setAddSuccess(false); setAdding(false); fetchCards(); }, 1400);
+      } catch (e) {
+        setError("Network error — please try again.");
+        setProcessing(false);
       }
-      const pm = result.paymentMethod;
-      const newCard = {
-        id: pm.id,
-        brand: pm.card.brand,
-        last4: pm.card.last4,
-        exp_month: pm.card.exp_month,
-        exp_year: pm.card.exp_year,
-        isDefault: !cards.length,
-      };
-      setCards(c => [...c, newCard]);
-      // ── Send pm.id to your backend to attach to a Stripe Customer ──
-      // e.g. POST /api/attach-payment-method { paymentMethodId: pm.id, customerId }
-      setProcessing(false);
-      setAddSuccess(true);
-      setTimeout(() => { setAddSuccess(false); setAdding(false); }, 1400);
     };
 
     return (
@@ -1505,33 +1619,47 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Payment Methods</div>
         </div>
 
+        {/* Loading state */}
+        {pmLoading && (
+          <div style={{ textAlign:"center", padding:"24px 0", color:G.muted, fontSize:14 }}>Loading cards…</div>
+        )}
+
+        {/* Empty state */}
+        {!pmLoading && cards.length === 0 && !adding && (
+          <div style={{ textAlign:"center", padding:"24px 20px", color:G.muted }}>
+            <div style={{ fontSize:36, marginBottom:8 }}>💳</div>
+            <div style={{ fontWeight:700, fontSize:15, color:G.text, marginBottom:4 }}>No cards saved yet</div>
+            <div style={{ fontSize:13 }}>Add a card to pay for jobs faster at checkout</div>
+          </div>
+        )}
+
         {/* Existing cards */}
+        {!pmLoading && (
         <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
           {cards.map(c=>{
             const label = brandLabels[c.brand]||"Card";
             return (
               <div key={c.id} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:c.isDefault?`2px solid ${G.green}`:`1.5px solid ${G.border}` }}>
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
-                  {/* Brand icon */}
-                  <div style={{ width:48, height:32, borderRadius:8, background:c.isDefault?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
+                  <div style={{ width:48, height:32, borderRadius:8, background:c.isDefault?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center" }}>
                     <div style={{ fontWeight:900, fontSize:10, color:brandColors[c.brand]||G.text, letterSpacing:-.5, textTransform:"uppercase" }}>{label}</div>
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:700, fontSize:14 }}>{label} •••• {c.last4}</div>
-                    <div style={{ fontSize:12, color:G.muted }}>Expires {String(c.exp_month).padStart(2,"0")}/{String(c.exp_year).slice(-2)}</div>
+                    <div style={{ fontSize:12, color:G.muted }}>Expires {String(c.expMonth||c.exp_month||"").padStart(2,"0")}/{String(c.expYear||c.exp_year||"").slice(-2)}</div>
                   </div>
                   {c.isDefault&&<div style={{ background:G.greenPale, color:G.green, fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:8 }}>Default</div>}
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   {!c.isDefault&&<div className="tap" onClick={()=>apiSetDefault(c.id)} style={{ fontSize:12, fontWeight:700, color:G.greenMid }}>Set Default</div>}
                   {!c.isDefault&&<div style={{ color:G.border }}>·</div>}
-                  {cards.length>1&&<div className="tap" onClick={()=>apiDetach(c.id)} style={{ fontSize:12, fontWeight:700, color:G.red }}>Remove</div>}
+                  <div className="tap" onClick={()=>apiDetach(c.id)} style={{ fontSize:12, fontWeight:700, color:G.red }}>Remove</div>
                 </div>
-                <div style={{ fontSize:10, color:G.muted, marginTop:8, fontFamily:"monospace" }}>id: {c.id}</div>
               </div>
             );
           })}
         </div>
+        )}
 
         {/* Add card — Stripe Elements zone */}
         {adding ? (
@@ -1574,15 +1702,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 </Btn>
               </div>
             )}
-
-            {/* Integration code reference */}
-            <div style={{ marginTop:16, background:G.sand, borderRadius:12, padding:14, fontSize:11, fontFamily:"'Courier New',monospace", color:G.muted, lineHeight:1.7 }}>
-              <div style={{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:11, color:G.text, marginBottom:6 }}>Integration Steps:</div>
-              <div>1. <span style={{ color:G.greenMid }}>stripe.confirmCardSetup</span>(clientSecret)</div>
-              <div>2. Returns <span style={{ color:G.greenMid }}>paymentMethod.id</span> (pm_xxx)</div>
-              <div>3. Attach to <span style={{ color:G.greenMid }}>Customer</span> on backend</div>
-              <div>4. Charge via <span style={{ color:G.greenMid }}>PaymentIntent</span> at checkout</div>
-            </div>
           </div>
         ) : (
           <div className="tap" onClick={()=>setAdding(true)} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:12, border:`1.5px dashed ${G.border}` }}>
@@ -4393,195 +4512,6 @@ function LoginScreen({ onComplete, onBack, darkMode }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// MESSAGES VIEW — tabbed messages + application manager
-// ═══════════════════════════════════════════════════════════════════════════
-function MessagesView({ role, chatOpen, setChatOpen, inboxMessages, setInboxMessages }) {
-  const [tab, setTab] = React.useState("messages"); // "messages" | "applications"
-  const [applications, setApplications] = React.useState([]);
-  const [appsLoading, setAppsLoading] = React.useState(false);
-  const [statusUpdating, setStatusUpdating] = React.useState(null);
-  const [chatMsg, setChatMsg] = React.useState("");
-  const [chatHistory, setChatHistory] = React.useState([]);
-
-  const isPoster = role === "poster";
-
-  // Load applications for posters
-  React.useEffect(() => {
-    if (!isPoster || tab !== "applications") return;
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) return;
-    setAppsLoading(true);
-    fetch(`${BACKEND}/api/poster/applications`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => { if (data.applications) setApplications(data.applications); })
-      .catch(() => {})
-      .finally(() => setAppsLoading(false));
-  }, [tab, isPoster]);
-
-  const updateStatus = async (appId, status) => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    setStatusUpdating(appId);
-    try {
-      await fetch(`${BACKEND}/api/applications/${appId}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status }),
-      });
-      setApplications(prev => prev.map(a => a.id === appId ? { ...a, status } : a));
-    } catch (e) { console.error(e); }
-    setStatusUpdating(null);
-  };
-
-  const statusStyle = (s) => ({
-    accepted:  { bg: G.greenPale,  color: G.greenMid, label: "Accepted" },
-    declined:  { bg: G.redLight,   color: G.red,      label: "Declined" },
-    pending:   { bg: "#FFF7ED",    color: G.gold,     label: "Pending"  },
-  }[s] || { bg: G.sand, color: G.muted, label: s });
-
-  if (chatOpen) return (
-    <div className="fade" style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
-      <div style={{ padding:"14px 20px", background:G.white, borderBottom:`1px solid ${G.border}`, display:"flex", alignItems:"center", gap:12 }}>
-        <div className="tap" onClick={()=>setChatOpen(null)} style={{ fontSize:20, color:G.muted }}>←</div>
-        <Avatar name={chatOpen.from} size={36} />
-        <div>
-          <div style={{ fontWeight:700, fontSize:14 }}>{chatOpen.from}</div>
-          <div style={{ fontSize:11, color:G.greenMid }}>📋 {chatOpen.job}</div>
-        </div>
-      </div>
-      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
-        {/* Show the original application message */}
-        {chatOpen.body && (
-          <div style={{ display:"flex", justifyContent:"flex-start" }}>
-            <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"80%", background:G.white, color:G.text, borderRadius:"18px 18px 18px 4px", boxShadow:"0 2px 8px rgba(0,0,0,.08)", lineHeight:1.5 }}>{chatOpen.body}</div>
-          </div>
-        )}
-        {chatHistory.map((msg, i) => (
-          <div key={i} style={{ display:"flex", justifyContent:msg.from==="me"?"flex-end":"flex-start" }}>
-            <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"75%", ...(msg.from==="me" ? { background:G.green, color:"#fff", borderRadius:"18px 18px 4px 18px" } : { background:"#fff", color:G.text, borderRadius:"18px 18px 18px 4px", boxShadow:"0 2px 8px rgba(0,0,0,.08)" }) }}>{msg.text}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
-        <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)}
-          onKeyDown={e=>{ if(e.key==="Enter"&&chatMsg.trim()){ setChatHistory(h=>[...h,{from:"me",text:chatMsg}]); setChatMsg(""); setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800); }}}
-          placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white }} />
-        <button className="btn" onClick={()=>{ if(chatMsg.trim()){ setChatHistory(h=>[...h,{from:"me",text:chatMsg}]); setChatMsg(""); setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800); }}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18, flexShrink:0 }}>↑</button>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="fade">
-      {/* Header */}
-      <div style={{ padding:"20px 20px 0", background:G.cream }}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text, marginBottom:16 }}>
-          {isPoster ? "Inbox" : "Messages"}
-        </div>
-        {isPoster && (
-          <div style={{ display:"flex", gap:0, borderBottom:`2px solid ${G.border}` }}>
-            {[["messages","💬 Messages"],["applications","📋 Applications"]].map(([id,label])=>(
-              <button key={id} className="btn" onClick={()=>setTab(id)} style={{ flex:1, padding:"10px 0", fontSize:13, fontWeight:700, background:"none", borderBottom:`2px solid ${tab===id?G.green:"transparent"}`, borderRadius:0, color:tab===id?G.green:G.muted, marginBottom:-2 }}>{label}</button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Messages tab */}
-      {tab === "messages" && (
-        <div style={{ padding:"16px 20px" }}>
-          {inboxMessages.length === 0 ? (
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
-              <div style={{ fontSize:48 }}>💬</div>
-              <div style={{ fontWeight:700, fontSize:17, color:G.text }}>No messages yet</div>
-              <div style={{ fontSize:14, color:G.muted, textAlign:"center", lineHeight:1.5 }}>
-                {role === "worker" ? "Apply to jobs to start a conversation" : "Messages from workers will appear here"}
-              </div>
-            </div>
-          ) : inboxMessages.map(m => (
-            <div key={m.id} className="tap card" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
-              <Avatar name={m.from} />
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:"flex", justifyContent:"space-between" }}>
-                  <span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span>
-                  <span style={{ fontSize:11, color:G.muted }}>{m.time}</span>
-                </div>
-                <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>📋 {m.job}</div>
-                <div style={{ fontSize:13, color:m.unread?G.text:G.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.preview}</div>
-              </div>
-              {m.unread && <div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0 }}/>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Applications tab (poster only) */}
-      {tab === "applications" && (
-        <div style={{ padding:"16px 20px" }}>
-          {appsLoading ? (
-            <div style={{ textAlign:"center", padding:"48px 0", color:G.muted, fontSize:14 }}>Loading applications…</div>
-          ) : applications.length === 0 ? (
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
-              <div style={{ fontSize:48 }}>📋</div>
-              <div style={{ fontWeight:700, fontSize:17, color:G.text }}>No applications yet</div>
-              <div style={{ fontSize:14, color:G.muted, textAlign:"center", lineHeight:1.5 }}>Workers who apply to your jobs<br/>will show up here</div>
-            </div>
-          ) : (
-            <>
-              {/* Group by job */}
-              {Object.entries(
-                applications.reduce((acc, a) => { (acc[a.jobTitle] = acc[a.jobTitle] || []).push(a); return acc; }, {})
-              ).map(([jobTitle, apps]) => (
-                <div key={jobTitle} style={{ marginBottom:24 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
-                    <span>📋 {jobTitle}</span>
-                    <span style={{ background:G.greenPale, color:G.greenMid, borderRadius:20, padding:"2px 8px", fontSize:11 }}>{apps.length}</span>
-                  </div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                    {apps.map(app => {
-                      const st = statusStyle(app.status);
-                      return (
-                        <div key={app.id} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
-                            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-                              <Avatar name={app.workerName} size={38} />
-                              <div>
-                                <div style={{ fontWeight:700, fontSize:14, color:G.text }}>{app.workerName}</div>
-                                <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{app.time}</div>
-                              </div>
-                            </div>
-                            <div style={{ background:st.bg, color:st.color, fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:20 }}>{st.label}</div>
-                          </div>
-                          {app.availability && (
-                            <div style={{ fontSize:12, color:G.muted, marginBottom:8 }}>🕐 Available: {app.availability}</div>
-                          )}
-                          {app.message && (
-                            <div style={{ fontSize:13, color:G.text, lineHeight:1.5, padding:"10px 12px", background:G.sand, borderRadius:10, marginBottom:12 }}>"{app.message}"</div>
-                          )}
-                          {app.status === "pending" && (
-                            <div style={{ display:"flex", gap:8 }}>
-                              <button className="btn" disabled={statusUpdating===app.id} onClick={()=>updateStatus(app.id,"accepted")} style={{ flex:1, padding:"10px 0", borderRadius:12, background:G.green, color:"#fff", fontSize:13, fontWeight:700, opacity:statusUpdating===app.id?.6:1 }}>
-                                ✓ Accept
-                              </button>
-                              <button className="btn" disabled={statusUpdating===app.id} onClick={()=>updateStatus(app.id,"declined")} style={{ flex:1, padding:"10px 0", borderRadius:12, background:G.sand, color:G.muted, fontSize:13, fontWeight:700, border:`1.5px solid ${G.border}`, opacity:statusUpdating===app.id?.6:1 }}>
-                                ✕ Decline
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════
 const isBrowser = typeof window !== "undefined";
@@ -4799,7 +4729,50 @@ export default function ChoresApp() {
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
-          <MessagesView role={role} chatOpen={chatOpen} setChatOpen={setChatOpen} inboxMessages={inboxMessages} setInboxMessages={setInboxMessages} />
+          <div className="fade">
+            {!chatOpen?(
+              <div style={{ padding:20 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:16 }}>Messages</div>
+                {inboxMessages.length===0 && (
+                  <div style={{ textAlign:"center", padding:"40px 20px", color:G.muted }}>
+                    <div style={{ fontSize:36, marginBottom:10 }}>💬</div>
+                    <div style={{ fontWeight:700, fontSize:15 }}>No messages yet</div>
+                    <div style={{ fontSize:13, marginTop:6 }}>{role==="worker" ? "Apply to jobs to start a conversation" : "Applications will appear here"}</div>
+                  </div>
+                )}
+                {inboxMessages.map(m=>(
+                  <div key={m.id} className="tap" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
+                    <Avatar name={m.from} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span><span style={{ fontSize:11, color:G.muted }}>{m.time}</span></div>
+                      <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>📋 {m.job}</div>
+                      <div style={{ fontSize:13, color:m.unread?G.text:G.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.preview}</div>
+                    </div>
+                    {m.unread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0 }}/>}
+                  </div>
+                ))}
+              </div>
+            ):(
+              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 170px)" }}>
+                <div style={{ padding:"14px 20px", background:G.white, borderBottom:`1px solid ${G.border}`, display:"flex", alignItems:"center", gap:12 }}>
+                  <div className="tap" onClick={()=>setChatOpen(null)} style={{ fontSize:20 }}>←</div>
+                  <Avatar name={chatOpen.from} size={36} />
+                  <div><div style={{ fontWeight:700, fontSize:14 }}>{chatOpen.from}</div><div style={{ fontSize:11, color:G.greenMid }}>📋 {chatOpen.job}</div></div>
+                </div>
+                <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
+                  {chatHistory.map((msg,i)=>(
+                    <div key={i} style={{ display:"flex", justifyContent:msg.from==="me"?"flex-end":"flex-start" }}>
+                      <div style={{ padding:"10px 14px", fontSize:14, maxWidth:"75%", ...(msg.from==="me"?{background:G.green,color:"#fff",borderRadius:"18px 18px 4px 18px"}:{background:"#fff",color:G.text,borderRadius:"18px 18px 18px 4px",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}) }}>{msg.text}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
+                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
+                  <button className="btn" onClick={()=>{if(chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
         {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
