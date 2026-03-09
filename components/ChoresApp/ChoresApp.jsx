@@ -754,10 +754,39 @@ function ProfileField({ label, value, onChange, type="text", rows, placeholder="
 }
 
 function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
-  const storedUser = currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
-  const fullName = storedUser ? `${storedUser.firstName} ${storedUser.lastName||""}`.trim() : "You";
+  const [liveUser, setLiveUser] = React.useState(currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })());
+  const storedUser = liveUser;
+  const fullName = storedUser ? `${storedUser.firstName||storedUser.first_name||""} ${storedUser.lastName||storedUser.last_name||""}`.trim() : "You";
   const userEmail = storedUser?.email || "";
   const userZipCode = storedUser?.zip || "";
+
+  // Refresh user data from DB every time settings screen mounts
+  React.useEffect(() => {
+    if (!isBrowser) return;
+    const token = localStorage.getItem("chores_token");
+    if (!token) return;
+    fetch(`${BACKEND}/api/auth/me`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.user) {
+          const u = { ...data.user, firstName: data.user.first_name || "", lastName: data.user.last_name || "" };
+          setLiveUser(u);
+          localStorage.setItem("chores_user", JSON.stringify(u));
+          // Sync profile fields with fresh data
+          setProfile(p => ({
+            ...p,
+            first: u.firstName || u.first_name || p.first,
+            last: u.lastName || u.last_name || p.last,
+            email: u.email || p.email,
+            phone: u.phone || p.phone,
+            zip: u.zip || p.zip,
+            bio: u.bio || p.bio,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [tab, setTab] = useState("profile");
   const [subPage, setSubPage] = useState(null);
   const settingsRef = React.useRef(null);
@@ -825,7 +854,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [bankFields, setBankFields] = useState({ holder:"", routing:"", account:"", bankName:"", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||"", last: storedUser?.lastName||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age:"", zip: userZipCode, photo:null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age:"", zip: userZipCode, photo:null });
   const photoInputRef = React.useRef();
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(["lawn","cleaning","moving"]);
@@ -2347,17 +2376,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               : <Avatar name={`${profile.first} ${profile.last}`} size={60} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
             }
             <div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800 }}>{`${profile.first} ${profile.last}`}</div>
-              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>Age {profile.age} · Zip {profile.zip} · Jan 2025</div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800 }}>{`${profile.first} ${profile.last}`.trim() || "Your Name"}</div>
+              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>{[profile.zip && `Zip ${profile.zip}`, storedUser?.createdAt && `Joined ${new Date(storedUser.createdAt).toLocaleDateString("en-US",{month:"short",year:"numeric"})}`].filter(Boolean).join(" · ") || "Complete your profile"}</div>
               <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill={G.gold} stroke={G.gold} strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> 4.9</span></Tag>
-                <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Verified</span></Tag>
+                {storedUser?.rating != null && <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill={G.gold} stroke={G.gold} strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> {Number(storedUser.rating).toFixed(1)}</span></Tag>}
+                {storedUser?.identity_verified && <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Verified</span></Tag>}
                 <Tag bg="#EBF8FF" color={G.blue}><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.blue} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> 0 Strikes</span></Tag>
               </div>
             </div>
           </div>
           <div style={{ display:"flex", gap:10, marginBottom:14 }}>
-            {[{l:"Jobs Done",v:"42"},{l:"Earned",v:"$1,240"},{l:"Repeat Clients",v:"8"}].map(s=>(
+            {[{l:"Jobs Done",v:storedUser?.jobs_completed ?? 0},{l:role==="worker"?"Earned":"Spent",v:`$${Number(storedUser?.total_earned||0).toLocaleString()}`},{l:"Rating",v:storedUser?.rating != null ? Number(storedUser.rating).toFixed(1) : "—"}].map(s=>(
               <div key={s.l} className="stat-card" style={{ flex:1, background:G.white, borderRadius:16, padding:"14px 10px", textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.greenMid }}>{s.v}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{s.l}</div>
@@ -2387,23 +2416,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8 }}>Recent Reviews</div>
               <div className="tap" onClick={()=>setSubPage("reviews")} style={{ fontSize:11, fontWeight:700, color:G.greenMid }}>See All →</div>
             </div>
-            {MY_REVIEWS.slice(0,2).map(r=>(
-              <div key={r.id} style={{ padding:"10px 0", borderBottom:`1px solid ${G.border}` }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                  <div style={{ fontWeight:600, fontSize:13 }}>{r.from}</div>
-                  <div style={{ display:"flex", gap:1 }}>
-                    {[1,2,3,4,5].map(s=><svg key={s} width="10" height="10" viewBox="0 0 24 24" fill={s<=r.rating?G.green:G.border} stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>)}
-                  </div>
-                  <div style={{ fontSize:10, color:G.muted, marginLeft:"auto" }}>{r.date}</div>
-                </div>
-                <div style={{ fontSize:12, color:G.muted, lineHeight:1.4 }}>{r.text.length>80?r.text.slice(0,80)+"…":r.text}</div>
-              </div>
-            ))}
+            <div style={{ fontSize:13, color:G.muted, textAlign:"center", padding:"12px 0" }}>No reviews yet — complete jobs to earn reviews</div>
           </div>
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            {[{icon:"⭐",label:"Reviews",sub:"42 reviews · 4.9 avg"},{icon:"🏆",label:"Badges & Skills",sub:"8 earned",last:true}].map(r=>(
+            {[{icon:"⭐",label:"Reviews",sub:storedUser?.jobs_completed ? `${storedUser.jobs_completed} review${storedUser.jobs_completed!==1?"s":""} · ${Number(storedUser.rating||5).toFixed(1)} avg` : "No reviews yet"},{icon:"🏆",label:"Badges & Skills",sub:"Track your achievements",last:true}].map(r=>(
               <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Reviews"?()=>setSubPage("reviews"):r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             ))}
           </div>

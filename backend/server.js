@@ -713,7 +713,7 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
     const { data: existingWorker } = await supabase
       .from("users").select("id").eq("id", workerId).maybeSingle();
     if (!existingWorker) {
-      await supabase.from("users").insert({
+      const { error: workerInsertErr } = await supabase.from("users").insert({
         id: workerId,
         email: "",
         first_name: workerName?.split(" ")[0] || "",
@@ -723,7 +723,8 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
         jobs_completed: 0,
         identity_verified: false,
         created_at: new Date().toISOString(),
-      }).catch(e => console.warn("Worker insert warning:", e.message));
+      });
+      if (workerInsertErr) console.warn("Worker insert warning:", workerInsertErr.message);
     }
 
     // 1. Save application
@@ -750,7 +751,7 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
 
     // 3. Write message to poster's inbox
     if (job?.poster_id) {
-      await supabase.from("messages").insert({
+      const { error: msgErr } = await supabase.from("messages").insert({
         sender_id: workerId,
         recipient_id: job.poster_id,
         job_id: jobId,
@@ -759,7 +760,8 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
         body: message,
         read: false,
         created_at: new Date().toISOString(),
-      }).catch(()=>{});
+      });
+      if (msgErr) console.warn("Message insert warning:", msgErr.message);
     }
 
     // 4. Get updated applicant count
@@ -821,7 +823,7 @@ async function sendSupportEmail(subject, body) {
 app.post("/api/support/contact", async (req, res) => {
   const { category, subject, message, userId, email } = req.body;
   console.log(`📩 Support: [${category}] ${subject} from ${email}`);
-  await supabase.from("support_tickets").insert({ type: "contact", category, subject, message, user_id: userId, email, created_at: new Date().toISOString() }).catch(()=>{});
+  await supabase.from("support_tickets").insert({ type: "contact", category, subject, message, user_id: userId, email, created_at: new Date().toISOString() });
   await sendSupportEmail(`[Support] ${subject}`, `From: ${email}
 Category: ${category}
 
@@ -835,7 +837,7 @@ app.post("/api/support/bug", async (req, res) => {
   await supabase.from("support_tickets").insert({ type: "bug", category: type, subject: `Bug: ${type}`, message: `${description}
 
 Steps:
-${steps}`, user_id: userId, email, created_at: new Date().toISOString() }).catch(()=>{});
+${steps}`, user_id: userId, email, created_at: new Date().toISOString() });
   await sendSupportEmail(`[Bug] ${type}`, `From: ${email}
 
 ${description}
@@ -848,7 +850,7 @@ ${steps}`);
 app.post("/api/support/feature", async (req, res) => {
   const { area, description, userId, email } = req.body;
   console.log(`💡 Feature request: [${area}] from ${email}`);
-  await supabase.from("support_tickets").insert({ type: "feature", category: area, subject: `Feature: ${area}`, message: description, user_id: userId, email, created_at: new Date().toISOString() }).catch(()=>{});
+  await supabase.from("support_tickets").insert({ type: "feature", category: area, subject: `Feature: ${area}`, message: description, user_id: userId, email, created_at: new Date().toISOString() });
   await sendSupportEmail(`[Feature] ${area}`, `From: ${email}
 
 ${description}`);
