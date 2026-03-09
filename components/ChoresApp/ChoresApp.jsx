@@ -756,8 +756,8 @@ function ProfileField({ label, value, onChange, type="text", rows, placeholder="
 function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
   const storedUser = currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
   const fullName = storedUser ? `${storedUser.firstName} ${storedUser.lastName||""}`.trim() : "You";
-  const userEmail = storedUser?.email || "jordan@email.com";
-  const userZipCode = storedUser?.zip || "60647";
+  const userEmail = storedUser?.email || "";
+  const userZipCode = storedUser?.zip || "";
   const [tab, setTab] = useState("profile");
   const [subPage, setSubPage] = useState(null);
   const settingsRef = React.useRef(null);
@@ -820,12 +820,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   // Transactions state
   const [txFilter, setTxFilter] = useState("all");
   // Bank account state
-  const [bank, setBank] = useState({ name:"Chase", last4:"7890", routing:"•••••1234", type:"Checking", holder:"You" });
+  const [bank, setBank] = useState({ name:"", last4:"", routing:"", type:"Checking", holder:"" });
   const [bankEditing, setBankEditing] = useState(false);
-  const [bankFields, setBankFields] = useState({ holder:"You", routing:"", account:"", bankName:"Chase", type:"Checking" });
+  const [bankFields, setBankFields] = useState({ holder:"", routing:"", account:"", bankName:"", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||"", last: storedUser?.lastName||"", email: userEmail, phone: storedUser?.phone||"", bio:"Hardworking and reliable, available for jobs around the neighborhood.", age:"", zip: userZipCode, photo:null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||"", last: storedUser?.lastName||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age:"", zip: userZipCode, photo:null });
   const photoInputRef = React.useRef();
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(["lawn","cleaning","moving"]);
@@ -2519,7 +2519,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             <>
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Payout Settings</div>
               <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-                <SettingRow icon="🏦" label="Bank Account" sub="Chase •••• 7890" right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Edit</div>} onClick={()=>setSubPage("bankAccount")} />
+                <SettingRow icon="🏦" label="Bank Account" sub={bank.last4 ? `${bank.name} •••• ${bank.last4}` : "Not linked"} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Edit</div>} onClick={()=>setSubPage("bankAccount")} />
                 <SettingRow icon="⚡" label="Instant Payout" sub="$0.50 fee per transfer" right={<Toggle on={toggles.instantPayout} onChange={()=>tog("instantPayout")} />} />
                 <SettingRow icon="📅" label="Payout Schedule" sub={`${payoutFreq==="daily"?"Daily":payoutFreq==="monthly"?"Monthly (1st)":payoutFreq==="biweekly"?`Bi-Weekly (${payoutDay})`:`Weekly (${payoutDay})`}`} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} last onClick={()=>setSubPage("payoutSchedule")} />
               </div>
@@ -3792,7 +3792,7 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         {[
           { l:"Name", v:`${form.first} ${form.last}`.trim() || "—" },
           { l:"Role", v:onbRole==="worker"?"Worker":onbRole==="poster"?"Poster":"Worker & Poster" },
-          { l:"Location", v:`Zip ${zip || "60647"}` },
+          { l:"Location", v:zip ? `Zip ${zip}` : "Not set" },
           { l:"Email", v:emailVerified ? "✅ Verified" : "⚠️ Unverified" },
         ].map(r=>(
           <div key={r.l} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"1px solid rgba(255,255,255,.06)" }}>
@@ -4374,7 +4374,7 @@ export default function ChoresApp() {
   const [role, setRole] = useState(storedUser?.role || "worker");
   const [currentUserData, setCurrentUserData] = useState(storedUser);
 
-  // Load fresh user data from backend on startup
+  // Load fresh user data from backend on startup — clear stale token if invalid
   React.useEffect(() => {
     if (!isBrowser) return;
     const token = localStorage.getItem("chores_token");
@@ -4382,15 +4382,24 @@ export default function ChoresApp() {
     fetch(`${BACKEND}/api/auth/me`, { headers:{ "Authorization":`Bearer ${token}` } })
       .then(r=>r.json())
       .then(data => {
-        if (data.user) {
-          const u = { ...data.user, firstName: data.user.first_name, lastName: data.user.last_name };
-          setCurrentUserData(u);
-          localStorage.setItem("chores_user", JSON.stringify(u));
-          if (data.user.zip) setUserZip(data.user.zip);
-          if (data.user.role) setRole(data.user.role);
+        if (data.error || !data.user) {
+          // Token is expired or invalid — clear everything and send to login
+          localStorage.removeItem("chores_token");
+          localStorage.removeItem("chores_user");
+          setAppView("onboarding");
+          return;
         }
+        const u = {
+          ...data.user,
+          firstName: data.user.first_name || "",
+          lastName: data.user.last_name || "",
+        };
+        setCurrentUserData(u);
+        localStorage.setItem("chores_user", JSON.stringify(u));
+        if (data.user.zip) setUserZip(data.user.zip);
+        if (data.user.role) setRole(data.user.role);
       })
-      .catch(()=>{});
+      .catch(()=>{}); // network error — keep existing session
   }, []);
   const [darkMode, setDarkMode] = useState(() => {
     // First load = light mode unless user has explicitly set a preference before
@@ -4411,7 +4420,7 @@ export default function ChoresApp() {
   if (darkMode) { Object.assign(G, DARK); } else { Object.assign(G, LIGHT); }
   const [view, setView] = useState("home");
   const [toast, setToast] = useState(null);
-  const [userZip, setUserZip] = useState(storedUser?.zip || "60647");
+  const [userZip, setUserZip] = useState(storedUser?.zip || "");
   const [userCoords, setUserCoords] = useState(null);
   const [locStatus, setLocStatus] = useState("idle"); // idle, loading, granted, denied
   const [chatOpen, setChatOpen] = useState(null);
@@ -4484,7 +4493,7 @@ export default function ChoresApp() {
           // If geocoding fails (e.g. no network), keep current zip
           // Estimate zip from known Atlanta area coords as fallback
           const dist = Math.sqrt(Math.pow(latitude-41.883,2)+Math.pow(longitude-(-87.627),2));
-          if (dist < 0.1) setUserZip("60647");
+          if (dist < 0.1) setUserZip(storedUser?.zip || "");
           else if (dist < 0.2) setUserZip("60614");
           else if (dist < 0.5) setUserZip("60657");
         }

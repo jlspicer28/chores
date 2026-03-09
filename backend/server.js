@@ -160,10 +160,18 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
     .from("users")
     .select("*")
     .eq("id", req.user.id)
-    .single();
+    .maybeSingle();
 
   if (error) return res.json({ error: error.message });
-  res.json({ user: data });
+  if (!data) return res.json({ error: "User not found in database — please sign in again." });
+
+  res.json({
+    user: {
+      ...data,
+      firstName: data.first_name || "",
+      lastName: data.last_name || "",
+    }
+  });
 });
 
 // Update profile
@@ -231,6 +239,29 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
   console.log("📋 Creating job:", { title, category, pay, zip, userId: req.user.id });
 
   if (!title || !pay) return res.json({ error: "Title and pay are required" });
+
+  // Ensure user row exists in our users table (handles stale sessions after DB wipe)
+  const { data: existingUser } = await supabase
+    .from("users").select("id").eq("id", req.user.id).maybeSingle();
+
+  if (!existingUser) {
+    console.log("⚠️  User not in users table, inserting...");
+    const { error: upsertErr } = await supabase.from("users").insert({
+      id: req.user.id,
+      email: req.user.email,
+      first_name: req.user.user_metadata?.first_name || "",
+      last_name: req.user.user_metadata?.last_name || "",
+      role: "poster",
+      rating: 5.0,
+      jobs_completed: 0,
+      identity_verified: false,
+      created_at: new Date().toISOString(),
+    });
+    if (upsertErr) {
+      console.error("❌ Could not create user row:", upsertErr.message);
+      return res.json({ error: "Session is outdated. Please sign out and sign back in." });
+    }
+  }
 
   const { data, error } = await supabase.from("jobs").insert({
     poster_id: req.user.id,
@@ -678,6 +709,23 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
   if (!message) return res.json({ error: "Message is required" });
 
   try {
+    // Ensure worker row exists in users table
+    const { data: existingWorker } = await supabase
+      .from("users").select("id").eq("id", workerId).maybeSingle();
+    if (!existingWorker) {
+      await supabase.from("users").insert({
+        id: workerId,
+        email: "",
+        first_name: workerName?.split(" ")[0] || "",
+        last_name: workerName?.split(" ").slice(1).join(" ") || "",
+        role: "worker",
+        rating: 5.0,
+        jobs_completed: 0,
+        identity_verified: false,
+        created_at: new Date().toISOString(),
+      }).catch(e => console.warn("Worker insert warning:", e.message));
+    }
+
     // 1. Save application
     const { error } = await supabase.from("applications").insert({
       job_id: jobId,
