@@ -2779,70 +2779,6 @@ function NotificationsScreen({ role, onNavigate }) {
 }
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// AI WRITE BUTTON — generates application message using Claude
-// ─────────────────────────────────────────────────────────────────────────────
-function AiWriteBtn({ job, onResult }) {
-  const [loading, setLoading] = useState(false);
-
-  const generate = async () => {
-    setLoading(true);
-    const user = isBrowser ? (() => { try { return JSON.parse(localStorage.getItem("chores_user")||"{}"); } catch { return {}; } })() : {};
-    const userName = `${user.firstName||""} ${user.lastName||""}`.trim() || "a neighbor";
-    const prompt = `Write a short, friendly job application message (under 200 words) from ${userName} applying for this job:
-
-Job title: ${job.title}
-Category: ${job.category}
-Pay: $${job.pay}
-Date: ${job.date}
-Description: ${job.desc || "No description provided"}
-Posted by: ${job.poster}
-
-The message should:
-- Be warm and personal, not generic
-- Mention relevant experience or enthusiasm for this type of work
-- Reference the specific job details
-- End with availability to discuss
-- Sound like a real person, not AI-generated
-- Be 3-4 sentences max
-
-Return ONLY the message text, no subject line, no quotes, no preamble.`;
-
-    try {
-      const res = await fetch(`${BACKEND}/api/ai/write-application`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt })
-      });
-      const data = await res.json();
-      if (data.text) onResult(data.text.slice(0, 300));
-    } catch(e) {
-      console.error("AI write error:", e);
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="tap" onClick={loading ? undefined : generate}
-      style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", borderRadius:10,
-        background:`linear-gradient(135deg, ${G.green}, ${G.greenLight})`,
-        color:"#fff", fontSize:11, fontWeight:700, opacity:loading?0.7:1, cursor:loading?"default":"pointer" }}>
-      {loading ? (
-        <>
-          <div style={{ width:10, height:10, borderRadius:"50%", border:"1.5px solid rgba(255,255,255,.4)", borderTopColor:"#fff", animation:"spin .7s linear infinite" }} />
-          Writing...
-        </>
-      ) : (
-        <>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-          </svg>
-          AI Write
-        </>
-      )}
-    </div>
-  );
-}
 
 function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true }) {
   const [discoverView, setDiscoverView] = useState("feed");
@@ -2965,10 +2901,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         </div>
         {/* Message */}
         <div style={{ marginBottom:16 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-            <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5 }}>Message to {job.poster}</label>
-            <AiWriteBtn job={job} onResult={setApplyMsg} />
-          </div>
+          <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5, display:"block", marginBottom:6 }}>Message to {job.poster}</label>
           <textarea value={applyMsg} onChange={e=>setApplyMsg(e.target.value)} rows={4} placeholder={`Hi! I'd love to help with ${job.title}. I have experience with similar jobs and I'm available on ${job.date}...`}
             style={{ width:"100%", padding:"14px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.white, outline:"none" }}
             onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
