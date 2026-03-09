@@ -74,10 +74,13 @@ app.post("/api/auth/register", async (req, res) => {
       return res.json({ alreadyExists: true });
     }
 
-    // 2. Create auth user in Supabase Auth
+    // 2. Create auth user in Supabase Auth (store name in metadata for token lookups)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: { first_name: firstName || "", last_name: lastName || "" }
+      }
     });
 
     // Supabase returns identities:[] when email already exists in auth but not our table
@@ -165,6 +168,18 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
   if (error) return res.json({ error: error.message });
   if (!data) return res.json({ error: "User not found in database — please sign in again." });
 
+  // If name is blank in our table but exists in auth metadata, backfill it
+  const authFirst = req.user.user_metadata?.first_name || "";
+  const authLast = req.user.user_metadata?.last_name || "";
+  if ((!data.first_name || !data.last_name) && (authFirst || authLast)) {
+    await supabase.from("users").update({
+      first_name: data.first_name || authFirst,
+      last_name: data.last_name || authLast,
+    }).eq("id", req.user.id);
+    data.first_name = data.first_name || authFirst;
+    data.last_name = data.last_name || authLast;
+  }
+
   res.json({
     user: {
       ...data,
@@ -246,11 +261,14 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
 
   if (!existingUser) {
     console.log("⚠️  User not in users table, inserting...");
+    // Try to get name from auth metadata, fallback to email prefix
+    const firstName = req.user.user_metadata?.first_name || req.user.email?.split("@")[0] || "";
+    const lastName = req.user.user_metadata?.last_name || "";
     const { error: upsertErr } = await supabase.from("users").insert({
       id: req.user.id,
       email: req.user.email,
-      first_name: req.user.user_metadata?.first_name || "",
-      last_name: req.user.user_metadata?.last_name || "",
+      first_name: firstName,
+      last_name: lastName,
       role: "poster",
       rating: 5.0,
       jobs_completed: 0,
@@ -648,14 +666,77 @@ app.post("/api/customer/save-card", requireAuth, async (req, res) => {
 
 app.get("/api/customer/cards", requireAuth, async (req, res) => {
   const { data: user } = await supabase
-    .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+    .from("users").select("stripe_customer_id, default_payment_method").eq("id", req.user.id).single();
+
+  if (!user?.stripe_customer_id) return res.json({ cards: [] });
 
   try {
+    const customer = await stripe.customers.retrieve(user.stripe_customer_id);
+    const defaultPmId = customer.invoice_settings?.default_payment_method || user?.default_payment_method || null;
     const pms = await stripe.paymentMethods.list({ customer: user.stripe_customer_id, type: "card" });
     res.json({ cards: pms.data.map(pm => ({
-      id: pm.id, brand: pm.card.brand, last4: pm.card.last4,
-      expMonth: pm.card.exp_month, expYear: pm.card.exp_year,
+      id: pm.id,
+      brand: pm.card.brand,
+      last4: pm.card.last4,
+      exp_month: pm.card.exp_month,
+      exp_year: pm.card.exp_year,
+      isDefault: pm.id === defaultPmId,
     }))});
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Create a SetupIntent so frontend can safely collect a new card
+app.post("/api/customer/setup-intent", requireAuth, async (req, res) => {
+  try {
+    const { data: user } = await supabase
+      .from("users").select("stripe_customer_id, email, first_name, last_name").eq("id", req.user.id).single();
+
+    let customerId = user?.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
+        metadata: { userId: req.user.id },
+      });
+      customerId = customer.id;
+      await supabase.from("users").update({ stripe_customer_id: customerId }).eq("id", req.user.id);
+    }
+
+    const intent = await stripe.setupIntents.create({
+      customer: customerId,
+      usage: "off_session",
+    });
+    res.json({ clientSecret: intent.client_secret });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Set a card as the default payment method
+app.post("/api/customer/set-default", requireAuth, async (req, res) => {
+  const { paymentMethodId } = req.body;
+  const { data: user } = await supabase
+    .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+  if (!user?.stripe_customer_id) return res.json({ error: "No Stripe customer found" });
+  try {
+    await stripe.customers.update(user.stripe_customer_id, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+    await supabase.from("users").update({ default_payment_method: paymentMethodId }).eq("id", req.user.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Detach (remove) a saved card
+app.post("/api/customer/detach-card", requireAuth, async (req, res) => {
+  const { paymentMethodId } = req.body;
+  try {
+    await stripe.paymentMethods.detach(paymentMethodId);
+    res.json({ success: true });
   } catch (err) {
     res.json({ error: err.message });
   }
