@@ -228,16 +228,29 @@ app.get("/api/jobs/:id", async (req, res) => {
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
   const { title, description, category, pay, zip, lat, lng, date, duration } = req.body;
+  console.log("📋 Creating job:", { title, category, pay, zip, userId: req.user.id });
+
+  if (!title || !pay) return res.json({ error: "Title and pay are required" });
 
   const { data, error } = await supabase.from("jobs").insert({
     poster_id: req.user.id,
-    title, description, category,
+    title: title.trim(),
+    description: description || null,
+    category: category || null,
     pay: parseFloat(pay),
-    zip, lat, lng, date, duration,
+    zip: zip || null,
+    lat: lat || null,
+    lng: lng || null,
+    date: date || null,
+    duration: duration || null,
     status: "open",
   }).select().single();
 
-  if (error) return res.json({ error: error.message });
+  if (error) {
+    console.error("❌ Job create error:", error);
+    return res.json({ error: error.message, detail: error.details });
+  }
+  console.log("✅ Job created:", data.id);
   res.json({ success: true, job: data });
 });
 
@@ -659,17 +672,26 @@ function timeAgo(dateStr) {
 app.post("/api/jobs/:id/apply", async (req, res) => {
   const { message, availability, workerId, workerName } = req.body;
   const jobId = req.params.id;
+  console.log("📝 Application:", { jobId, workerId, workerName });
+
+  if (!jobId || !workerId) return res.json({ error: "jobId and workerId are required" });
+  if (!message) return res.json({ error: "Message is required" });
+
   try {
     // 1. Save application
     const { error } = await supabase.from("applications").insert({
       job_id: jobId,
       worker_id: workerId,
       message,
-      availability: availability?.join(", "),
+      availability: Array.isArray(availability) ? availability.join(", ") : (availability || null),
       status: "pending",
       created_at: new Date().toISOString(),
     });
-    if (error) return res.json({ error: error.message });
+    if (error) {
+      console.error("❌ Application insert error:", error);
+      return res.json({ error: error.message, detail: error.details });
+    }
+    console.log("✅ Application saved for job:", jobId);
 
     // 2. Get job + poster info
     const { data: job } = await supabase

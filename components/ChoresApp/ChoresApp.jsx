@@ -2780,7 +2780,7 @@ function NotificationsScreen({ role, onNavigate }) {
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
 
-function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0 }) {
+function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0, onApplicationSent }) {
   const [discoverView, setDiscoverView] = useState("feed");
   const [activeCategory, setActiveCategory] = useState([]);
   const [payRange, setPayRange] = useState([0,100]);
@@ -2947,24 +2947,38 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           try {
             const token = isBrowser ? localStorage.getItem("chores_token") : null;
             const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
+            if (!token || !user.id) {
+              alert("You must be logged in to apply.");
+              setApplyStep(0);
+              return;
+            }
             const workerName = `${user.firstName||""} ${user.lastName||""}`.trim() || "Someone";
             const res = await fetch(`${BACKEND}/api/jobs/${job.id}/apply`, {
               method:"POST",
-              headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+              headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
               body: JSON.stringify({ message: applyMsg, availability: applyAvail, workerId: user.id, workerName })
             });
             const data = await res.json();
+            if (data.error) {
+              alert("Application failed: " + data.error);
+              setApplyStep(0);
+              return;
+            }
             if (data.success) {
-              // Update applicant count in local job list
               setLiveJobs(prev => prev.map(j => j.id===job.id ? {...j, applicants: (j.applicants||0)+1} : j));
-              // Push notification to browser
-              if (Notification && Notification.permission === "granted") {
+              if (onApplicationSent) onApplicationSent(); // refresh inbox badge immediately
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
                 new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent to ${job.poster}`, icon: "/favicon.ico" });
               }
             }
-          } catch(e) { console.error("Apply error:", e); }
+          } catch(e) {
+            console.error("Apply error:", e);
+            alert("Network error — could not submit application.");
+            setApplyStep(0);
+            return;
+          }
           setApplyStep(2);
-        }} disabled={!applyMsg.trim()} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15, opacity:applyMsg.trim()?1:.5 }}>
+        }} disabled={!applyMsg.trim()||applyStep===1} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15, opacity:(applyMsg.trim()&&applyStep!==1)?1:.5 }}>
           {applyStep===1?"Sending...":"Submit Application →"}
         </Btn>
       </div>
@@ -4566,7 +4580,7 @@ export default function ChoresApp() {
 
       {/* Content */}
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
-        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} />}
+        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
@@ -4681,15 +4695,16 @@ export default function ChoresApp() {
                     )}
                   </div>
 
-                  <Btn onClick={async ()=>{
+                  <Btn onClick={async (e)=>{
                     if (!postForm.title || !postForm.category || !postForm.pay) { alert("Please fill in title, category, and pay."); return; }
-                    setFormPosted(true);
+                    const btn = e?.currentTarget;
+                    if (btn) { btn.disabled = true; btn.textContent = "Posting..."; }
                     try {
                       const token = isBrowser ? localStorage.getItem("chores_token") : null;
-                      const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
-                      await fetch(`${BACKEND}/api/jobs/create`, {
+                      if (!token) { alert("You must be logged in to post a job."); if(btn){btn.disabled=false;btn.textContent="Post Job →";} return; }
+                      const res = await fetch(`${BACKEND}/api/jobs/create`, {
                         method:"POST",
-                        headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
+                        headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
                         body: JSON.stringify({
                           title: postForm.title,
                           category: postForm.category,
@@ -4697,11 +4712,21 @@ export default function ChoresApp() {
                           date: postForm.date,
                           description: postForm.notes,
                           zip: userZip,
-                          posterId: user.id,
                         })
                       });
-                    } catch(e) { console.error("Post job error:", e); }
-                    setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); setLastJobPost(Date.now()); }, 2200);
+                      const data = await res.json();
+                      if (data.error) {
+                        alert("Failed to post job: " + data.error);
+                        if(btn){btn.disabled=false;btn.textContent="Post Job →";}
+                        return;
+                      }
+                      setFormPosted(true);
+                      setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); setLastJobPost(Date.now()); }, 2200);
+                    } catch(e) {
+                      console.error("Post job error:", e);
+                      alert("Network error — could not post job. Check your connection.");
+                      if(btn){btn.disabled=false;btn.textContent="Post Job →";}
+                    }
                   }} style={{ width:"100%", padding:"14px" }}>Post Job →</Btn>
                 </div>
               </>
