@@ -727,43 +727,89 @@ function timeAgo(dateStr) {
   return `${days} days ago`;
 }
 
-app.post("/api/jobs/:id/apply", async (req, res) => {
-  const { message, availability, workerId, workerName } = req.body;
+app.post("/api/jobs/:id/apply", requireAuth, async (req, res) => {
+  const { message, availability } = req.body;
   const jobId = req.params.id;
+  const workerId = req.user.id;
+
   try {
-    // 1. Save application
-    const { error } = await supabase.from("applications").insert({
+    // 1. Get worker info
+    const { data: worker } = await supabase
+      .from("users")
+      .select("first_name, last_name, email")
+      .eq("id", workerId)
+      .single();
+    const workerName = worker ? `${worker.first_name} ${worker.last_name}`.trim() : "Someone";
+
+    // 2. Check for duplicate application
+    const { data: existing } = await supabase
+      .from("applications")
+      .select("id")
+      .eq("job_id", jobId)
+      .eq("worker_id", workerId)
+      .single();
+    if (existing) return res.json({ error: "You have already applied to this job." });
+
+    // 3. Save application
+    const { error: appError } = await supabase.from("applications").insert({
       job_id: jobId,
       worker_id: workerId,
       message,
-      availability: availability?.join(", "),
+      availability: Array.isArray(availability) ? availability.join(", ") : availability,
       status: "pending",
       created_at: new Date().toISOString(),
     });
-    if (error) return res.json({ error: error.message });
+    if (appError) return res.json({ error: appError.message });
 
-    // 2. Get job + poster info
+    // 4. Get job + poster info
     const { data: job } = await supabase
       .from("jobs")
       .select("id, title, poster_id, pay")
       .eq("id", jobId)
       .single();
 
-    // 3. Write message to poster's inbox
     if (job?.poster_id) {
+      const preview = `${workerName} applied to your job`;
+      const body = message || `${workerName} has applied to "${job.title}".`;
+
+      // 5. Write message to poster's inbox
       await supabase.from("messages").insert({
         sender_id: workerId,
         recipient_id: job.poster_id,
         job_id: jobId,
         type: "application",
-        preview: `${workerName || "Someone"} applied to your job`,
-        body: message,
+        preview,
+        body,
         read: false,
         created_at: new Date().toISOString(),
-      }).catch(()=>{});
+      }).catch(() => {});
+
+      // 6. Email the poster via Resend
+      const { data: poster } = await supabase
+        .from("users")
+        .select("email, first_name")
+        .eq("id", job.poster_id)
+        .single();
+
+      if (poster?.email && process.env.RESEND_API_KEY) {
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: "Chores App <noreply@choresnearme.com>",
+            to: [poster.email],
+            subject: `New applicant for "${job.title}"`,
+            html: `<p>Hi ${poster.first_name || "there"},</p>
+<p><strong>${workerName}</strong> has applied to your job <strong>"${job.title}"</strong>.</p>
+${message ? `<p>Their message: <em>"${message}"</em></p>` : ""}
+<p>Log in to the app to review and accept or decline.</p>
+<p>— The Chores Team</p>`,
+          }),
+        }).catch(() => {});
+      }
     }
 
-    // 4. Get updated applicant count
+    // 7. Get updated applicant count
     const { count } = await supabase
       .from("applications")
       .select("*", { count: "exact", head: true })
@@ -775,6 +821,120 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
     res.json({ error: err.message });
   }
 });
+
+// Send an in-app message
+app.post("/api/messages/send", requireAuth, async (req, res) => {
+  const { recipientId, jobId, body } = req.body;
+  if (!recipientId || !body?.trim()) return res.json({ error: "recipientId and body required" });
+
+  try {
+    const { data: sender } = await supabase
+      .from("users")
+      .select("first_name, last_name")
+      .eq("id", req.user.id)
+      .single();
+    const senderName = sender ? `${sender.first_name} ${sender.last_name}`.trim() : "Someone";
+
+    const { data: msg, error } = await supabase.from("messages").insert({
+      sender_id: req.user.id,
+      recipient_id: recipientId,
+      job_id: jobId || null,
+      type: "chat",
+      preview: body.slice(0, 80),
+      body,
+      read: false,
+      created_at: new Date().toISOString(),
+    }).select().single();
+
+    if (error) return res.json({ error: error.message });
+
+    // Email the recipient if Resend is configured
+    const { data: recipient } = await supabase
+      .from("users")
+      .select("email, first_name")
+      .eq("id", recipientId)
+      .single();
+
+    if (recipient?.email && process.env.RESEND_API_KEY) {
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: "Chores App <noreply@choresnearme.com>",
+          to: [recipient.email],
+          subject: `New message from ${senderName}`,
+          html: `<p>Hi ${recipient.first_name || "there"},</p>
+<p><strong>${senderName}</strong> sent you a message on Chores:</p>
+<blockquote style="border-left:3px solid #52b788;padding-left:12px;color:#555">"${body}"</blockquote>
+<p>Open the app to reply.</p>
+<p>— The Chores Team</p>`,
+        }),
+      }).catch(() => {});
+    }
+
+    res.json({ success: true, messageId: msg?.id });
+  } catch (err) {
+    console.error("Send message error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+// Mark messages as read
+app.post("/api/messages/mark-read", requireAuth, async (req, res) => {
+  const { messageIds } = req.body; // array of ids, or omit to mark all
+  try {
+    let query = supabase.from("messages").update({ read: true }).eq("recipient_id", req.user.id);
+    if (messageIds?.length) query = query.in("id", messageIds);
+    await query;
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Get notifications for the logged-in user (from messages table)
+app.get("/api/notifications", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*, job:jobs(title), sender:users!sender_id(first_name, last_name)")
+      .eq("recipient_id", req.user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) return res.json({ error: error.message });
+
+    const typeMap = {
+      application: { category: "job",     icon: "applied",    title: (m) => `New applicant for "${m.job?.title || "your job"}"` },
+      accepted:    { category: "job",     icon: "accepted",   title: (m) => `Application accepted` },
+      declined:    { category: "job",     icon: "noshow",     title: (m) => `Application update` },
+      chat:        { category: "job",     icon: "new_job",    title: (m) => `Message from ${m.sender ? `${m.sender.first_name} ${m.sender.last_name}`.trim() : "Someone"}` },
+      payment:     { category: "payment", icon: "payment",    title: (m) => `Payment update` },
+    };
+
+    const notifications = (data || []).map(m => {
+      const t = typeMap[m.type] || { category: "job", icon: "new_job", title: () => m.preview || "Notification" };
+      return {
+        id: m.id,
+        type: t.icon,
+        category: t.category,
+        title: t.title(m),
+        body: m.body || m.preview || "",
+        time: timeAgo(m.created_at),
+        unread: !m.read,
+        senderId: m.sender_id,
+        jobId: m.job_id,
+        jobTitle: m.job?.title || "",
+      };
+    });
+
+    res.json({ notifications });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+
 
 // Get inbox messages for logged-in user
 app.get("/api/messages/inbox", requireAuth, async (req, res) => {

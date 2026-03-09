@@ -2344,23 +2344,28 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── REVIEWS SUB-PAGE ──
   if (subPage==="reviews") {
-    const avg = (MY_REVIEWS.reduce((s,r)=>s+r.rating,0)/MY_REVIEWS.length).toFixed(1);
+    const avg = MY_REVIEWS.length ? (MY_REVIEWS.reduce((s,r)=>s+r.rating,0)/MY_REVIEWS.length).toFixed(1) : "—";
     const dist = [5,4,3,2,1].map(s=>({ s, count:MY_REVIEWS.filter(r=>r.rating===s).length }));
     const maxCount = Math.max(...dist.map(d=>d.count),1);
     const filtered = reviewFilter==="all"?MY_REVIEWS:MY_REVIEWS.filter(r=>r.rating===parseInt(reviewFilter));
 
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:80 }}>
-        {/* Header */}
         <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
           <div className="tap" onClick={()=>setSubPage(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>My Reviews</div>
         </div>
 
+        {MY_REVIEWS.length === 0 ? (
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12, textAlign:"center" }}>
+            <div style={{ fontSize:52 }}>⭐</div>
+            <div style={{ fontWeight:700, fontSize:18, color:G.text }}>No reviews yet</div>
+            <div style={{ fontSize:14, color:G.muted, lineHeight:1.5 }}>Complete jobs and your clients'<br/>ratings will appear here</div>
+          </div>
+        ) : (<>
         {/* Rating overview card */}
         <div style={{ background:G.white, borderRadius:20, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16 }}>
           <div style={{ display:"flex", gap:20, alignItems:"center" }}>
-            {/* Big score */}
             <div style={{ textAlign:"center", minWidth:80 }}>
               <div style={{ fontFamily:"'Playfair Display',serif", fontSize:44, fontWeight:800, color:G.greenMid, lineHeight:1 }}>{avg}</div>
               <div style={{ display:"flex", justifyContent:"center", gap:2, marginTop:6 }}>
@@ -2370,7 +2375,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               </div>
               <div style={{ fontSize:11, color:G.muted, marginTop:4 }}>{MY_REVIEWS.length} reviews</div>
             </div>
-            {/* Bar chart */}
             <div style={{ flex:1 }}>
               {dist.map(d=>(
                 <div key={d.s} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
@@ -2391,7 +2395,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Top Qualities</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {(() => {
-              const allTags = MY_REVIEWS.flatMap(r=>r.tags);
+              const allTags = MY_REVIEWS.flatMap(r=>r.tags||[]);
               const counts = {};
               allTags.forEach(t=>counts[t]=(counts[t]||0)+1);
               return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([tag,count])=>(
@@ -2428,12 +2432,13 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             </div>
             <div style={{ fontSize:13, color:G.text, lineHeight:1.5, marginBottom:8 }}>{r.text}</div>
             <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-              {r.tags.map(t=>(
+              {(r.tags||[]).map(t=>(
                 <div key={t} style={{ padding:"3px 8px", borderRadius:6, fontSize:10, fontWeight:600, background:G.sand, color:G.muted, textTransform:"capitalize" }}>{t}</div>
               ))}
             </div>
           </div>
         ))}
+        </>)}
       </div>
     );
   }
@@ -2467,16 +2472,14 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             }
             <div>
               <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800 }}>{`${profile.first} ${profile.last}`}</div>
-              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>Age {profile.age} · Zip {profile.zip} · Jan 2025</div>
+              <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>Zip {profile.zip}{storedUser?.createdAt ? ` · Member since ${new Date(storedUser.createdAt).toLocaleDateString("en-US",{month:"short",year:"numeric"})}` : ""}</div>
               <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill={G.gold} stroke={G.gold} strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> 4.9</span></Tag>
-                <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Verified</span></Tag>
                 <Tag bg="#EBF8FF" color={G.blue}><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.blue} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> 0 Strikes</span></Tag>
               </div>
             </div>
           </div>
           <div style={{ display:"flex", gap:10, marginBottom:14 }}>
-            {[{l:"Jobs Done",v:"42"},{l:"Earned",v:"$1,240"},{l:"Repeat Clients",v:"8"}].map(s=>(
+            {[{l:"Jobs Done",v:"0"},{l:"Earned",v:"$0"},{l:"Repeat Clients",v:"0"}].map(s=>(
               <div key={s.l} className="stat-card" style={{ flex:1, background:G.white, borderRadius:16, padding:"14px 10px", textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.greenMid }}>{s.v}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{s.l}</div>
@@ -2504,9 +2507,15 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8 }}>Recent Reviews</div>
-              <div className="tap" onClick={()=>setSubPage("reviews")} style={{ fontSize:11, fontWeight:700, color:G.greenMid }}>See All →</div>
+              {MY_REVIEWS.length > 0 && <div className="tap" onClick={()=>setSubPage("reviews")} style={{ fontSize:11, fontWeight:700, color:G.greenMid }}>See All →</div>}
             </div>
-            {MY_REVIEWS.slice(0,2).map(r=>(
+            {MY_REVIEWS.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"16px 0", color:G.muted }}>
+                <div style={{ fontSize:28, marginBottom:6 }}>⭐</div>
+                <div style={{ fontSize:13, fontWeight:600, color:G.text }}>No reviews yet</div>
+                <div style={{ fontSize:12, marginTop:4 }}>Complete jobs to receive ratings</div>
+              </div>
+            ) : MY_REVIEWS.slice(0,2).map(r=>(
               <div key={r.id} style={{ padding:"10px 0", borderBottom:`1px solid ${G.border}` }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
                   <div style={{ fontWeight:600, fontSize:13 }}>{r.from}</div>
@@ -2522,7 +2531,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            {[{icon:"⭐",label:"Reviews",sub:"42 reviews · 4.9 avg"},{icon:"🏆",label:"Badges & Skills",sub:"8 earned",last:true}].map(r=>(
+            {[{icon:"⭐",label:"Reviews",sub:"Your ratings from clients"},{icon:"🏆",label:"Badges & Skills",sub:"Achievements & skills",last:true}].map(r=>(
               <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Reviews"?()=>setSubPage("reviews"):r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             ))}
           </div>
@@ -2627,8 +2636,19 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div className="tap" onClick={()=>setSubPage("paymentMethods")} style={{ background:G.white, borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14, display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:12, background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>💳</div>
             <div style={{ flex:1 }}>
-              <div style={{ fontWeight:700, fontSize:14 }}>Visa •••• 4242</div>
-              <div style={{ fontSize:12, color:G.muted }}>Default · Tap to manage cards</div>
+              {pmCards.length > 0 ? (
+                <>
+                  <div style={{ fontWeight:700, fontSize:14 }}>
+                    {({visa:"Visa",mastercard:"Mastercard",amex:"Amex",discover:"Discover"}[(pmCards.find(c=>c.isDefault)||pmCards[0]).brand]||"Card")} •••• {(pmCards.find(c=>c.isDefault)||pmCards[0]).last4}
+                  </div>
+                  <div style={{ fontSize:12, color:G.muted }}>Default · Tap to manage cards</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontWeight:700, fontSize:14, color:G.muted }}>No cards saved</div>
+                  <div style={{ fontSize:12, color:G.muted }}>Tap to add a payment method</div>
+                </>
+              )}
             </div>
             <span style={{ fontSize:16, color:G.muted }}>›</span>
           </div>
@@ -2741,77 +2761,53 @@ function NotifIcon({ type, size=22 }) {
 }
 
 function NotificationsScreen({ role, onNavigate }) {
-  const notifs = role==="worker" ? NOTIFS_WORKER : NOTIFS_POSTER;
+  const [notifs, setNotifs] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = useState("all");
-  const [read, setRead] = useState([]);
   const [selectedNotif, setSelectedNotif] = useState(null);
   const notifRef = React.useRef(null);
+
+  const fetchNotifs = React.useCallback(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) { setLoading(false); return; }
+    fetch(`${BACKEND}/api/notifications`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.notifications) setNotifs(data.notifications); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { fetchNotifs(); }, [fetchNotifs]);
+
   React.useEffect(()=>{
     if(notifRef.current){let p=notifRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
   },[selectedNotif, filter]);
+
+  const markRead = (ids) => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/messages/mark-read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ messageIds: ids }),
+    }).catch(() => {});
+    setNotifs(n => n.map(x => ids.includes(x.id) ? { ...x, unread: false } : x));
+  };
+
   const cats = ["all","job","payment","reminder","alert"];
   const filtered = filter==="all" ? notifs : notifs.filter(n=>n.category===filter);
-  const unreadCount = notifs.filter(n=>n.unread&&!read.includes(n.id)).length;
+  const unreadCount = notifs.filter(n=>n.unread).length;
   const colorMap = {job:G.greenPale,payment:"#EBF8FF",reminder:"#FFF4E0",alert:G.redLight};
   const textMap = {job:G.greenMid,payment:G.blue,reminder:G.gold,alert:G.red};
 
-  // Notification detail sub-page
   if (selectedNotif) {
     const n = selectedNotif;
     const details = {
-      new_job: { headline:"New Job Available", actions:["View Job","Quick Apply"], info:[
-        {label:"Job",value:n.body.split("·")[0]?.trim()},
-        {label:"Pay",value:n.body.split("·")[1]?.trim()},
-        {label:"Distance",value:n.body.split("·")[2]?.trim()},
-        {label:"Posted",value:n.time},
-      ]},
-      accepted: { headline:"You're Hired!", actions:["Message Poster","View Details"], info:[
-        {label:"Status",value:"Application accepted"},
-        {label:"Client",value:n.body.replace("accepted your application","").trim()},
-        {label:"Next Step",value:"Message the poster to confirm details"},
-        {label:"When",value:n.time},
-      ]},
-      reminder: { headline:"Upcoming Job", actions:["Get Directions","Message"], info:[
-        {label:"Job",value:n.body.split("·")[0]?.trim()},
-        {label:"Client",value:n.body.split("·")[1]?.trim()},
-        {label:"Location",value:n.body.split("·")[2]?.trim()},
-        {label:"When",value:n.title.replace("Job ","")},
-      ]},
-      payment: { headline:"Payment Update", actions:["View Receipt","Transaction History"], info:[
-        {label:"Amount",value:n.body.split("·")[0]?.trim()},
-        {label:"Job",value:n.body.split("·")[1]?.trim()},
-        {label:"From",value:n.body.split("·")[2]?.trim()},
-        {label:"When",value:n.time},
-      ]},
-      noshow: { headline:"Cancellation Notice", actions:["View Policy","Contact Support"], info:[
-        {label:"Client",value:n.body.split("cancelled")[0]?.trim()},
-        {label:"Reason",value:"Cancelled with less than 12hrs notice"},
-        {label:"Impact",value:"You may be eligible for a cancellation fee"},
-        {label:"When",value:n.time},
-      ]},
-      applied: { headline:"New Applicant", actions:["View Profile","Message"], info:[
-        {label:"Applicant",value:n.body.split("applied")[0]?.trim()},
-        {label:"Job",value:n.body.split("to ")[1]?.trim()},
-        {label:"Status",value:"Awaiting your review"},
-        {label:"When",value:n.time},
-      ]},
-      confirmed: { headline:"Worker Confirmed", actions:["Message Worker","Get Directions"], info:[
-        {label:"Worker",value:n.body.split("is ")[0]?.trim()},
-        {label:"Time",value:n.body.split("for ")[1]?.trim()},
-        {label:"Status",value:"On their way"},
-        {label:"When",value:n.time},
-      ]},
-      complete: { headline:"Job Complete", actions:["Leave Review","View Receipt"], info:[
-        {label:"Job",value:n.body.split("·")[0]?.trim()},
-        {label:"Worker",value:n.body.split("·")[1]?.trim()},
-        {label:"Status",value:"Completed — ready for review"},
-        {label:"When",value:n.time},
-      ]},
-      rating: { headline:"Review Reminder", actions:["Leave Review","Skip"], info:[
-        {label:"Worker",value:n.body.split("do?")[0]?.replace("How did","").trim()},
-        {label:"Action",value:"Share your experience to help others"},
-        {label:"When",value:n.time},
-      ]},
+      applied:   { headline:"New Applicant",    actions:["View Applications","Message"], info:[{label:"From",value:n.title.replace("New applicant for ","")},{label:"Job",value:n.jobTitle},{label:"Status",value:"Awaiting your review"},{label:"When",value:n.time}] },
+      accepted:  { headline:"You're Hired!",    actions:["Message Poster","View Details"], info:[{label:"Status",value:"Application accepted"},{label:"Job",value:n.jobTitle},{label:"Next Step",value:"Message the poster to confirm details"},{label:"When",value:n.time}] },
+      noshow:    { headline:"Application Update", actions:["Browse Jobs","Dismiss"], info:[{label:"Status",value:"Not selected this time"},{label:"Job",value:n.jobTitle},{label:"When",value:n.time}] },
+      new_job:   { headline:"New Message",      actions:["Reply","Dismiss"], info:[{label:"From",value:n.title.replace("Message from ","")},{label:"Job",value:n.jobTitle},{label:"Message",value:n.body},{label:"When",value:n.time}] },
+      payment:   { headline:"Payment Update",   actions:["View Receipt","Transaction History"], info:[{label:"Details",value:n.body},{label:"When",value:n.time}] },
     };
     const d = details[n.type] || { headline:n.title, actions:["Dismiss"], info:[{label:"Details",value:n.body},{label:"When",value:n.time}] };
 
@@ -2821,16 +2817,12 @@ function NotificationsScreen({ role, onNavigate }) {
           <div className="tap" onClick={()=>setSelectedNotif(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>{d.headline}</div>
         </div>
-
-        {/* Icon + title card */}
         <div style={{ background:G.white, borderRadius:18, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16, textAlign:"center" }}>
           <div style={{ width:56, height:56, borderRadius:16, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px" }}><NotifIcon type={n.type} size={26} /></div>
           <div style={{ fontWeight:700, fontSize:16, color:G.text }}>{n.title}</div>
           <div style={{ fontSize:13, color:G.muted, marginTop:4 }}>{n.body}</div>
           <div style={{ marginTop:10 }}><Tag bg={colorMap[n.category]||G.greenPale} color={textMap[n.category]||G.greenMid}>{n.category}</Tag></div>
         </div>
-
-        {/* Details card */}
         <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
           {d.info.filter(i=>i.value).map((item,i,a)=>(
             <div key={item.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:i<a.length-1?`1px solid ${G.border}`:"none" }}>
@@ -2839,21 +2831,15 @@ function NotificationsScreen({ role, onNavigate }) {
             </div>
           ))}
         </div>
-
-        {/* Action buttons */}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {d.actions.map((action,i)=>{
-            const dest = action.toLowerCase().includes("job")||action.toLowerCase().includes("apply") ? "home"
-              : action.toLowerCase().includes("message") ? "messages"
+            const dest = action.toLowerCase().includes("application") ? "messages"
+              : action.toLowerCase().includes("message")||action.toLowerCase().includes("reply") ? "messages"
               : action.toLowerCase().includes("receipt")||action.toLowerCase().includes("transaction") ? "profile"
-              : action.toLowerCase().includes("map")||action.toLowerCase().includes("direction") ? "map"
-              : null;
-            return (
-              <Btn key={action} onClick={()=>{ setSelectedNotif(null); if(dest&&onNavigate) onNavigate(dest); }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>
-            );
+              : action.toLowerCase().includes("browse") ? "home" : null;
+            return <Btn key={action} onClick={()=>{ setSelectedNotif(null); if(dest&&onNavigate) onNavigate(dest); }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>;
           })}
         </div>
-
         <div style={{ textAlign:"center", marginTop:12, fontSize:11, color:G.muted }}>{n.time}</div>
       </div>
     );
@@ -2863,32 +2849,38 @@ function NotificationsScreen({ role, onNavigate }) {
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text }}>Inbox</div>
-        {unreadCount>0&&<div className="tap" onClick={()=>setRead(notifs.map(n=>n.id))} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
+        {unreadCount>0&&<div className="tap" onClick={()=>markRead(notifs.map(n=>n.id))} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
       </div>
 
+      {loading && <div style={{ textAlign:"center", padding:"48px 0", color:G.muted, fontSize:14 }}>Loading…</div>}
+
+      {!loading && filtered.length===0 && (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
+          <div style={{ fontSize:48 }}>🔔</div>
+          <div style={{ fontWeight:700, fontSize:17, color:G.text }}>No notifications yet</div>
+          <div style={{ fontSize:14, color:G.muted, textAlign:"center", lineHeight:1.5 }}>Job updates and activity<br/>will appear here</div>
+        </div>
+      )}
+
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {filtered.map(n=>{
-          const isUnread = n.unread&&!read.includes(n.id);
-          return (
-            <div key={n.id} className="tap card" onClick={()=>{setRead(r=>[...new Set([...r,n.id])]);setSelectedNotif(n);}} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"flex-start", borderLeft:`3px solid ${isUnread?G.green:"transparent"}`, opacity:isUnread?1:0.75 }}>
-              <div style={{ width:40, height:40, borderRadius:12, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><NotifIcon type={n.type} size={20} /></div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                  <div style={{ fontWeight:isUnread?700:500, fontSize:14, color:G.text, lineHeight:1.3 }}>{n.title}</div>
-                  <div style={{ fontSize:10, color:G.muted, flexShrink:0, marginTop:2 }}>{n.time}</div>
-                </div>
-                <div style={{ fontSize:12, color:G.muted, marginTop:3, lineHeight:1.4 }}>{n.body}</div>
-                <div style={{ marginTop:6 }}><Tag bg={colorMap[n.category]||G.greenPale} color={textMap[n.category]||G.greenMid}>{n.category}</Tag></div>
+        {filtered.map(n=>(
+          <div key={n.id} className="tap card" onClick={()=>{ markRead([n.id]); setSelectedNotif(n); }} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"flex-start", borderLeft:`3px solid ${n.unread?G.green:"transparent"}`, opacity:n.unread?1:0.75 }}>
+            <div style={{ width:40, height:40, borderRadius:12, background:colorMap[n.category]||G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><NotifIcon type={n.type} size={20} /></div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                <div style={{ fontWeight:n.unread?700:500, fontSize:14, color:G.text, lineHeight:1.3 }}>{n.title}</div>
+                <div style={{ fontSize:10, color:G.muted, flexShrink:0, marginTop:2 }}>{n.time}</div>
               </div>
-              {isUnread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0, marginTop:4 }}/>}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:12 }}><polyline points="9 18 15 12 9 6"/></svg>
+              <div style={{ fontSize:12, color:G.muted, marginTop:3, lineHeight:1.4 }}>{n.body?.slice(0,80)}{n.body?.length>80?"…":""}</div>
             </div>
-          );
-        })}
+            {n.unread&&<div style={{ width:8, height:8, borderRadius:"50%", background:G.green, flexShrink:0, marginTop:4 }}/>}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
+
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3072,7 +3064,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Applying as</div>
           <div style={{ display:"flex", gap:12, alignItems:"center" }}>
             <Avatar name="Jordan Davis" size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
-            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null; return u?`${u.firstName} ${u.lastName||""}`.trim():"Jordan Davis"; } catch { return "Jordan Davis"; } })()}</div><div style={{ fontSize:12, color:G.muted, display:"flex", alignItems:"center", gap:4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4A261" stroke="#F4A261" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9 · 42 jobs · <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Verified</div></div>
+            <div><div style={{ fontWeight:700, fontSize:14 }}>{(()=>{ try { const u=isBrowser?JSON.parse(localStorage.getItem("chores_user")):null; return u?`${u.firstName} ${u.lastName||""}`.trim():""; } catch { return ""; } })()}</div><div style={{ fontSize:12, color:G.muted }}>{role==="worker"?"Worker":"Job Poster"}</div></div>
           </div>
         </div>
         {/* Message */}
@@ -3108,20 +3100,16 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           setApplyStep(1);
           try {
             const token = isBrowser ? localStorage.getItem("chores_token") : null;
-            const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
-            const workerName = `${user.firstName||""} ${user.lastName||""}`.trim() || "Someone";
             const res = await fetch(`${BACKEND}/api/jobs/${job.id}/apply`, {
               method:"POST",
-              headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
-              body: JSON.stringify({ message: applyMsg, availability: applyAvail, workerId: user.id, workerName })
+              headers:{"Content-Type":"application/json", "Authorization":`Bearer ${token}`},
+              body: JSON.stringify({ message: applyMsg, availability: applyAvail })
             });
             const data = await res.json();
             if (data.success) {
-              // Update applicant count in local job list
               setLiveJobs(prev => prev.map(j => j.id===job.id ? {...j, applicants: (j.applicants||0)+1} : j));
-              // Push notification to browser
               if (Notification && Notification.permission === "granted") {
-                new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent to ${job.poster}`, icon: "/favicon.ico" });
+                new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent.`, icon: "/favicon.ico" });
               }
             }
           } catch(e) { console.error("Apply error:", e); }
@@ -4008,23 +3996,8 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // REVIEWS DATA & MODAL
 // ═══════════════════════════════════════════════════════════════════════════
-const MY_REVIEWS = [
-  { id:1, from:"The Hendersons", avatar:"TH", job:"Mow & Edge Front Lawn", rating:5, text:"Jordan was punctual and did an amazing job. Lawn looks better than ever! Will definitely hire again.", date:"Feb 18, 2025", tags:["punctual","thorough","friendly"] },
-  { id:2, from:"Maria C.", avatar:"MC", job:"Dog Walking – 2 Labs", rating:5, text:"The dogs love Jordan. Always on time and sends me photos during the walk. Couldn't ask for more.", date:"Feb 10, 2025", tags:["reliable","caring","communicative"] },
-  { id:3, from:"Sunrise Café", avatar:"SC", job:"Deep Clean Kitchen & Baths", rating:4, text:"Great job on the deep clean. Kitchen was spotless. Minor thing — missed the baseboards, but overall very happy.", date:"Feb 3, 2025", tags:["hardworking","thorough"] },
-  { id:4, from:"DeAndre W.", avatar:"DW", job:"Paint Bedroom Accent Wall", rating:5, text:"Perfect paint job with clean edges. Jordan even helped me move furniture back. Above and beyond!", date:"Jan 25, 2025", tags:["skilled","helpful","detail-oriented"] },
-  { id:5, from:"The Patels", avatar:"TP", job:"Help Move Furniture", rating:5, text:"Strong and careful with our furniture. No scratches, no complaints. Finished in under 2 hours.", date:"Jan 15, 2025", tags:["strong","careful","efficient"] },
-  { id:6, from:"Mrs. Thompson", avatar:"MT", job:"Grocery Run & Errands", rating:5, text:"Such a sweet young person. Got everything on my list and even carried it inside for me.", date:"Jan 8, 2025", tags:["kind","reliable","helpful"] },
-];
-
-const COMPLETED_JOBS = [
-  { id:101, title:"Mow & Edge Front Lawn", person:"The Hendersons", pay:35, date:"Feb 18", reviewed:true },
-  { id:102, title:"Dog Walking – 2 Labs", person:"Maria C.", pay:20, date:"Feb 10", reviewed:true },
-  { id:103, title:"Deep Clean Kitchen & Baths", person:"Sunrise Café", pay:80, date:"Feb 3", reviewed:true },
-  { id:104, title:"Paint Bedroom Accent Wall", person:"DeAndre W.", pay:65, date:"Jan 25", reviewed:true },
-  { id:105, title:"Assemble IKEA Shelf", person:"Lisa N.", pay:40, date:"Feb 22", reviewed:false },
-  { id:106, title:"Pressure Wash Driveway", person:"Coach Williams", pay:55, date:"Feb 20", reviewed:false },
-];
+const MY_REVIEWS = [];
+const COMPLETED_JOBS = [];
 
 const REVIEW_TAGS = ["punctual","thorough","friendly","reliable","skilled","hardworking","communicative","careful","kind","efficient","detail-oriented","professional"];
 
@@ -4741,7 +4714,14 @@ export default function ChoresApp() {
                   </div>
                 )}
                 {inboxMessages.map(m=>(
-                  <div key={m.id} className="tap" onClick={()=>setChatOpen(m)} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
+                  <div key={m.id} className="tap" onClick={()=>{
+                    setChatOpen(m);
+                    if (m.unread) {
+                      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                      fetch(`${BACKEND}/api/messages/mark-read`, { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`}, body:JSON.stringify({messageIds:[m.id]}) }).catch(()=>{});
+                      setInboxMessages(prev => prev.map(x => x.id===m.id ? {...x, unread:false} : x));
+                    }
+                  }} style={{ background:G.white, borderRadius:16, padding:16, marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", gap:12, alignItems:"center", borderLeft:`3px solid ${m.unread?G.green:"transparent"}` }}>
                     <Avatar name={m.from} />
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", justifyContent:"space-between" }}><span style={{ fontWeight:m.unread?700:500, fontSize:14 }}>{m.from}</span><span style={{ fontSize:11, color:G.muted }}>{m.time}</span></div>
@@ -4767,8 +4747,8 @@ export default function ChoresApp() {
                   ))}
                 </div>
                 <div style={{ padding:"12px 16px 16px", background:G.white, borderTop:`1px solid ${G.border}`, display:"flex", gap:8 }}>
-                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
-                  <button className="btn" onClick={()=>{if(chatMsg.trim()){setChatHistory(h=>[...h,{from:"me",text:chatMsg}]);setChatMsg("");setTimeout(()=>setChatHistory(h=>[...h,{from:"them",text:"Sounds great! See you then 👍"}]),800);}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
+                  <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&chatMsg.trim()){const msg=chatMsg;setChatMsg("");setChatHistory(h=>[...h,{from:"me",text:msg}]);const token=isBrowser?localStorage.getItem("chores_token"):null;fetch(`${BACKEND}/api/messages/send`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({recipientId:chatOpen.senderId||chatOpen.id,jobId:chatOpen.jobId||chatOpen.job_id,body:msg})}).catch(()=>{});}}} placeholder="Type a message..." style={{ flex:1, padding:"10px 14px", borderRadius:20, border:`1.5px solid ${G.border}`, fontSize:14 }} />
+                  <button className="btn" onClick={()=>{if(chatMsg.trim()){const msg=chatMsg;setChatMsg("");setChatHistory(h=>[...h,{from:"me",text:msg}]);const token=isBrowser?localStorage.getItem("chores_token"):null;fetch(`${BACKEND}/api/messages/send`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({recipientId:chatOpen.senderId||chatOpen.id,jobId:chatOpen.jobId||chatOpen.job_id,body:msg})}).catch(()=>{});}}} style={{ width:42, height:42, borderRadius:"50%", background:G.green, color:"#fff", fontSize:18 }}>↑</button>
                 </div>
               </div>
             )}
