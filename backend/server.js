@@ -293,7 +293,7 @@ app.get("/api/jobs", async (req, res) => {
 
   let query = supabase
     .from("jobs")
-    .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified)`)
+    .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified), applications(count)`)
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(parseInt(limit));
@@ -311,7 +311,7 @@ app.get("/api/jobs", async (req, res) => {
     poster_jobs_count: j.poster?.jobs_completed || 0,
     poster_since: j.poster?.created_at ? new Date(j.poster.created_at).toLocaleDateString("en-US", { month:"short", year:"numeric" }) : "",
     poster_verified: j.poster?.identity_verified || false,
-    applicant_count: 0,
+    applicant_count: j.applications?.[0]?.count || 0,
   }));
 
   res.json({ jobs });
