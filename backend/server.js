@@ -283,6 +283,7 @@ app.get("/api/jobs/:id", async (req, res) => {
 // Edit a job (poster only, only if status is still "open")
 app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   const { title, description, category, pay, zip, lat, lng, date, duration, photos } = req.body;
+  console.log("✏️ Editing job:", req.params.id, "by user:", req.user.id, "updates:", { title, category, pay, date });
 
   const { data: job } = await supabase
     .from("jobs").select("poster_id, status").eq("id", req.params.id).single();
@@ -305,10 +306,15 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   if (duration !== undefined) updates.duration = duration;
   if (photos !== undefined) updates.photos = photos;
 
+  console.log("✏️ Applying updates:", updates);
   const { data, error } = await supabase
     .from("jobs").update(updates).eq("id", req.params.id).select().single();
 
-  if (error) return res.json({ error: error.message });
+  if (error) {
+    console.error("❌ Job update error:", error);
+    return res.json({ error: error.message });
+  }
+  console.log("✅ Job updated:", data.id);
   res.json({ success: true, job: data });
 });
 

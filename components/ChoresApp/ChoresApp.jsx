@@ -4915,7 +4915,27 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
             </div>
             <div style={{ display:"flex", gap:10, marginTop:20 }}>
               <Btn variant="ghost" onClick={() => setEditJob(null)} style={{ flex:1, padding:14, borderRadius:14 }}>Cancel</Btn>
-              <Btn onClick={async () => { setEditSaving(true); setEditError(""); const token=isBrowser?localStorage.getItem("chores_token"):null; const res=await fetch(`${BACKEND}/api/jobs/${editJob.id}`,{method:"PATCH",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({...editForm,pay:parseFloat(editForm.pay),photos:editForm.photos||[]})}).then(r=>r.json()).catch(()=>({})); setEditSaving(false); if(res.error){setEditError(res.error);return;} setEditJob(null); fetchMyJobs(); }} disabled={editSaving} style={{ flex:2, padding:14, borderRadius:14 }}>{editSaving?"Saving…":"Save Changes"}</Btn>
+              <Btn onClick={async () => {
+                setEditSaving(true); setEditError("");
+                const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                if (!token) { setEditError("Not logged in."); setEditSaving(false); return; }
+                try {
+                  const res = await fetch(`${BACKEND}/api/jobs/${editJob.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({ ...editForm, pay: parseFloat(editForm.pay), photos: editForm.photos || [] }),
+                  });
+                  const data = await res.json();
+                  console.log("✏️ Edit job response:", data);
+                  if (data.error) { setEditError(data.error); setEditSaving(false); return; }
+                  setEditJob(null);
+                  await fetchMyJobs();
+                } catch(e) {
+                  console.error("Edit job error:", e);
+                  setEditError("Network error — could not save. Try again.");
+                }
+                setEditSaving(false);
+              }} disabled={editSaving} style={{ flex:2, padding:14, borderRadius:14 }}>{editSaving?"Saving…":"Save Changes"}</Btn>
             </div>
           </div>
         </div>
