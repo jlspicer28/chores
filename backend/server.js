@@ -30,7 +30,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
@@ -205,6 +205,8 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // JOBS — Create, list, apply, book
 // ─────────────────────────────────────────────────────────────────────────────
+
+app.get("/api/ping", (req, res) => res.json({ ok: true }));
 
 // Get all open jobs (optionally filter by zip)
 app.get("/api/jobs", async (req, res) => {
