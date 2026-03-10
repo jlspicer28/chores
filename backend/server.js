@@ -242,6 +242,8 @@ app.post("/api/auth/upload-avatar", requireAuth, async (req, res) => {
     res.json({ error: err.message });
   }
 });
+
+app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
   const userId = req.user.id;
   console.log("🗑️ Deleting account for user:", userId);
   try {
