@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 // ─── STRIPE SETUP ────────────────────────────────────────────────────────────
-const STRIPE_PK = "pk_live_51Sm0ov0XVYeAYmlL81O3danYiF5PPJV3zpU4FiJR1kTMTatF5hLVB7tEEuyVKzTGbBD9K1QqlWnY7tkMocJ3j0sJ00rWBI5xzg";
+const STRIPE_PK = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "pk_live_51Sm0ov0XVYeAYmlL81O3danYiF5PPJV3zpU4FiJR1kTMTatF5hLVB7tEEuyVKzTGbBD9K1QqlWnY7tkMocJ3j0sJ00rWBI5xzg";
 const BACKEND = "https://chores-backend4.onrender.com";
 
 // Load Stripe.js from CDN once
@@ -883,7 +883,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [bankFields, setBankFields] = useState({ holder:"", routing:"", account:"", bankName:"", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age:"", zip: userZipCode, photo:null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo:null });
   const photoInputRef = React.useRef();
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(["lawn","cleaning","moving"]);
@@ -1018,19 +1018,23 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 Profile saved successfully!
               </div>
-            : <Btn onClick={()=>{
-                // Persist to localStorage so changes survive refresh
+            : <Btn onClick={async () => {
+                const token = isBrowser ? localStorage.getItem("chores_token") : null;
+                if (token) {
+                  try {
+                    const res = await fetch(`${BACKEND}/api/auth/update-profile`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                      body: JSON.stringify({ firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age }),
+                    });
+                    const data = await res.json();
+                    if (data.error) { alert("Save failed: " + data.error); return; }
+                  } catch(e) { alert("Network error, try again."); return; }
+                }
                 try {
                   if (isBrowser) {
-                  const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
-                  localStorage.setItem("chores_user", JSON.stringify({
-                    ...existing,
-                    firstName: profile.first,
-                    lastName: profile.last,
-                    email: profile.email,
-                    phone: profile.phone,
-                    zip: profile.zip,
-                  }));
+                    const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
+                    localStorage.setItem("chores_user", JSON.stringify({ ...existing, firstName: profile.first, lastName: profile.last, email: profile.email, phone: profile.phone, zip: profile.zip, age: profile.age }));
                   }
                 } catch(e) {}
                 if (onUpdateZip) onUpdateZip(profile.zip);
@@ -2856,7 +2860,7 @@ function NotificationsScreen({ role, onNavigate }) {
   return (
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.text }}>Inbox</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: G.muted, textTransform: "uppercase", letterSpacing: .8 }}>Inbox</div>
         {unreadCount>0&&<div className="tap" onClick={()=>markRead(null)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
       </div>
 
