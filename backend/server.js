@@ -59,7 +59,7 @@ app.get("/ping", (req, res) => res.json({ ok: true }));
 
 // Register a new user
 app.post("/api/auth/register", async (req, res) => {
-  const { email, password, firstName, lastName, phone, zip, role } = req.body;
+  const { email, password, firstName, lastName, phone, zip, role, skills } = req.body;
 
   try {
     // 1. Check if user already exists in our users table
@@ -102,6 +102,7 @@ app.post("/api/auth/register", async (req, res) => {
       rating: 5.0,
       jobs_completed: 0,
       identity_verified: false,
+      skills: Array.isArray(skills) && skills.length > 0 ? skills : [],
       created_at: new Date().toISOString(),
     });
 

@@ -2575,15 +2575,11 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Escrow Wallet</div>
             <div style={{ display:"flex", gap:10 }}>
               <div className={heldCount>0?"escrow-glow":""} style={{ flex:1, background:G.white, borderRadius:18, padding:16, boxShadow:"0 4px 16px rgba(0,0,0,.07)", border:heldCount>0?`1.5px solid ${G.greenLight}`:`1px solid ${G.border}` }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-                  <span style={{ fontSize:16 }}>🔒</span>
-                  {heldCount>0&&<span style={{ fontSize:10, fontWeight:700, background:"#FFF7ED", color:G.gold, padding:"2px 8px", borderRadius:8 }}>{heldCount} active</span>}
-                </div>
+                {heldCount>0&&<div style={{ marginBottom:6 }}><span style={{ fontSize:10, fontWeight:700, background:"#FFF7ED", color:G.gold, padding:"2px 8px", borderRadius:8 }}>{heldCount} active</span></div>}
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:G.gold }}>${totalHeld.toFixed(2)}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>In Escrow</div>
               </div>
               <div style={{ flex:1, background:G.white, borderRadius:18, padding:16, boxShadow:"0 4px 16px rgba(0,0,0,.07)" }}>
-                <div style={{ marginBottom:6 }}><span style={{ fontSize:16 }}>{role==="worker"?"💰":"✅"}</span></div>
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:G.greenMid }}>${totalReleased.toFixed(2)}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{role==="worker"?"Earned":"Released"}</div>
               </div>
@@ -2591,12 +2587,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           </div>
 
           {/* How escrow works mini */}
-          <div style={{ background:G.greenPale, borderRadius:14, padding:14, marginBottom:16, border:`1px solid ${G.greenLight}`, display:"flex", gap:10, alignItems:"flex-start" }}>
-            <span style={{ fontSize:18 }}>🛡️</span>
-            <div>
-              <div style={{ fontWeight:700, fontSize:13, color:G.greenMid, marginBottom:4 }}>Escrow Protection</div>
-              <div style={{ fontSize:12, color:G.text, lineHeight:1.5 }}>Payments are held securely and released only when the poster confirms job completion. Full refund if the worker doesn't show.</div>
-            </div>
+          <div style={{ background:G.greenPale, borderRadius:14, padding:14, marginBottom:16, border:`1px solid ${G.greenLight}` }}>
+            <div style={{ fontWeight:700, fontSize:13, color:G.greenMid, marginBottom:4 }}>Escrow Protection</div>
+            <div style={{ fontSize:12, color:G.text, lineHeight:1.5 }}>Payments are held securely and released only when the poster confirms job completion. Full refund if the worker doesn't show.</div>
           </div>
 
           {/* Recent escrow transactions */}
@@ -3813,12 +3806,13 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
             if (cat.id === "other") return (
               <div key="other" style={{ gridColumn:"1/-1" }}>
                 <div className="tap onb-slide-l" onClick={()=>setInterests(sel?interests.filter(x=>x!=="other"):[...interests,"other"])} style={{
-                  padding:"16px 14px", borderRadius:16, background:sel?G.greenPale:G.white, border:`2px solid ${sel?G.greenLight:G.border}`,
+                  padding:"16px 14px", borderRadius:16,
+                  background:sel?(darkMode?"rgba(82,183,136,.18)":G.greenPale):G.white,
+                  border:`2px solid ${sel?G.greenLight:G.border}`,
                   display:"flex", alignItems:"center", gap:10, transition:"all .2s", animationDelay:`${i*.04}s`, opacity:0,
                   boxShadow:sel?"0 2px 12px rgba(82,183,136,.15)":"none"
                 }}>
-                  <span style={{ fontSize:22 }}>✏️</span>
-                  <span style={{ fontSize:13, fontWeight:sel?700:500, color:sel?G.green:G.text }}>Other</span>
+                  <span style={{ fontSize:13, fontWeight:sel?700:500, color:sel?G.greenLight:G.text }}>Other</span>
                   {sel&&<span style={{ marginLeft:"auto", fontSize:12, color:G.greenLight }}>✓</span>}
                 </div>
                 {sel&&(
@@ -3834,12 +3828,14 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
             );
             return (
               <div key={cat.id} className="tap onb-slide-l" onClick={()=>setInterests(sel?interests.filter(x=>x!==cat.id):[...interests,cat.id])} style={{
-                padding:"16px 14px", borderRadius:16, background:sel?G.greenPale:G.white, border:`2px solid ${sel?G.greenLight:G.border}`,
+                padding:"16px 14px", borderRadius:16,
+                background:sel?(darkMode?"rgba(82,183,136,.18)":G.greenPale):G.white,
+                border:`2px solid ${sel?G.greenLight:G.border}`,
                 display:"flex", alignItems:"center", gap:10, transition:"all .2s",
                 animationDelay:`${i*.04}s`, opacity:0, boxShadow:sel?"0 2px 12px rgba(82,183,136,.15)":"none"
               }}>
-                <span style={{ fontSize:24, display:"flex", alignItems:"center", justifyContent:"center", width:28, height:28 }}>{OI_ICONS[cat.id]?OI_ICONS[cat.id](sel?G.green:G.muted):cat.label.charAt(0)}</span>
-                <span style={{ fontSize:13, fontWeight:sel?700:500, color:sel?G.green:G.text }}>{cat.label}</span>
+                <span style={{ fontSize:24, display:"flex", alignItems:"center", justifyContent:"center", width:28, height:28 }}>{OI_ICONS[cat.id]?OI_ICONS[cat.id](sel?G.greenLight:G.muted):cat.label.charAt(0)}</span>
+                <span style={{ fontSize:13, fontWeight:sel?700:500, color:sel?G.greenLight:G.text }}>{cat.label}</span>
                 {sel&&<span style={{ marginLeft:"auto", fontSize:12, color:G.greenLight }}>✓</span>}
               </div>
             );
@@ -4073,6 +4069,10 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
               phone: form.phone,
               zip: zip,
               role: onbRole || "worker",
+              skills: [
+                ...interests.filter(x => x !== "other"),
+                ...(interests.includes("other") && customInterest.trim() ? [customInterest.trim()] : [])
+              ],
             })
           });
           const data = await res.json();
