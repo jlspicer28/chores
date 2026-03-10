@@ -4763,6 +4763,148 @@ function MessagesTab({ inboxMessages, fetchInbox, chatOpen, setChatOpen, role })
 
 const isBrowser = typeof window !== "undefined";
 
+function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
+  const [myJobs, setMyJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editJob, setEditJob] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [filter, setFilter] = useState("all");
+
+  const fetchMyJobs = React.useCallback(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) { console.warn("No token found for fetchMyJobs"); setLoading(false); return; }
+    console.log("📋 Fetching my jobs...");
+    fetch(`${BACKEND}/api/jobs/mine`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        console.log("📋 My jobs response:", data);
+        if (data.jobs) setMyJobs(data.jobs);
+        else if (data.error) console.error("My jobs error:", data.error);
+      })
+      .catch(e => console.error("My jobs fetch error:", e))
+      .finally(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { fetchMyJobs(); }, [fetchMyJobs, refreshSignal]);
+
+  const statusColor = { open: G.greenMid, booked: G.blue, completed: G.muted, cancelled: G.red };
+  const statusBg = { open: G.greenPale, booked: "#EBF8FF", completed: G.sand, cancelled: "#FFF0F0" };
+  const statusLabel = { open: "Open", booked: "Booked", completed: "Completed", cancelled: "Cancelled" };
+  const counts = myJobs.reduce((acc, j) => { acc[j.status] = (acc[j.status] || 0) + 1; return acc; }, {});
+  const filtered = filter === "all" ? myJobs : myJobs.filter(j => j.status === filter);
+
+  return (
+    <div style={{ padding: "20px 20px 100px" }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 800, fontSize: 24, color: G.text }}>My Jobs</div>
+      </div>
+      {myJobs.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, overflowX: "auto", paddingBottom: 4 }}>
+          {[{ key:"all", label:"All", count:myJobs.length }, { key:"open", label:"Open", count:counts.open||0 }, { key:"booked", label:"Booked", count:counts.booked||0 }, { key:"completed", label:"Done", count:counts.completed||0 }, { key:"cancelled", label:"Cancelled", count:counts.cancelled||0 }].map(f => (
+            <div key={f.key} className="tap" onClick={() => setFilter(f.key)} style={{ flexShrink:0, padding:"6px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", background:filter===f.key?G.green:G.sand, color:filter===f.key?"#fff":G.muted, border:`1.5px solid ${filter===f.key?G.green:G.border}` }}>
+              {f.label}{f.count > 0 && <span style={{ opacity:.7 }}> ({f.count})</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {loading ? (
+        <div style={{ textAlign:"center", padding:"60px 20px", color:G.muted }}>
+          <div style={{ width:36, height:36, borderRadius:"50%", border:`3px solid ${G.greenLight}`, borderTopColor:"transparent", margin:"0 auto 12px", animation:"spin .8s linear infinite" }} />
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+          <div style={{ fontSize:14 }}>Loading your jobs…</div>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"60px 20px" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>📋</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:G.text, marginBottom:6 }}>{myJobs.length === 0 ? "No jobs posted yet" : `No ${filter} jobs`}</div>
+          <div style={{ color:G.muted, fontSize:14, marginBottom:20 }}>{myJobs.length === 0 ? "Post your first job and get matched with workers nearby." : `You don't have any ${filter} jobs right now.`}</div>
+          {myJobs.length === 0 && <Btn onClick={onPostJob} style={{ padding:"13px 28px", borderRadius:14 }}>Post a Job →</Btn>}
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {filtered.map(job => {
+            const canEdit = job.status === "open";
+            return (
+              <div key={job.id} style={{ background:G.white, borderRadius:18, padding:"16px 16px 14px", boxShadow:"0 2px 12px rgba(0,0,0,.07)", border:`2px solid ${job.status==="open"?G.greenLight:G.border}`, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", top:0, left:0, background:G.green, color:"#fff", fontSize:9, fontWeight:800, padding:"3px 12px 3px 10px", borderRadius:"16px 0 10px 0", letterSpacing:.5 }}>MY JOB</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginTop:16 }}>
+                  <div style={{ flex:1, paddingRight:8 }}>
+                    <div style={{ fontWeight:700, fontSize:16, color:G.text, lineHeight:1.3 }}>{job.title}</div>
+                    <div style={{ fontSize:12, color:G.muted, marginTop:3 }}>{job.category||"Uncategorized"} · {job.zip}{job.date?` · ${job.date}`:""}</div>
+                  </div>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.greenMid }}>${job.pay}</div>
+                    <div style={{ background:statusBg[job.status]||G.sand, color:statusColor[job.status]||G.muted, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:6, marginTop:3, display:"inline-block" }}>{statusLabel[job.status]||job.status}</div>
+                  </div>
+                </div>
+                {job.description ? <div style={{ fontSize:13, color:G.muted, marginTop:8, lineHeight:1.5 }}>{job.description.slice(0,100)}{job.description.length>100?"…":""}</div> : null}
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:10, fontSize:12, color:G.muted }}>
+                  <span>👥 {job.applicant_count > 0 ? `${job.applicant_count} applicant${job.applicant_count>1?"s":""}` : "No applicants yet"}</span>
+                  {job.duration && <span>· ⏱ {job.duration}</span>}
+                </div>
+                <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                  {canEdit && <Btn onClick={() => { setEditJob(job); setEditForm({ title:job.title, description:job.description||"", category:job.category||"", pay:String(job.pay), zip:job.zip||"", date:job.date||"", duration:job.duration||"", photos:job.photos||[] }); setEditError(""); }} style={{ padding:"8px 16px", fontSize:12, borderRadius:10 }}>✏️ Edit</Btn>}
+                  {canEdit && <Btn variant="ghost" onClick={async () => { if(!window.confirm("Cancel this job?")) return; const token=isBrowser?localStorage.getItem("chores_token"):null; await fetch(`${BACKEND}/api/jobs/${job.id}/cancel`,{method:"POST",headers:{"Authorization":`Bearer ${token}`}}); fetchMyJobs(); }} style={{ padding:"8px 16px", fontSize:12, borderRadius:10, color:G.red, borderColor:G.red }}>Cancel</Btn>}
+                  {job.status==="booked" && <Btn variant="outline" onClick={() => onCheckout(job)} style={{ padding:"8px 16px", fontSize:12, borderRadius:10 }}>💰 View Escrow</Btn>}
+                  {job.status==="completed" && <div style={{ fontSize:12, color:G.greenMid, fontWeight:700, padding:"8px 0" }}>✅ Completed</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {editJob && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setEditJob(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background:G.white, borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", width:"100%", maxWidth:430, maxHeight:"85vh", overflowY:"auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:20 }}>Edit Job</div>
+              <div className="tap" onClick={() => setEditJob(null)} style={{ width:32, height:32, borderRadius:"50%", background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>×</div>
+            </div>
+            {editError && <div style={{ color:G.red, fontSize:13, marginBottom:12, fontWeight:600 }}>{editError}</div>}
+            {[{ label:"Job Title", key:"title", placeholder:"e.g. Mow the front lawn" }, { label:"Description", key:"description", placeholder:"What needs to be done?", multiline:true }, { label:"Pay ($)", key:"pay", placeholder:"35", type:"number" }, { label:"Zip Code", key:"zip", placeholder:"45056" }, { label:"Date", key:"date", placeholder:"e.g. Sat Mar 15" }, { label:"Duration", key:"duration", placeholder:"e.g. 1–2 hrs" }].map(field => (
+              <div key={field.key} style={{ marginBottom:14 }}>
+                <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5, display:"block", marginBottom:5 }}>{field.label}</label>
+                {field.multiline ? <textarea value={editForm[field.key]||""} onChange={e => setEditForm(f=>({...f,[field.key]:e.target.value}))} placeholder={field.placeholder} rows={3} style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1.5px solid ${G.border}`, fontSize:14, resize:"vertical", fontFamily:"inherit", boxSizing:"border-box" }} /> : <input type={field.type||"text"} value={editForm[field.key]||""} onChange={e => setEditForm(f=>({...f,[field.key]:e.target.value}))} placeholder={field.placeholder} style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1.5px solid ${G.border}`, fontSize:14, boxSizing:"border-box" }} />}
+              </div>
+            ))}
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5, display:"block", marginBottom:5 }}>Category</label>
+              <select value={editForm.category||""} onChange={e => setEditForm(f=>({...f,category:e.target.value}))} style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white }}>
+                <option value="">Select category</option>
+                {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.5, display:"block", marginBottom:5 }}>Photos</label>
+              <input type="file" accept="image/*" multiple style={{ display:"none" }} id="edit-photo-input" onChange={e=>{ const files=Array.from(e.target.files); files.forEach(file=>{ const r=new FileReader(); r.onload=ev=>setEditForm(f=>({...f,photos:[...(f.photos||[]),ev.target.result].slice(0,5)})); r.readAsDataURL(file); }); }} />
+              <label htmlFor="edit-photo-input" style={{ display:"flex", alignItems:"center", gap:10, justifyContent:"center", padding:"10px 12px", borderRadius:10, border:`1.5px dashed ${G.border}`, fontSize:13, color:G.muted, background:G.white, cursor:"pointer" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                {(editForm.photos||[]).length > 0 ? `${editForm.photos.length} photo${editForm.photos.length>1?"s":""} — tap to add more` : "Add photos (optional)"}
+              </label>
+              {(editForm.photos||[]).length > 0 && (
+                <div style={{ display:"flex", gap:8, marginTop:8, overflowX:"auto" }}>
+                  {editForm.photos.map((src,i) => (
+                    <div key={i} style={{ position:"relative", flexShrink:0 }}>
+                      <img src={src} alt="" style={{ width:64, height:64, borderRadius:8, objectFit:"cover", border:`1.5px solid ${G.border}` }} />
+                      <div onClick={()=>setEditForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{ position:"absolute", top:-6, right:-6, width:18, height:18, borderRadius:"50%", background:G.red, color:"#fff", fontSize:11, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>×</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:20 }}>
+              <Btn variant="ghost" onClick={() => setEditJob(null)} style={{ flex:1, padding:14, borderRadius:14 }}>Cancel</Btn>
+              <Btn onClick={async () => { setEditSaving(true); setEditError(""); const token=isBrowser?localStorage.getItem("chores_token"):null; const res=await fetch(`${BACKEND}/api/jobs/${editJob.id}`,{method:"PATCH",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({...editForm,pay:parseFloat(editForm.pay),photos:editForm.photos||[]})}).then(r=>r.json()).catch(()=>({})); setEditSaving(false); if(res.error){setEditError(res.error);return;} setEditJob(null); fetchMyJobs(); }} disabled={editSaving} style={{ flex:2, padding:14, borderRadius:14 }}>{editSaving?"Saving…":"Save Changes"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ChoresApp() {
   const storedUser = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
   const storedToken = isBrowser ? localStorage.getItem("chores_token") : null;
@@ -4988,18 +5130,18 @@ export default function ChoresApp() {
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:34, fontWeight:800, color:"#fff", letterSpacing:.5, lineHeight:1.2 }}>Chores<span style={{ color:G.greenLight }}>.</span></div>
           </div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:14 }}>
-          <span style={{ fontSize:11, color:"rgba(255,255,255,.55)" }}>Worker</span>
-          <div onClick={()=>setRole(r=>r==="worker"?"poster":"worker")} style={{ width:40, height:22, borderRadius:11, background:role==="poster"?G.greenLight:"rgba(255,255,255,.2)", position:"relative", cursor:"pointer", transition:"background .2s" }}>
-            <div style={{ position:"absolute", top:3, left:role==="poster"?21:3, width:16, height:16, borderRadius:"50%", background:"#fff", transition:"left .2s" }}/>
+        <div style={{ display:"inline-flex", marginTop:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(0,0,0,.2)", borderRadius:20, padding:"4px" }}>
+            <div onClick={()=>setRole("worker")} style={{ padding:"6px 18px", borderRadius:16, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:role==="worker"?"#fff":"transparent", color:role==="worker"?G.green:"rgba(255,255,255,.6)" }}>Worker</div>
+            <div onClick={()=>setRole("poster")} style={{ padding:"6px 18px", borderRadius:16, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:role==="poster"?"#fff":"transparent", color:role==="poster"?G.green:"rgba(255,255,255,.6)" }}>Poster</div>
           </div>
-          <span style={{ fontSize:11, color:"rgba(255,255,255,.55)" }}>Poster</span>
         </div>
       </div>
 
       {/* Content */}
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
         {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} />}
+        {view==="myjobs"&&<MyJobsScreen onPostJob={()=>setShowPostJob(true)} onCheckout={(job)=>setCheckoutModal(job)} refreshSignal={lastJobPost} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
@@ -5036,10 +5178,8 @@ export default function ChoresApp() {
                     <option value="">Select category</option>
                     {CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
-                  <div style={{ display:"flex", gap:10 }}>
-                    <input value={postForm.pay} onChange={e=>setPostForm(p=>({...p,pay:e.target.value}))} placeholder="Pay (e.g. $40)" style={{ flex:1, padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white }} />
-                    <input value={postForm.date} onChange={e=>setPostForm(p=>({...p,date:e.target.value}))} placeholder="Date / schedule" style={{ flex:1, padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white }} />
-                  </div>
+                  <input value={postForm.pay} onChange={e=>setPostForm(p=>({...p,pay:e.target.value}))} placeholder="Pay (e.g. $40)" style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }} />
+                  <input value={postForm.date} onChange={e=>setPostForm(p=>({...p,date:e.target.value}))} placeholder="Date / schedule (e.g. Sat Mar 15)" style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }} />
                   <textarea value={postForm.notes} onChange={e=>setPostForm(p=>({...p,notes:e.target.value}))} placeholder="Details, requirements, tools provided..." rows={3} style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, resize:"none", background:G.white }} />
 
                   {/* Photo upload */}
@@ -5094,16 +5234,18 @@ export default function ChoresApp() {
                           date: postForm.date,
                           description: postForm.notes,
                           zip: userZip,
+                          photos: postForm.photos || [],
                         })
                       });
                       const data = await res.json();
+                      console.log("📋 Post job response:", data);
                       if (data.error) {
                         alert("Failed to post job: " + data.error);
                         if(btn){btn.disabled=false;btn.textContent="Post Job →";}
                         return;
                       }
                       setFormPosted(true);
-                      setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); setLastJobPost(Date.now()); }, 2200);
+                      setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); setLastJobPost(Date.now()); setView("myjobs"); }, 2200);
                     } catch(e) {
                       console.error("Post job error:", e);
                       alert("Network error — could not post job. Check your connection.");
@@ -5121,7 +5263,9 @@ export default function ChoresApp() {
       <div className="tab-bar" style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, borderTop:`1px solid ${G.border}`, display:"flex", justifyContent:"space-around", padding:"10px 0 18px", zIndex:50, boxShadow:"0 -4px 24px rgba(0,0,0,.08)" }}>
         {[
           { id:"home",      icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label:"Home" },
-          { id:"map",       icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>, label:"Map" },
+          role==="poster"
+            ? { id:"myjobs", icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>, label:"My Jobs" }
+            : { id:"map",   icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>, label:"Map" },
           { id:"notifications", icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>, label:"Inbox", badge:notifCount },
           { id:"messages",      icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label:"Messages", badge:inboxMessages.filter(m=>m.unread).length },
           { id:"profile",       icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Profile" },

@@ -273,6 +273,7 @@ app.get("/api/jobs/mine", requireAuth, async (req, res) => {
     worker_id: j.worker_id,
     applicant_count: j.applications?.[0]?.count || 0,
     created_at: j.created_at,
+    photos: j.photos || [],
   }));
 
   res.json({ jobs });
@@ -280,7 +281,7 @@ app.get("/api/jobs/mine", requireAuth, async (req, res) => {
 
 // Edit a job (poster only, only if status is still "open")
 app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
-  const { title, description, category, pay, zip, lat, lng, date, duration } = req.body;
+  const { title, description, category, pay, zip, lat, lng, date, duration, photos } = req.body;
 
   const { data: job } = await supabase
     .from("jobs").select("poster_id, status").eq("id", req.params.id).single();
@@ -301,6 +302,7 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   if (lng !== undefined) updates.lng = lng;
   if (date !== undefined) updates.date = date;
   if (duration !== undefined) updates.duration = duration;
+  if (photos !== undefined) updates.photos = photos;
 
   const { data, error } = await supabase
     .from("jobs").update(updates).eq("id", req.params.id).select().single();
@@ -311,7 +313,7 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
-  const { title, description, category, pay, zip, lat, lng, date, duration } = req.body;
+  const { title, description, category, pay, zip, lat, lng, date, duration, photos } = req.body;
   console.log("📋 Creating job:", { title, category, pay, zip, userId: req.user.id });
 
   if (!title || !pay) return res.json({ error: "Title and pay are required" });
@@ -354,6 +356,7 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
     date: date || null,
     duration: duration || null,
     status: "open",
+    photos: photos || [],
   }).select().single();
 
   if (error) {
