@@ -212,7 +212,36 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
+app.post("/api/auth/upload-avatar", requireAuth, async (req, res) => {
+  const { base64, mimeType } = req.body;
+  if (!base64 || !mimeType) return res.json({ error: "Missing image data" });
+
+  try {
+    // Convert base64 to buffer
+    const buffer = Buffer.from(base64.replace(/^data:.*?;base64,/, ""), "base64");
+    const ext = mimeType.split("/")[1] || "jpg";
+    const fileName = `avatars/${req.user.id}.${ext}`;
+
+    // Upload to Supabase Storage (bucket: "avatars")
+    const { error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(fileName, buffer, { contentType: mimeType, upsert: true });
+
+    if (uploadError) return res.json({ error: uploadError.message });
+
+    // Get public URL
+    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(fileName);
+    const avatarUrl = urlData.publicUrl;
+
+    // Save URL to users table
+    await supabase.from("users").update({ avatar_url: avatarUrl }).eq("id", req.user.id);
+
+    res.json({ success: true, avatarUrl });
+  } catch (err) {
+    console.error("Avatar upload error:", err);
+    res.json({ error: err.message });
+  }
+});
   const userId = req.user.id;
   console.log("🗑️ Deleting account for user:", userId);
   try {

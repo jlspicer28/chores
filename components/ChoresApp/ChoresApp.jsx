@@ -801,6 +801,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             zip: u.zip || p.zip,
             bio: u.bio != null ? u.bio : p.bio,
             age: u.age != null ? String(u.age) : p.age,
+            photo: u.avatar_url || p.photo,
           }));
           console.log("🔍 skills from /me:", u.skills);
           if (u.skills != null) setSelSkills(Array.isArray(u.skills) ? u.skills : []);
@@ -887,8 +888,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [bankFields, setBankFields] = useState({ holder:"", routing:"", account:"", bankName:"", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo:null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo: storedUser?.avatar_url || null });
   const photoInputRef = React.useRef();
+  const [newPhotoFile, setNewPhotoFile] = useState(null);
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(() => {
     try {
@@ -950,6 +952,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             <input ref={photoInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{
               const file = e.target.files?.[0];
               if (!file) return;
+              setNewPhotoFile(file);
               const reader = new FileReader();
               reader.onload = ev => setProfile(p=>({...p, photo: ev.target.result}));
               reader.readAsDataURL(file);
@@ -1032,7 +1035,27 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 if (token) {
                   try {
-                    const payload = { firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio, skills: selSkills };
+                    // Upload new photo if selected
+                    if (newPhotoFile) {
+                      const base64 = await new Promise(resolve => {
+                        const r = new FileReader();
+                        r.onload = e => resolve(e.target.result);
+                        r.readAsDataURL(newPhotoFile);
+                      });
+                      const uploadRes = await fetch(`${BACKEND}/api/auth/upload-avatar`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                        body: JSON.stringify({ base64, mimeType: newPhotoFile.type }),
+                      }).then(r => r.json());
+                      if (uploadRes.avatarUrl) {
+                        setProfile(p => ({ ...p, photo: uploadRes.avatarUrl }));
+                        setNewPhotoFile(null);
+                        // Update localStorage with new avatar
+                        const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
+                        localStorage.setItem("chores_user", JSON.stringify({ ...existing, avatar_url: uploadRes.avatarUrl }));
+                      }
+                    }
+                    const payload = { firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio.trim(), skills: selSkills };
                     console.log("💾 Saving profile:", JSON.stringify(payload));
                     const res = await fetch(`${BACKEND}/api/auth/update-profile`, {
                       method: "POST",
