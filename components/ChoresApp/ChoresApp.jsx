@@ -1037,6 +1037,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                   try {
                     // Upload new photo if selected
                     if (newPhotoFile) {
+                      if (newPhotoFile.size > 5 * 1024 * 1024) { alert("Photo must be under 5MB."); return; }
                       const base64 = await new Promise(resolve => {
                         const r = new FileReader();
                         r.onload = e => resolve(e.target.result);
@@ -1065,7 +1066,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                     const data = await res.json();
                     console.log("💾 Save response:", JSON.stringify(data));
                     if (data.error) { alert("Save failed: " + data.error); return; }
-                  } catch(e) { alert("Network error, try again."); return; }
+                  } catch(e) { alert("Save error: " + e.message); return; }
                 }
                 try {
                   if (isBrowser) {
