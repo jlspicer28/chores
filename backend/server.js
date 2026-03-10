@@ -192,6 +192,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   const { firstName, lastName, phone, zip, age, bio, skills } = req.body;
+  console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age });
 
   const { error } = await supabase
     .from("users")
@@ -201,11 +202,12 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
       phone,
       zip,
       age: age ? parseInt(age) : null,
-      bio: bio || null,
+      bio: (bio && bio.trim()) ? bio.trim() : null,
       skills: skills || [],
     })
     .eq("id", req.user.id);
 
+  console.log("📝 update-profile result:", error ? error.message : "success");
   if (error) return res.json({ error: error.message });
   res.json({ success: true });
 });

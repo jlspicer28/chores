@@ -786,11 +786,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     fetch(`${BACKEND}/api/auth/me`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
+        console.log("🔍 /me response:", JSON.stringify(data.user));
         if (data.user) {
           const u = { ...data.user, firstName: data.user.first_name || "", lastName: data.user.last_name || "" };
           setLiveUser(u);
           localStorage.setItem("chores_user", JSON.stringify(u));
-          // Sync profile fields with fresh data
+          // Sync profile fields with fresh data from server
           setProfile(p => ({
             ...p,
             first: u.firstName || u.first_name || p.first,
@@ -798,8 +799,11 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             email: u.email || p.email,
             phone: u.phone || p.phone,
             zip: u.zip || p.zip,
-            bio: u.bio || p.bio,
+            bio: u.bio != null ? u.bio : p.bio,
+            age: u.age != null ? String(u.age) : p.age,
           }));
+          console.log("🔍 skills from /me:", u.skills);
+          if (u.skills != null) setSelSkills(Array.isArray(u.skills) ? u.skills : []);
         }
       })
       .catch(() => {});
@@ -886,7 +890,13 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo:null });
   const photoInputRef = React.useRef();
   const [saved, setSaved] = useState(false);
-  const [selSkills, setSelSkills] = useState(["lawn","cleaning","moving"]);
+  const [selSkills, setSelSkills] = useState(() => {
+    try {
+      const s = storedUser?.skills;
+      if (Array.isArray(s) && s.length > 0) return s;
+      return [];
+    } catch { return []; }
+  });
   const [customSkill, setCustomSkill] = useState("");
   const togSkill = (id) => setSelSkills(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const [reviewFilter, setReviewFilter] = useState("all");
@@ -1022,19 +1032,22 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 if (token) {
                   try {
+                    const payload = { firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio, skills: selSkills };
+                    console.log("💾 Saving profile:", JSON.stringify(payload));
                     const res = await fetch(`${BACKEND}/api/auth/update-profile`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                      body: JSON.stringify({ firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age }),
+                      body: JSON.stringify(payload),
                     });
                     const data = await res.json();
+                    console.log("💾 Save response:", JSON.stringify(data));
                     if (data.error) { alert("Save failed: " + data.error); return; }
                   } catch(e) { alert("Network error, try again."); return; }
                 }
                 try {
                   if (isBrowser) {
                     const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
-                    localStorage.setItem("chores_user", JSON.stringify({ ...existing, firstName: profile.first, lastName: profile.last, email: profile.email, phone: profile.phone, zip: profile.zip, age: profile.age }));
+                    localStorage.setItem("chores_user", JSON.stringify({ ...existing, firstName: profile.first, lastName: profile.last, email: profile.email, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio, skills: selSkills }));
                   }
                 } catch(e) {}
                 if (onUpdateZip) onUpdateZip(profile.zip);
