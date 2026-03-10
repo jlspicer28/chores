@@ -2211,15 +2211,32 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── DELETE MY DATA SUB-PAGE ──
   if (subPage==="deleteData") {
-    const handleDelete = () => {
+    const handleDelete = async () => {
       setDeleteStep(3);
-      setTimeout(()=>setDeleteStep(4), 2000);
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      try {
+        const res = await fetch(`${BACKEND}/api/auth/delete-account`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.error) { setDeleteStep(1); alert("Error: " + data.error); return; }
+        setDeleteStep(4);
+        // Log out after short delay
+        setTimeout(() => {
+          if (isBrowser) { localStorage.removeItem("chores_token"); localStorage.removeItem("chores_user"); }
+          window.location.reload();
+        }, 3000);
+      } catch(e) {
+        setDeleteStep(1);
+        alert("Network error. Please try again.");
+      }
     };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
         <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
           <div className="tap" onClick={()=>{setSubPage(null);setDeleteStep(0);setDeleteConfirmText("");}} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1, color:G.red }}>Delete My Data</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1, color:G.red }}>Delete My Account</div>
         </div>
 
         {deleteStep===4 ? (
@@ -2227,8 +2244,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             <div style={{ width:64, height:64, borderRadius:"50%", background:G.redLight, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px" }}>
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={G.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, marginBottom:8 }}>Deletion Requested</div>
-            <div style={{ fontSize:13, color:G.muted, lineHeight:1.6, marginBottom:20 }}>Your data deletion request has been submitted. All personal data will be permanently removed within 30 days. You'll receive a confirmation email.</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, marginBottom:8 }}>Account Deleted</div>
+            <div style={{ fontSize:13, color:G.muted, lineHeight:1.6, marginBottom:20 }}>Your account and all personal data have been permanently removed. You'll be signed out shortly.</div>
             <Btn onClick={()=>{setSubPage(null);setDeleteStep(0);setDeleteConfirmText("");}} variant="ghost" style={{ padding:"12px 30px", borderRadius:14 }}>Back to Settings</Btn>
           </div>
         ) : deleteStep===3 ? (
@@ -2272,10 +2289,10 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             )}
             {deleteStep>=1 && (
               <div style={{ background:G.white, borderRadius:18, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:G.text, marginBottom:12 }}>Type <span style={{ color:G.red, fontFamily:"monospace" }}>DELETE MY DATA</span> to confirm:</div>
+                <div style={{ fontSize:13, fontWeight:700, color:G.text, marginBottom:12 }}>Type <span style={{ color:G.red, fontFamily:"monospace" }}>DELETE</span> to confirm:</div>
                 <input
                   value={deleteConfirmText}
-                  onChange={e=>{ setDeleteConfirmText(e.target.value); if(e.target.value==="DELETE MY DATA") setDeleteStep(2); else if(deleteStep===2) setDeleteStep(1); }}
+                  onChange={e=>{ setDeleteConfirmText(e.target.value); if(e.target.value==="DELETE") setDeleteStep(2); else if(deleteStep===2) setDeleteStep(1); }}
                   placeholder="Type here..."
                   style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${deleteStep===2?G.red:G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box", color:deleteStep===2?G.red:G.text }}
                   onFocus={e=>e.target.style.borderColor=G.red}
@@ -2643,8 +2660,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               We only collect data necessary to match you with jobs and process payments. Your location is used solely for nearby job matching and is never shared with third parties.
             </div>
             <SettingRow icon="📄" label="View Privacy Policy" right={<span style={{ color:G.muted }}>›</span>} onClick={()=>setSubPage("privacyPolicy")} />
-            <SettingRow icon="📥" label="Download My Data" sub="Request a copy of your data" right={<span style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Request →</span>} onClick={()=>setSubPage("downloadData")} />
-            <SettingRow icon="🗑️" label="Delete My Data" sub="Permanently remove all data" right={<span style={{ fontSize:12, color:G.red, fontWeight:700 }}>Request →</span>} onClick={()=>setSubPage("deleteData")} last />
+            <SettingRow icon="🗑️" label="Delete My Account" sub="Permanently remove your account" right={<span style={{ fontSize:12, color:G.red, fontWeight:700 }}>Request →</span>} onClick={()=>setSubPage("deleteData")} last />
           </div>
         </div>
       )}
@@ -3283,57 +3299,6 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
               <div className="tap card" onClick={onPostJob} style={{ background:`linear-gradient(130deg,${G.green} 0%,${G.greenLight} 100%)`, borderRadius:18, padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 6px 24px rgba(27,67,50,.35)" }}>
                 <div><div style={{ color:"#fff", fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:18 }}>Post a New Job</div><div style={{ color:"rgba(255,255,255,.75)", fontSize:13, marginTop:2 }}>Match with trusted workers nearby</div></div>
                 <div style={{ background:"rgba(255,255,255,.2)", borderRadius:12, width:44, height:44, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>＋</div>
-              </div>
-            </div>
-          )}
-
-          {/* ── MY POSTED JOBS ───────────────────────────────────────── */}
-          {role==="poster" && myPostedJobs.length > 0 && (
-            <div style={{ marginBottom:20 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>My Posted Jobs</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {myPostedJobs.map(job => {
-                  const statusColor = { open:G.greenMid, booked:G.blue, completed:G.muted, cancelled:G.red }[job.status] || G.muted;
-                  const statusBg = { open:G.greenPale, booked:"#EBF8FF", completed:G.sand, cancelled:G.redLight }[job.status] || G.sand;
-                  const statusLabel = { open:"Open", booked:"Booked", completed:"Completed", cancelled:"Cancelled" }[job.status] || job.status;
-                  const canEdit = job.status === "open";
-                  return (
-                    <div key={job.id} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`2px solid ${G.greenLight}`, position:"relative" }}>
-                      {/* MY JOB badge */}
-                      <div style={{ position:"absolute", top:0, left:0, background:G.green, color:"#fff", fontSize:9, fontWeight:800, padding:"3px 10px 3px 10px", borderRadius:"14px 0 10px 0" }}>MY JOB</div>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginTop:14 }}>
-                        <div style={{ flex:1, paddingRight:8 }}>
-                          <div style={{ fontWeight:700, fontSize:15, color:G.text }}>{job.title}</div>
-                          <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>{job.category || "Uncategorized"} · {job.zip} · {job.date || "No date set"}</div>
-                        </div>
-                        <div style={{ textAlign:"right", flexShrink:0 }}>
-                          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:G.greenMid }}>${job.pay}</div>
-                          <div style={{ background:statusBg, color:statusColor, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:6, marginTop:4, display:"inline-block" }}>{statusLabel}</div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize:12, color:G.muted, marginTop:6 }}>
-                        {job.applicant_count > 0 ? `${job.applicant_count} applicant${job.applicant_count>1?"s":""}` : "No applicants yet"}
-                        {job.description ? ` · ${job.description.slice(0,60)}${job.description.length>60?"...":""}` : ""}
-                      </div>
-                      <div style={{ display:"flex", gap:8, marginTop:12 }}>
-                        {canEdit && (
-                          <Btn onClick={()=>{ setEditJob(job); setEditForm({ title:job.title, description:job.description||"", category:job.category||"", pay:String(job.pay), zip:job.zip||"", date:job.date||"", duration:job.duration||"" }); setEditError(""); }} style={{ padding:"7px 16px", fontSize:12, borderRadius:10 }}>✏️ Edit</Btn>
-                        )}
-                        {canEdit && (
-                          <Btn variant="ghost" onClick={async ()=>{
-                            if(!window.confirm("Cancel this job?")) return;
-                            const token = isBrowser ? localStorage.getItem("chores_token") : null;
-                            await fetch(`${BACKEND}/api/jobs/${job.id}/cancel`, { method:"POST", headers:{"Authorization":`Bearer ${token}`} });
-                            fetchMyPostedJobs();
-                          }} style={{ padding:"7px 16px", fontSize:12, borderRadius:10, color:G.red, borderColor:G.red }}>Cancel</Btn>
-                        )}
-                        {job.status === "booked" && (
-                          <Btn variant="outline" onClick={()=>onCheckout(job)} style={{ padding:"7px 16px", fontSize:12, borderRadius:10 }}>View Escrow</Btn>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           )}
@@ -4800,7 +4765,11 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
     }
   }, []);
 
-  React.useEffect(() => { fetchMyJobs(); }, [fetchMyJobs, refreshSignal]);
+  React.useEffect(() => {
+    // Wake up backend (Render free tier sleeps after inactivity)
+    fetch(`${BACKEND}/api/ping`).catch(() => {});
+    fetchMyJobs();
+  }, [fetchMyJobs, refreshSignal]);
 
   const statusColor = { open: G.greenMid, booked: G.blue, completed: G.muted, cancelled: G.red };
   const statusBg = { open: G.greenPale, booked: "#EBF8FF", completed: G.sand, cancelled: "#FFF0F0" };
@@ -4813,15 +4782,6 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 800, fontSize: 24, color: G.text }}>My Jobs</div>
       </div>
-      {myJobs.length > 0 && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 18, overflowX: "auto", paddingBottom: 4 }}>
-          {[{ key:"all", label:"All", count:myJobs.length }, { key:"open", label:"Open", count:counts.open||0 }, { key:"booked", label:"Booked", count:counts.booked||0 }, { key:"completed", label:"Done", count:counts.completed||0 }, { key:"cancelled", label:"Cancelled", count:counts.cancelled||0 }].map(f => (
-            <div key={f.key} className="tap" onClick={() => setFilter(f.key)} style={{ flexShrink:0, padding:"6px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", background:filter===f.key?G.green:G.sand, color:filter===f.key?"#fff":G.muted, border:`1.5px solid ${filter===f.key?G.green:G.border}` }}>
-              {f.label}{f.count > 0 && <span style={{ opacity:.7 }}> ({f.count})</span>}
-            </div>
-          ))}
-        </div>
-      )}
       {loading ? (
         <div style={{ textAlign:"center", padding:"60px 20px", color:G.muted }}>
           <div style={{ width:36, height:36, borderRadius:"50%", border:`3px solid ${G.greenLight}`, borderTopColor:"transparent", margin:"0 auto 12px", animation:"spin .8s linear infinite" }} />
@@ -4864,8 +4824,8 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
                   {job.duration && <span>· ⏱ {job.duration}</span>}
                 </div>
                 <div style={{ display:"flex", gap:8, marginTop:12 }}>
-                  {canEdit && <Btn onClick={() => { setEditJob(job); setEditForm({ title:job.title, description:job.description||"", category:job.category||"", pay:String(job.pay), zip:job.zip||"", date:job.date||"", duration:job.duration||"", photos:job.photos||[] }); setEditError(""); }} style={{ padding:"8px 16px", fontSize:12, borderRadius:10 }}>✏️ Edit</Btn>}
-                  {canEdit && <Btn variant="ghost" onClick={async () => { if(!window.confirm("Cancel this job?")) return; const token=isBrowser?localStorage.getItem("chores_token"):null; await fetch(`${BACKEND}/api/jobs/${job.id}/cancel`,{method:"POST",headers:{"Authorization":`Bearer ${token}`}}); fetchMyJobs(); }} style={{ padding:"8px 16px", fontSize:12, borderRadius:10, color:G.red, borderColor:G.red }}>Cancel</Btn>}
+                  {canEdit && <Btn onClick={() => { setEditJob(job); setEditForm({ title:job.title, description:job.description||"", category:job.category||"", pay:String(job.pay), zip:job.zip||"", date:job.date||"", duration:job.duration||"", photos:job.photos||[] }); setEditError(""); }} style={{ padding:"8px 16px", fontSize:12, borderRadius:10 }}>Edit</Btn>}
+                  {canEdit && <Btn variant="ghost" onClick={async () => { if(!window.confirm("Delete this job?")) return; const token=isBrowser?localStorage.getItem("chores_token"):null; await fetch(`${BACKEND}/api/jobs/${job.id}/cancel`,{method:"POST",headers:{"Authorization":`Bearer ${token}`}}); fetchMyJobs(); }} style={{ padding:"8px 16px", fontSize:12, borderRadius:10, color:G.red, borderColor:G.red }}>Delete</Btn>}
                   {job.status==="booked" && <Btn variant="outline" onClick={() => onCheckout(job)} style={{ padding:"8px 16px", fontSize:12, borderRadius:10 }}>💰 View Escrow</Btn>}
                   {job.status==="completed" && <div style={{ fontSize:12, color:G.greenMid, fontWeight:700, padding:"8px 0" }}>✅ Completed</div>}
                 </div>
@@ -4919,20 +4879,39 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
                 setEditSaving(true); setEditError("");
                 const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 if (!token) { setEditError("Not logged in."); setEditSaving(false); return; }
+                const attemptSave = async () => {
+                  const controller = new AbortController();
+                  const timeout = setTimeout(() => controller.abort(), 15000);
+                  try {
+                    const res = await fetch(`${BACKEND}/api/jobs/${editJob.id}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                      body: JSON.stringify({ ...editForm, pay: parseFloat(editForm.pay), photos: editForm.photos || [] }),
+                      signal: controller.signal,
+                    });
+                    clearTimeout(timeout);
+                    return await res.json();
+                  } catch(e) {
+                    clearTimeout(timeout);
+                    throw e;
+                  }
+                };
                 try {
-                  const res = await fetch(`${BACKEND}/api/jobs/${editJob.id}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                    body: JSON.stringify({ ...editForm, pay: parseFloat(editForm.pay), photos: editForm.photos || [] }),
-                  });
-                  const data = await res.json();
+                  let data;
+                  try {
+                    data = await attemptSave();
+                  } catch(e) {
+                    // Backend may have been sleeping — wait 3s and retry once
+                    await new Promise(r => setTimeout(r, 3000));
+                    data = await attemptSave();
+                  }
                   console.log("✏️ Edit job response:", data);
                   if (data.error) { setEditError(data.error); setEditSaving(false); return; }
                   setEditJob(null);
                   await fetchMyJobs();
                 } catch(e) {
                   console.error("Edit job error:", e);
-                  setEditError("Network error — could not save. Try again.");
+                  setEditError("Server took too long to respond. Please try again.");
                 }
                 setEditSaving(false);
               }} disabled={editSaving} style={{ flex:2, padding:14, borderRadius:14 }}>{editSaving?"Saving…":"Save Changes"}</Btn>

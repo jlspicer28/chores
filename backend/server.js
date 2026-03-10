@@ -202,6 +202,32 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  console.log("🗑️ Deleting account for user:", userId);
+  try {
+    // Delete user's jobs
+    await supabase.from("jobs").delete().eq("poster_id", userId);
+    // Delete user's messages
+    await supabase.from("messages").delete().or(`sender_id.eq.${userId},recipient_id.eq.${userId}`);
+    // Delete user's notifications
+    await supabase.from("notifications").delete().eq("user_id", userId);
+    // Delete user's applications
+    await supabase.from("applications").delete().eq("worker_id", userId);
+    // Delete user row
+    await supabase.from("users").delete().eq("id", userId);
+    // Delete from Supabase Auth
+    const { error } = await supabase.auth.admin.deleteUser(userId);
+    if (error) console.error("Auth delete error (non-fatal):", error.message);
+    console.log("✅ Account deleted:", userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Delete account error:", err);
+    res.json({ error: err.message });
+  }
+});
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // JOBS — Create, list, apply, book
 // ─────────────────────────────────────────────────────────────────────────────
