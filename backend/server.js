@@ -337,6 +337,31 @@ app.get("/api/jobs/mine", requireAuth, async (req, res) => {
   res.json({ jobs });
 });
 
+app.get("/api/users/:id/profile", async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, first_name, last_name, avatar_url, bio, skills, rating, jobs_completed, created_at, zip, identity_verified")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return res.json({ error: "User not found" });
+  res.json({
+    user: {
+      id: data.id,
+      firstName: data.first_name || "",
+      lastName: data.last_name || "",
+      avatarUrl: data.avatar_url || null,
+      bio: data.bio || "",
+      skills: data.skills || [],
+      rating: data.rating || null,
+      jobsCompleted: data.jobs_completed || 0,
+      memberSince: data.created_at,
+      zip: data.zip || "",
+      identityVerified: data.identity_verified || false,
+    }
+  });
+});
+
 app.get("/api/jobs/:id", async (req, res) => {
   const { data, error } = await supabase
     .from("jobs")

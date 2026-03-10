@@ -2937,7 +2937,7 @@ function NotificationsScreen({ role, onNavigate }) {
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
 
-function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0, onApplicationSent }) {
+function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0, onApplicationSent, onViewProfile }) {
   const [discoverView, setDiscoverView] = useState("feed");
   const [activeCategory, setActiveCategory] = useState([]);
   const [payRange, setPayRange] = useState([0,5000]);
@@ -3224,10 +3224,10 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
           {/* Poster profile */}
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:16 }}>
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Posted By</div>
-            <div style={{ display:"flex", gap:14, alignItems:"center" }}>
+            <div className="tap" onClick={()=>job.posterId && onViewProfile && onViewProfile(job.posterId)} style={{ display:"flex", gap:14, alignItems:"center" }}>
               <Avatar name={job.poster} size={48} bg={G.sand} />
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:15, color:G.text }}>{job.poster}</div>
+                <div style={{ fontWeight:700, fontSize:15, color:job.posterId&&onViewProfile?G.greenMid:G.text }}>{job.poster}{job.posterId&&onViewProfile?" →":""}</div>
                 <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>{job.verified?"✅ Verified · ":""}Member since {job.posterSince||"2024"}</div>
               </div>
             </div>
@@ -4964,6 +4964,119 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
   );
 }
 
+function PublicProfileScreen({ userId, onBack }) {
+  const [user, setUser] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    if (!userId) return;
+    setLoading(true);
+    fetch(`${BACKEND}/api/users/${userId}/profile`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { setError(data.error); setLoading(false); return; }
+        setUser(data.user);
+        setLoading(false);
+      })
+      .catch(() => { setError("Could not load profile."); setLoading(false); });
+  }, [userId]);
+
+  const CATEGORY_LABELS = { lawn:"Lawn & Garden", cleaning:"Cleaning", petcare:"Pet Care", windows:"Windows", babysitting:"Babysitting", moving:"Moving", painting:"Painting", errands:"Errands", other:"Other" };
+  const memberSince = user?.memberSince ? new Date(user.memberSince).toLocaleDateString("en-US", { month:"long", year:"numeric" }) : "";
+  const initials = user ? `${user.firstName?.[0]||""}${user.lastName?.[0]||""}`.toUpperCase() : "?";
+
+  return (
+    <div className="fade" style={{ minHeight:"100vh", background:G.cream, paddingBottom:40 }}>
+      {/* Header */}
+      <div style={{ background:G.green, padding:"20px 20px 40px" }}>
+        <div className="tap" onClick={onBack} style={{ width:34, height:34, borderRadius:10, background:"rgba(255,255,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", marginBottom:20 }}>←</div>
+        {loading ? (
+          <div style={{ textAlign:"center", padding:"30px 0" }}>
+            <div style={{ width:48, height:48, borderRadius:"50%", border:"3px solid rgba(255,255,255,.3)", borderTopColor:"#fff", margin:"0 auto", animation:"spin .8s linear infinite" }} />
+          </div>
+        ) : error ? (
+          <div style={{ color:"rgba(255,255,255,.7)", textAlign:"center", padding:"20px 0" }}>{error}</div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+            {user.avatarUrl
+              ? <img src={user.avatarUrl} alt="Profile" style={{ width:88, height:88, borderRadius:"50%", objectFit:"cover", border:"3px solid rgba(255,255,255,.3)" }} />
+              : <div style={{ width:88, height:88, borderRadius:"50%", background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, fontWeight:800, color:"#fff", border:"3px solid rgba(255,255,255,.3)" }}>{initials}</div>
+            }
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:"#fff" }}>{user.firstName} {user.lastName}</div>
+              {user.zip && <div style={{ fontSize:13, color:"rgba(255,255,255,.7)", marginTop:2 }}>📍 {user.zip}</div>}
+            </div>
+            {/* Stats row */}
+            <div style={{ display:"flex", gap:24, marginTop:4 }}>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:20, fontWeight:800, color:"#fff" }}>{user.jobsCompleted || 0}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,.6)", textTransform:"uppercase", letterSpacing:.5 }}>Jobs Done</div>
+              </div>
+              {user.rating && (
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:20, fontWeight:800, color:"#fff" }}>⭐ {Number(user.rating).toFixed(1)}</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,.6)", textTransform:"uppercase", letterSpacing:.5 }}>Rating</div>
+                </div>
+              )}
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:20, fontWeight:800, color:"#fff" }}>{memberSince.split(" ")[1] || "—"}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,.6)", textTransform:"uppercase", letterSpacing:.5 }}>Member Since</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {!loading && !error && user && (
+        <div style={{ padding:"0 16px", marginTop:-16 }}>
+          {/* Verification badge */}
+          {user.identityVerified && (
+            <div style={{ background:G.white, borderRadius:14, padding:"12px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:10, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+              <div style={{ width:32, height:32, borderRadius:"50%", background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>✓</div>
+              <div>
+                <div style={{ fontWeight:700, fontSize:13, color:G.green }}>Identity Verified</div>
+                <div style={{ fontSize:11, color:G.muted }}>Government ID confirmed</div>
+              </div>
+            </div>
+          )}
+
+          {/* Bio */}
+          {user.bio ? (
+            <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>About</div>
+              <div style={{ fontSize:14, color:G.text, lineHeight:1.6 }}>{user.bio}</div>
+            </div>
+          ) : null}
+
+          {/* Skills */}
+          {user.skills?.length > 0 && (
+            <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Skills & Interests</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                {user.skills.map(s => (
+                  <div key={s} style={{ padding:"6px 12px", borderRadius:10, fontSize:12, fontWeight:600, background:G.greenPale, color:G.green, border:`1.5px solid ${G.greenLight}` }}>
+                    ✓ {CATEGORY_LABELS[s] || s}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Member since */}
+          <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Member Info</div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:G.text }}>
+              <span>Member since</span><span style={{ fontWeight:600 }}>{memberSince}</span>
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
 export default function ChoresApp() {
   const storedUser = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })();
   const storedToken = isBrowser ? localStorage.getItem("chores_token") : null;
@@ -5059,6 +5172,7 @@ export default function ChoresApp() {
   const [escrowModal, setEscrowModal] = useState(null);
   const [checkoutModal, setCheckoutModal] = useState(null);
   const [reviewModal, setReviewModal] = useState(null); // {job, person, role:"worker"|"poster"}
+  const [viewingProfileId, setViewingProfileId] = useState(null);
   const [isGuest, setIsGuest] = useState(false);
   const [guestPrompt, setGuestPrompt] = useState(false);
   const [maxDist, setMaxDist] = useState(2);
@@ -5166,6 +5280,11 @@ export default function ChoresApp() {
       {escrowModal&&<EscrowHoldModal job={escrowModal} onClose={()=>setEscrowModal(null)} onConfirm={handleFund} />}
       {checkoutModal&&<CheckoutModal job={checkoutModal} onClose={()=>setCheckoutModal(null)} onComplete={handleFund} />}
       {reviewModal&&<ReviewModal target={reviewModal.person} jobTitle={reviewModal.job} onSubmit={()=>setToast({icon:"⭐",title:"Review submitted!",body:"Thanks for your feedback"})} onClose={()=>setReviewModal(null)} />}
+      {viewingProfileId&&(
+        <div style={{ position:"fixed", inset:0, zIndex:300, background:G.cream, overflowY:"auto" }}>
+          <PublicProfileScreen userId={viewingProfileId} onBack={()=>setViewingProfileId(null)} />
+        </div>
+      )}
 
       {/* Guest sign-up prompt */}
       {guestPrompt&&(
@@ -5199,7 +5318,7 @@ export default function ChoresApp() {
 
       {/* Content */}
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
-        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} />}
+        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} onViewProfile={(id)=>setViewingProfileId(id)} />}
         {view==="myjobs"&&<MyJobsScreen onPostJob={()=>setShowPostJob(true)} onCheckout={(job)=>setCheckoutModal(job)} refreshSignal={lastJobPost} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
