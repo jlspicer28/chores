@@ -721,6 +721,39 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
 });
 
 // Refund escrow (dispute resolved for poster, or worker no-show)
+app.post("/api/charge-saved", requireAuth, async (req, res) => {
+  const { paymentMethodId, amountCents, jobId, jobTitle } = req.body;
+  try {
+    const { data: user } = await supabase
+      .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+    if (!user?.stripe_customer_id) return res.json({ error: "No saved payment method found." });
+
+    const intent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: "usd",
+      payment_method: paymentMethodId,
+      customer: user.stripe_customer_id,
+      confirm: true,
+      capture_method: "manual",
+      off_session: true,
+      metadata: { jobId, posterId: req.user.id },
+      return_url: process.env.FRONTEND_URL || "https://choresnearme.com",
+    });
+
+    if (intent.status === "requires_action") {
+      return res.json({ requiresAction: true, clientSecret: intent.client_secret, intentId: intent.id });
+    }
+    if (intent.status !== "requires_capture") {
+      return res.json({ error: "Payment failed — please try a different card." });
+    }
+
+    res.json({ success: true, intentId: intent.id });
+  } catch (err) {
+    console.error("charge-saved error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
 app.post("/api/refund", requireAuth, async (req, res) => {
   const { escrowId } = req.body;
 

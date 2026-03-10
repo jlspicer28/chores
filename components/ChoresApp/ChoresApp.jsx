@@ -525,9 +525,32 @@ function CheckoutModal({ job, onClose, onComplete }) {
         setStripeError("Network error — please try again.");
       }
     } else {
-      // Saved card / Apple Pay — go straight to processing
+      // Saved card — charge via backend using stored payment method
       setStep(3);
-      setTimeout(() => setStep(4), 1800);
+      try {
+        const token = isBrowser ? localStorage.getItem("chores_token") : null;
+        const res = await fetch(`${BACKEND}/api/charge-saved`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({
+            paymentMethodId: payMethod,
+            amountCents: Math.round(total * 100),
+            jobId: String(job.id),
+            jobTitle: job.title,
+          }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setStep(2);
+          setStripeError(data.error);
+          return;
+        }
+        setPaymentMethodId(payMethod + "|" + data.intentId);
+        setStep(4);
+      } catch (err) {
+        setStep(2);
+        setStripeError("Network error — please try again.");
+      }
     }
   };
 
