@@ -237,17 +237,6 @@ app.get("/api/jobs", async (req, res) => {
 });
 
 // Get a single job
-app.get("/api/jobs/:id", async (req, res) => {
-  const { data, error } = await supabase
-    .from("jobs")
-    .select(`*, poster:users!poster_id(first_name, last_name, rating, identity_verified)`)
-    .eq("id", req.params.id)
-    .single();
-
-  if (error) return res.json({ error: error.message });
-  res.json({ job: data });
-});
-
 // Get all jobs posted by the current user
 app.get("/api/jobs/mine", requireAuth, async (req, res) => {
   const { data, error } = await supabase
@@ -278,6 +267,18 @@ app.get("/api/jobs/mine", requireAuth, async (req, res) => {
 
   res.json({ jobs });
 });
+
+app.get("/api/jobs/:id", async (req, res) => {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select(`*, poster:users!poster_id(first_name, last_name, rating, identity_verified)`)
+    .eq("id", req.params.id)
+    .single();
+
+  if (error) return res.json({ error: error.message });
+  res.json({ job: data });
+});
+
 
 // Edit a job (poster only, only if status is still "open")
 app.patch("/api/jobs/:id", requireAuth, async (req, res) => {

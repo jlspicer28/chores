@@ -2963,8 +2963,10 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
   },[selectedJob, applyModal, discoverView]);
 
   const myPostedJobIds = new Set(myPostedJobs.map(j => j.id));
+  const currentUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   const filtered = liveJobs.filter(j=>{
-    if(myPostedJobIds.has(j.id)) return false; // hide own jobs from discovery feed
+    if(currentUserId && j.posterId === currentUserId) return false; // always hide own jobs from feed
+    if(myPostedJobIds.has(j.id)) return false; // fallback: hide own jobs from discovery feed
     if(activeCategory.length>0&&!activeCategory.includes(j.category)) return false;
     if(j.pay<payRange[0]||j.pay>payRange[1]) return false;
     if(j.dist>maxDist) return false;
@@ -4766,25 +4768,36 @@ const isBrowser = typeof window !== "undefined";
 function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
   const [myJobs, setMyJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
   const [editJob, setEditJob] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
   const [filter, setFilter] = useState("all");
 
-  const fetchMyJobs = React.useCallback(() => {
+  const fetchMyJobs = React.useCallback(async () => {
+    setFetchError("");
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) { console.warn("No token found for fetchMyJobs"); setLoading(false); return; }
-    console.log("📋 Fetching my jobs...");
-    fetch(`${BACKEND}/api/jobs/mine`, { headers: { "Authorization": `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => {
-        console.log("📋 My jobs response:", data);
-        if (data.jobs) setMyJobs(data.jobs);
-        else if (data.error) console.error("My jobs error:", data.error);
-      })
-      .catch(e => console.error("My jobs fetch error:", e))
-      .finally(() => setLoading(false));
+    if (!token) {
+      setFetchError("Not logged in — please sign out and sign back in.");
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${BACKEND}/api/jobs/mine`, { headers: { "Authorization": `Bearer ${token}` } });
+      const data = await res.json();
+      console.log("📋 My jobs response:", data);
+      if (data.error) {
+        setFetchError(data.error);
+      } else if (data.jobs) {
+        setMyJobs(data.jobs);
+      }
+    } catch(e) {
+      console.error("My jobs fetch error:", e);
+      setFetchError("Could not load jobs. Check your connection.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   React.useEffect(() => { fetchMyJobs(); }, [fetchMyJobs, refreshSignal]);
@@ -4814,6 +4827,12 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
           <div style={{ width:36, height:36, borderRadius:"50%", border:`3px solid ${G.greenLight}`, borderTopColor:"transparent", margin:"0 auto 12px", animation:"spin .8s linear infinite" }} />
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
           <div style={{ fontSize:14 }}>Loading your jobs…</div>
+        </div>
+      ) : fetchError ? (
+        <div style={{ textAlign:"center", padding:"60px 20px" }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
+          <div style={{ color:G.red, fontSize:14, fontWeight:600, marginBottom:8 }}>{fetchError}</div>
+          <Btn onClick={fetchMyJobs} style={{ padding:"10px 24px", borderRadius:12 }}>Retry</Btn>
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign:"center", padding:"60px 20px" }}>
