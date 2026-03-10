@@ -248,6 +248,67 @@ app.get("/api/jobs/:id", async (req, res) => {
   res.json({ job: data });
 });
 
+// Get all jobs posted by the current user
+app.get("/api/jobs/mine", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select(`*, applications(count)`)
+    .eq("poster_id", req.user.id)
+    .order("created_at", { ascending: false });
+
+  if (error) return res.json({ error: error.message });
+
+  const jobs = (data || []).map(j => ({
+    id: j.id,
+    title: j.title,
+    description: j.description,
+    category: j.category,
+    pay: parseFloat(j.pay) || 0,
+    zip: j.zip,
+    lat: j.lat,
+    lng: j.lng,
+    date: j.date,
+    duration: j.duration,
+    status: j.status,
+    worker_id: j.worker_id,
+    applicant_count: j.applications?.[0]?.count || 0,
+    created_at: j.created_at,
+  }));
+
+  res.json({ jobs });
+});
+
+// Edit a job (poster only, only if status is still "open")
+app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
+  const { title, description, category, pay, zip, lat, lng, date, duration } = req.body;
+
+  const { data: job } = await supabase
+    .from("jobs").select("poster_id, status").eq("id", req.params.id).single();
+
+  if (!job) return res.json({ error: "Job not found" });
+  if (job.poster_id !== req.user.id) return res.json({ error: "Not authorized" });
+  if (job.status === "booked" || job.status === "completed") {
+    return res.json({ error: "Cannot edit a job that is already booked or completed" });
+  }
+
+  const updates = {};
+  if (title !== undefined) updates.title = title.trim();
+  if (description !== undefined) updates.description = description;
+  if (category !== undefined) updates.category = category;
+  if (pay !== undefined) updates.pay = parseFloat(pay);
+  if (zip !== undefined) updates.zip = zip;
+  if (lat !== undefined) updates.lat = lat;
+  if (lng !== undefined) updates.lng = lng;
+  if (date !== undefined) updates.date = date;
+  if (duration !== undefined) updates.duration = duration;
+
+  const { data, error } = await supabase
+    .from("jobs").update(updates).eq("id", req.params.id).select().single();
+
+  if (error) return res.json({ error: error.message });
+  res.json({ success: true, job: data });
+});
+
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
   const { title, description, category, pay, zip, lat, lng, date, duration } = req.body;
