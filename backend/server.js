@@ -275,6 +275,18 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
 
 app.get("/api/ping", (req, res) => res.json({ ok: true }));
 
+app.get("/api/jobs/applied", async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.json({ jobIds: [] });
+  const { data: { user } } = await supabase.auth.getUser(token);
+  if (!user) return res.json({ jobIds: [] });
+  const { data } = await supabase
+    .from("applications")
+    .select("job_id")
+    .eq("worker_id", user.id);
+  res.json({ jobIds: (data || []).map(a => a.job_id) });
+});
+
 // Get all open jobs (optionally filter by zip)
 app.get("/api/jobs", async (req, res) => {
   const { zip, category, limit = 50 } = req.query;
@@ -1111,7 +1123,14 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
   if (!message) return res.json({ error: "Message is required" });
 
   try {
-    // Ensure worker row exists in users table
+    // Check for duplicate application
+    const { data: existing } = await supabase
+      .from("applications")
+      .select("id")
+      .eq("job_id", jobId)
+      .eq("worker_id", workerId)
+      .maybeSingle();
+    if (existing) return res.json({ error: "You have already applied to this job.", alreadyApplied: true });
     const { data: existingWorker } = await supabase
       .from("users").select("id").eq("id", workerId).maybeSingle();
     if (!existingWorker) {

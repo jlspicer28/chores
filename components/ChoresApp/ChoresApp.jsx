@@ -3009,6 +3009,16 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
     return () => clearInterval(interval);
   }, [fetchJobs, refreshSignal]);
 
+  // Fetch which jobs this worker has already applied to
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/jobs/applied`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.jobIds) setApplied(data.jobIds); })
+      .catch(() => {});
+  }, []);
+
   // Fetch poster's own jobs when in poster mode
   React.useEffect(() => {
     fetchMyPostedJobs();
@@ -3139,14 +3149,21 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
               body: JSON.stringify({ message: applyMsg, availability: applyAvail, workerId: user.id, workerName })
             });
             const data = await res.json();
+            if (data.alreadyApplied) {
+              // Already applied — just update local state to reflect this
+              setApplied(prev => prev.includes(job.id) ? prev : [...prev, job.id]);
+              setApplyStep(2);
+              return;
+            }
             if (data.error) {
               alert("Application failed: " + data.error);
               setApplyStep(0);
               return;
             }
             if (data.success) {
-              setLiveJobs(prev => prev.map(j => j.id===job.id ? {...j, applicants: (j.applicants||0)+1} : j));
-              if (onApplicationSent) onApplicationSent(); // refresh inbox badge immediately
+              setApplied(prev => [...prev, job.id]);
+              setLiveJobs(prev => prev.map(j => j.id===job.id ? {...j, applicants: data.applicantCount ?? (j.applicants||0)+1} : j));
+              if (onApplicationSent) onApplicationSent();
               if (typeof Notification !== "undefined" && Notification.permission === "granted") {
                 new Notification("Application submitted!", { body: `Your application for "${job.title}" was sent to ${job.poster}`, icon: "/favicon.ico" });
               }
