@@ -191,11 +191,19 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
-  const { firstName, lastName, phone, zip, age } = req.body;
+  const { firstName, lastName, phone, zip, age, bio, skills } = req.body;
 
   const { error } = await supabase
     .from("users")
-    .update({ first_name: firstName, last_name: lastName, phone, zip, age: age ? parseInt(age) : null })
+    .update({
+      first_name: firstName,
+      last_name: lastName,
+      phone,
+      zip,
+      age: age ? parseInt(age) : null,
+      bio: bio || null,
+      skills: skills || [],
+    })
     .eq("id", req.user.id);
 
   if (error) return res.json({ error: error.message });
