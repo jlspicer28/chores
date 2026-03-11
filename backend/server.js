@@ -904,6 +904,28 @@ app.post("/api/refund", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BANK ACCOUNT — Save and load worker bank details
+app.post("/api/bank-details", requireAuth, async (req, res) => {
+  const { holder, bankName, accountType, routing, accountLast4 } = req.body;
+  const { error } = await supabase.from("users").update({
+    bank_holder: holder || null,
+    bank_name: bankName || null,
+    bank_account_type: accountType || null,
+    bank_routing_masked: routing ? ("•••••" + String(routing).slice(-4)) : null,
+    bank_last4: accountLast4 || null,
+  }).eq("id", req.user.id);
+  if (error) return res.json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.get("/api/bank-details", requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from("users")
+    .select("bank_holder, bank_name, bank_account_type, bank_routing_masked, bank_last4")
+    .eq("id", req.user.id).maybeSingle();
+  if (error) return res.json({ error: error.message });
+  res.json({ bank: data || {} });
+});
+
 // STRIPE CONNECT — Worker payout onboarding
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/connect/onboard", requireAuth, async (req, res) => {

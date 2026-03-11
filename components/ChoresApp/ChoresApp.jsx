@@ -908,7 +908,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [tab, setTab] = useState("profile");
   // Auto-switch to payments tab if worker has pending payments to accept
   React.useEffect(() => {
-    if (role === "worker" && escrowData.filter(t => t.status === "held" && !t.workerConfirmed).length > 0) {
+    const uid = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
+    if (role === "worker" && escrowData.filter(t => t.status === "held" && !t.workerConfirmed && String(t.workerId)===String(uid)).length > 0) {
       setTab("payments");
     }
   }, [escrowData, role]);
@@ -988,6 +989,20 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [bankEditing, setBankEditing] = useState(false);
   const [bankFields, setBankFields] = useState({ holder:"", routing:"", account:"", bankName:"", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
+
+  // Load bank details from backend on mount
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/bank-details`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.bank && data.bank.bank_last4) {
+          setBank({ name: data.bank.bank_name||"", last4: data.bank.bank_last4||"", routing: data.bank.bank_routing_masked||"", type: data.bank.bank_account_type||"Checking", holder: data.bank.bank_holder||"" });
+          setBankFields(f => ({ ...f, holder: data.bank.bank_holder||"", bankName: data.bank.bank_name||"", type: data.bank.bank_account_type||"Checking" }));
+        }
+      }).catch(()=>{});
+  }, []);
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
   const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo: storedUser?.avatar_url || null });
   const photoInputRef = React.useRef();
@@ -1022,9 +1037,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [payoutDay, setPayoutDay] = useState("Monday");
   const [payoutSaved, setPayoutSaved] = useState(false);
 
-  const totalHeld = escrowData.filter(t=>t.status==="held").reduce((s,t)=>s+t.amount,0);
-  const totalReleased = escrowData.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0);
-  const heldCount = escrowData.filter(t=>t.status==="held").length;
+  const settingsUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
+  // Worker view: only transactions where I am the worker
+  const myWorkerTxns = escrowData.filter(t => String(t.workerId) === String(settingsUserId));
+  // Poster view: only transactions where I am the poster
+  const myPosterTxns = escrowData.filter(t => String(t.posterId) === String(settingsUserId));
+  const activeTxns = role === "worker" ? myWorkerTxns : myPosterTxns;
+  const totalHeld = activeTxns.filter(t=>t.status==="held").reduce((s,t)=>s+(role==="worker"?t.workerGets:t.amount),0);
+  const totalReleased = role==="worker"
+    ? myWorkerTxns.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0)
+    : myPosterTxns.filter(t=>t.status==="released").reduce((s,t)=>s+t.amount,0);
+  const heldCount = activeTxns.filter(t=>t.status==="held").length;
 
   const SettingRow = ({ icon, label, sub, right, last, onClick }) => (
     <div className={onClick?"tap":""} onClick={onClick} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 0", borderBottom:last?"none":`1px solid ${G.border}` }}>
@@ -1853,13 +1876,13 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── VIEW ALL TRANSACTIONS SUB-PAGE ──
   if (subPage==="allTransactions") {
-    const filtered = txFilter==="all" ? escrowData : escrowData.filter(t=>t.status===txFilter);
+    const filtered = txFilter==="all" ? activeTxns : activeTxns.filter(t=>t.status===txFilter);
     const totals = {
-      all: escrowData.length,
-      held: escrowData.filter(t=>t.status==="held").length,
-      released: escrowData.filter(t=>t.status==="released").length,
-      disputed: escrowData.filter(t=>t.status==="disputed").length,
-      refunded: escrowData.filter(t=>t.status==="refunded").length,
+      all: activeTxns.length,
+      held: activeTxns.filter(t=>t.status==="held").length,
+      released: activeTxns.filter(t=>t.status==="released").length,
+      disputed: activeTxns.filter(t=>t.status==="disputed").length,
+      refunded: activeTxns.filter(t=>t.status==="refunded").length,
     };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -1886,12 +1909,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         {/* Total earned/held */}
         <div style={{ display:"flex", gap:10, marginBottom:16 }}>
           <div style={{ flex:1, background:G.white, borderRadius:16, padding:14, textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            <div style={{ fontSize:11, color:G.muted, fontWeight:600 }}>Total Released</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.greenMid, marginTop:4 }}>${escrowData.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0).toFixed(2)}</div>
+            <div style={{ fontSize:11, color:G.muted, fontWeight:600 }}>{role==="worker"?"Total Earned":"Total Paid Out"}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.greenMid, marginTop:4 }}>${activeTxns.filter(t=>t.status==="released").reduce((s,t)=>s+(role==="worker"?t.workerGets:t.amount),0).toFixed(2)}</div>
           </div>
           <div style={{ flex:1, background:G.white, borderRadius:16, padding:14, textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
             <div style={{ fontSize:11, color:G.muted, fontWeight:600 }}>Currently Held</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.gold, marginTop:4 }}>${escrowData.filter(t=>t.status==="held").reduce((s,t)=>s+t.amount,0).toFixed(2)}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.gold, marginTop:4 }}>${activeTxns.filter(t=>t.status==="held").reduce((s,t)=>s+(role==="worker"?t.workerGets:t.amount),0).toFixed(2)}</div>
           </div>
         </div>
 
@@ -1923,18 +1946,24 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   if (subPage==="bankAccount") {
     const editing = bankEditing, setEditing = setBankEditing;
     const editFields = bankFields, setEditFields = setBankFields;
-    const BField = ({ label, value, onChange, placeholder }) => (
-      <div style={{ marginBottom:12 }}>
-        <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 }}>{label}</label>
-        <input value={value} onChange={onChange} placeholder={placeholder} style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-      </div>
-    );
-    const handleBankSave = () => {
+    const handleBankSave = async () => {
       if(!editFields.routing||!editFields.account) return;
-      setBank({ name:editFields.bankName, last4:editFields.account.slice(-4), routing:"•••••"+editFields.routing.slice(-4), type:editFields.type, holder:editFields.holder });
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      const last4 = editFields.account.slice(-4);
+      setBank({ name:editFields.bankName, last4, routing:"•••••"+editFields.routing.slice(-4), type:editFields.type, holder:editFields.holder });
       setBankSaved(true);
+      // Persist to backend (we only store masked values — never full account number)
+      if (token) {
+        fetch(`${BACKEND}/api/bank-details`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ holder: editFields.holder, bankName: editFields.bankName, accountType: editFields.type, routing: editFields.routing, accountLast4: last4 }),
+        }).catch(()=>{});
+      }
       setTimeout(()=>{setBankSaved(false);setEditing(false);},1200);
     };
+    const bankInputStyle = { width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" };
+    const bankLabelStyle = { fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
         <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
@@ -1982,8 +2011,14 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               Update Bank Details
             </div>
-            <BField label="Account Holder Name" value={editFields.holder} onChange={e=>setEditFields(f=>({...f,holder:e.target.value}))} placeholder="You" />
-            <BField label="Bank Name" value={editFields.bankName} onChange={e=>setEditFields(f=>({...f,bankName:e.target.value}))} placeholder="Chase" />
+            <div style={{ marginBottom:12 }}>
+              <label style={bankLabelStyle}>Account Holder Name</label>
+              <input value={editFields.holder} onChange={e=>setEditFields(f=>({...f,holder:e.target.value}))} placeholder="You" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <label style={bankLabelStyle}>Bank Name</label>
+              <input value={editFields.bankName} onChange={e=>setEditFields(f=>({...f,bankName:e.target.value}))} placeholder="Chase" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+            </div>
             <div style={{ marginBottom:12 }}>
               <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 }}>Account Type</label>
               <div style={{ display:"flex", gap:8 }}>
@@ -1992,8 +2027,14 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 ))}
               </div>
             </div>
-            <BField label="Routing Number" value={editFields.routing} onChange={e=>setEditFields(f=>({...f,routing:e.target.value}))} placeholder="9 digits" />
-            <BField label="Account Number" value={editFields.account} onChange={e=>setEditFields(f=>({...f,account:e.target.value}))} placeholder="Account number" />
+            <div style={{ marginBottom:12 }}>
+              <label style={bankLabelStyle}>Routing Number</label>
+              <input value={editFields.routing} onChange={e=>setEditFields(f=>({...f,routing:e.target.value}))} placeholder="9 digits" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <label style={bankLabelStyle}>Account Number</label>
+              <input value={editFields.account} onChange={e=>setEditFields(f=>({...f,account:e.target.value}))} placeholder="Account number" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+            </div>
             {bankSaved
               ? <div style={{ textAlign:"center", padding:12, borderRadius:14, background:"#dcfce7", color:G.green, fontWeight:700, fontSize:14 }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M20 6L9 17l-5-5"/></svg>
@@ -2378,7 +2419,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         setDeleteStep(4);
         // Log out after short delay
         setTimeout(() => {
-          if (isBrowser) { localStorage.removeItem("chores_token"); localStorage.removeItem("chores_user"); }
+          if (isBrowser) { localStorage.removeItem("chores_token"); localStorage.removeItem("chores_user"); localStorage.removeItem("chores_escrow"); }
           window.location.reload();
         }, 3000);
       } catch(e) {
@@ -2572,7 +2613,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       <div style={{ position:"relative", marginBottom:18 }}>
         <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none" }}>
           {tabs.map(t=>{
-            const isPending = t.id==="payments" && role==="worker" && escrowData.filter(x=>x.status==="held"&&!x.workerConfirmed).length>0;
+            const isPending = t.id==="payments" && role==="worker" && escrowData.filter(x=>x.status==="held"&&!x.workerConfirmed&&String(x.workerId)===String(settingsUserId)).length>0;
             return (
             <div key={t.id} className="chip tap" onClick={()=>setTab(t.id)} style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, background:tab===t.id?G.green:G.white, color:tab===t.id?"#fff":G.text, border:`1.5px solid ${tab===t.id?G.green:G.border}`, display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap", flexShrink:0, position:"relative" }}>
               {t.label}
@@ -2606,12 +2647,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             </div>
           </div>
           <div style={{ display:"flex", gap:10, marginBottom:14 }}>
-            {[{l:"Jobs Done",v:storedUser?.jobs_completed ?? 0},{l:role==="worker"?"Earned":"Spent",v:`$${Number(storedUser?.total_earned||0).toLocaleString()}`},{l:"Rating",v:storedUser?.rating != null ? Number(storedUser.rating).toFixed(1) : "—"}].map(s=>(
+            {(()=>{
+              const workerEarned = myWorkerTxns.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0);
+              const posterSpent = myPosterTxns.filter(t=>["released","held"].includes(t.status)).reduce((s,t)=>s+t.amount,0);
+              const moneyVal = role==="worker" ? `$${workerEarned.toFixed(0)}` : `$${posterSpent.toFixed(0)}`;
+              return [{l:"Jobs Done",v:storedUser?.jobs_completed ?? 0},{l:role==="worker"?"Earned":"Spent",v:moneyVal},{l:"Rating",v:storedUser?.rating != null ? Number(storedUser.rating).toFixed(1) : "—"}].map(s=>(
               <div key={s.l} className="stat-card" style={{ flex:1, background:G.white, borderRadius:16, padding:"14px 10px", textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.greenMid }}>{s.v}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{s.l}</div>
               </div>
-            ))}
+            ));
+            })()}
           </div>
           {/* Completed jobs needing review */}
           {COMPLETED_JOBS.filter(j=>!j.reviewed).length>0 && (
@@ -2702,7 +2748,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       {tab==="payments"&&(
         <div className="fade">
           {/* Worker: jobs awaiting your confirmation */}
-          {role==="worker" && escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length>0&&(
+          {role==="worker" && myWorkerTxns.filter(t=>t.status==="held"&&!t.workerConfirmed).length>0&&(
             <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:20, padding:20, marginBottom:16, color:"#fff", boxShadow:`0 6px 24px ${G.green}55` }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
                 <div style={{ width:36, height:36, borderRadius:12, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>💰</div>
@@ -2711,7 +2757,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                   <div style={{ fontSize:12, opacity:.85 }}>Confirm completion to release your payment</div>
                 </div>
               </div>
-              {escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).map(t=>(
+              {myWorkerTxns.filter(t=>t.status==="held"&&!t.workerConfirmed).map(t=>(
                 <div key={t.id} className="tap" onClick={()=>setSelectedTxn(t)} style={{ background:"rgba(255,255,255,.2)", borderRadius:14, padding:"14px 16px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center", border:"1.5px solid rgba(255,255,255,.3)" }}>
                   <div>
                     <div style={{ fontWeight:700, fontSize:14 }}>{t.job}</div>
@@ -2726,11 +2772,11 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             </div>
           )}
           {/* Poster: jobs awaiting poster confirmation */}
-          {role==="poster" && escrowData.filter(t=>t.status==="held"&&!t.posterConfirmed).length>0&&(
+          {role==="poster" && myPosterTxns.filter(t=>t.status==="held"&&!t.posterConfirmed).length>0&&(
             <div style={{ background:`linear-gradient(135deg,${G.gold}CC,${G.gold})`, borderRadius:18, padding:16, marginBottom:16, color:"#fff" }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Confirm Job Complete</div>
               <div style={{ fontSize:13, opacity:.9, marginBottom:12 }}>Tap a job below to confirm completion and release payment to your worker.</div>
-              {escrowData.filter(t=>t.status==="held"&&!t.posterConfirmed).map(t=>(
+              {myPosterTxns.filter(t=>t.status==="held"&&!t.posterConfirmed).map(t=>(
                 <div key={t.id} className="tap" onClick={()=>setSelectedTxn(t)} style={{ background:"rgba(255,255,255,.2)", borderRadius:12, padding:"10px 14px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div>
                     <div style={{ fontWeight:700, fontSize:13 }}>{t.job}</div>
@@ -2751,7 +2797,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               </div>
               <div style={{ flex:1, background:G.white, borderRadius:18, padding:16, boxShadow:"0 4px 16px rgba(0,0,0,.07)" }}>
                 <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:G.greenMid }}>${totalReleased.toFixed(2)}</div>
-                <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{role==="worker"?"Earned":"Released"}</div>
+                <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>{role==="worker"?"Earned":"Paid Out"}</div>
               </div>
             </div>
           </div>
@@ -2765,7 +2811,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           {/* Recent escrow transactions */}
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Escrow Transactions</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
-            {escrowData.slice(0,5).map(txn=>{
+            {activeTxns.slice(0,5).map(txn=>{
               const sc = ESCROW_STATUS[txn.status];
               return (
                 <div key={txn.id} className="card tap" onClick={()=>setSelectedTxn(txn)} style={{ background:G.white, borderRadius:16, padding:"12px 14px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", borderLeft:`3px solid ${sc.text}`, display:"flex", gap:12, alignItems:"center" }}>
@@ -2783,8 +2829,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 </div>
               );
             })}
-            {escrowData.length>5&&<div className="tap" onClick={()=>setSubPage("allTransactions")} style={{ textAlign:"center", padding:10, fontSize:13, color:G.greenMid, fontWeight:700 }}>View all {escrowData.length} transactions →</div>}
-            {escrowData.length<=5&&escrowData.length>0&&<div className="tap" onClick={()=>setSubPage("allTransactions")} style={{ textAlign:"center", padding:10, fontSize:13, color:G.greenMid, fontWeight:700 }}>View all transactions →</div>}
+            {activeTxns.length>5&&<div className="tap" onClick={()=>setSubPage("allTransactions")} style={{ textAlign:"center", padding:10, fontSize:13, color:G.greenMid, fontWeight:700 }}>View all {activeTxns.length} transactions →</div>}
+            {activeTxns.length<=5&&activeTxns.length>0&&<div className="tap" onClick={()=>setSubPage("allTransactions")} style={{ textAlign:"center", padding:10, fontSize:13, color:G.greenMid, fontWeight:700 }}>View all transactions →</div>}
           </div>
 
           {/* Payment methods */}
@@ -3158,7 +3204,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
 
   const fetchMyPostedJobs = React.useCallback(() => {
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token || role !== "poster") return;
+    if (!token) return;
     fetch(`${BACKEND}/api/jobs/mine`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { if (data.jobs) setMyPostedJobs(data.jobs); })
@@ -3183,10 +3229,10 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
       .catch(() => {});
   }, []);
 
-  // Fetch poster's own jobs when in poster mode
+  // Fetch poster's own jobs whenever role or refreshSignal changes
   React.useEffect(() => {
     fetchMyPostedJobs();
-  }, [fetchMyPostedJobs, refreshSignal]);
+  }, [fetchMyPostedJobs, refreshSignal, role]);
 
   React.useEffect(()=>{
     if(discRef.current){let p=discRef.current.parentElement;while(p){if(p.scrollTop>0)p.scrollTop=0;p=p.parentElement;}}
@@ -3447,7 +3493,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
 
         {/* Fixed bottom CTA */}
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
-          {role==="poster"
+          {role==="poster" && job.posterId === currentUserId
             ? (() => {
                 const alreadyPaid = job.status === "booked" || job.status === "completed" ||
                   escrowData.some(t => String(t.jobId) === String(job.id) && ["held","released","completed"].includes(t.status));
@@ -3590,8 +3636,60 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
             </div>
           )}
 
-          {/* ── ALL JOBS FEED ─────────────────────────────────────────── */}
-          {role==="poster" && <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>All Jobs Near You</div>}
+          {/* ── POSTER VIEW: My Posted Jobs only ───────────────────── */}
+          {role==="poster" ? (<>
+            <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Your Posted Jobs</div>
+            {myPostedJobs.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"48px 20px", color:G.muted }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>📋</div>
+                <div style={{ fontWeight:700, fontSize:16, marginBottom:8 }}>No jobs posted yet</div>
+                <div style={{ fontSize:13, marginBottom:20 }}>Post your first job and get matched with workers nearby.</div>
+                <Btn onClick={onPostJob} style={{ padding:"14px 32px", borderRadius:16, fontSize:15 }}>Post a Job →</Btn>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                {myPostedJobs.map(job => {
+                  const isPaid = job.status==="booked"||job.status==="completed"||escrowData.some(t=>String(t.jobId)===String(job.id)&&["held","released","completed"].includes(t.status));
+                  const applicantCount = job.applicant_count || job.applicants || 0;
+                  const statusColor = { open:G.greenMid, booked:G.blue, completed:G.muted, cancelled:G.red }[job.status]||G.muted;
+                  const statusBg = { open:G.greenPale, booked:"#EBF8FF", completed:G.sand, cancelled:"#FFF0F0" }[job.status]||G.sand;
+                  const statusLabel = { open:"Open", booked:"Booked", completed:"Completed", cancelled:"Cancelled" }[job.status]||job.status;
+                  return (
+                    <div key={job.id} style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", border:`2px solid ${job.status==="open"?G.greenLight:G.border}` }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                        <div style={{ flex:1, paddingRight:8 }}>
+                          <div style={{ fontWeight:700, fontSize:15 }}>{job.title}</div>
+                          <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>📍 {job.zip} · {job.date}</div>
+                        </div>
+                        <div style={{ textAlign:"right" }}>
+                          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:G.greenMid }}>${job.pay}</div>
+                          <div style={{ background:statusBg, color:statusColor, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:6, marginTop:3, display:"inline-block" }}>{statusLabel}</div>
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:10, borderTop:`1px solid ${G.border}` }}>
+                        <div style={{ fontSize:13, color:G.muted }}>
+                          {applicantCount > 0
+                            ? <span style={{ fontWeight:700, color:G.green }}>{applicantCount} applicant{applicantCount!==1?"s":""}</span>
+                            : <span>No applicants yet</span>
+                          }
+                        </div>
+                        <div style={{ display:"flex", gap:8 }} onClick={e=>e.stopPropagation()}>
+                          {isPaid
+                            ? <div style={{ padding:"8px 14px", fontSize:12, borderRadius:10, background:G.greenPale, color:G.greenMid, fontWeight:700 }}>Paid ✓</div>
+                            : applicantCount > 0
+                              ? <Btn onClick={()=>onCheckout({...job, applicants: applicantCount, posterId: currentUserId, loc: job.zip})} variant="orange" style={{ padding:"8px 16px", fontSize:13 }}>Hire & Pay</Btn>
+                              : <div style={{ padding:"8px 14px", fontSize:12, borderRadius:10, background:G.sand, color:G.muted, fontWeight:600 }}>Waiting for applicants</div>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>) : (<>
+
+          {/* ── WORKER VIEW: All Jobs Feed ────────────────────────────── */}
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             {filtered.map((job,i)=>(
               <div key={job.id} className="card tap" onClick={()=>setSelectedJob(job)} style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", border:`2px solid ${job.urgent?G.orange:"transparent"}`, position:"relative", overflow:"hidden" }}>
@@ -3615,12 +3713,6 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:12 }}>
                   <span style={{ fontSize:12, color:G.muted }}>{job.applicants===0?"🌟 Be first!":`${job.applicants} applied`}</span>
                   <div style={{ display:"flex", gap:6 }} onClick={e=>e.stopPropagation()}>
-                    {role==="poster"&&(()=>{
-                      const paid = job.status==="booked"||job.status==="completed"||escrowData.some(t=>String(t.jobId)===String(job.id)&&["held","released","completed"].includes(t.status));
-                      return paid
-                        ? <div style={{ padding:"7px 14px", fontSize:12, borderRadius:10, background:G.greenPale, color:G.greenMid, fontWeight:700 }}>Paid</div>
-                        : <Btn onClick={()=>onCheckout(job)} variant="orange" style={{ padding:"7px 14px", fontSize:12 }}>💳 Hire & Pay</Btn>;
-                    })()}
                     <Btn onClick={()=>{if(isGuest){onGuestAction();return;}if(!applied.includes(job.id))setApplyModal(job); else setApplied(a=>a);}} variant={applied.includes(job.id)?"ghost":"primary"} style={{ padding:"7px 16px", fontSize:12 }}>{applied.includes(job.id)?"✓ Applied":"Quick Apply"}</Btn>
                   </div>
                 </div>
@@ -3648,6 +3740,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
               </div>
             )}
           </div>
+          </>)}
         </div>
       )}
     </div>
@@ -4421,6 +4514,7 @@ function ReviewModal({ target, targetId, jobTitle, jobId, onSubmit, onClose }) {
 // MAP SCREEN (full tab)
 // ═══════════════════════════════════════════════════════════════════════════
 function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist, userZip, darkMode }) {
+  const currentUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   const [selectedPin, setSelectedPin] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [activeCategory, setActiveCategory] = useState([]);
@@ -4583,7 +4677,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
           </div>
         </div>
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
-          {role==="poster"
+          {role==="poster" && job.posterId === currentUserId
             ? <Btn onClick={()=>{onCheckout(job);setSelectedJob(null);}} style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>💳 Hire & Pay ${job.pay}</Btn>
             : hasApplied
               ? <Btn variant="ghost" style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>✓ Application Sent</Btn>
@@ -4690,7 +4784,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             </div>
             <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>{selectedPin.tags.map(t=><Tag key={t}>{t}</Tag>)}</div>
             <div style={{ display:"flex", gap:8, marginTop:14 }}>
-              {role==="poster"
+              {role==="poster" && selectedPin.posterId === currentUserId
                 ? <Btn onClick={()=>{onCheckout(selectedPin);setSelectedPin(null);}} style={{ flex:2, fontSize:13 }}>Hire & Pay</Btn>
                 : <Btn onClick={()=>{if(isGuest){onGuestAction();return;} setSelectedJob(selectedPin); setSelectedPin(null);}} style={{ flex:2, fontSize:13 }}>{applied.includes(selectedPin.id)?"✓ Applied":"Apply Now"}</Btn>
               }
@@ -5369,7 +5463,12 @@ export default function ChoresApp() {
   const [postForm, setPostForm] = useState({title:"",category:"",pay:"",date:"",notes:"",photos:[]});
   const postPhotoRef = React.useRef();
   const [formPosted, setFormPosted] = useState(false);
-  const [escrowData, setEscrowData] = useState(INITIAL_ESCROW);
+  const [escrowData, setEscrowData] = useState(() => {
+    try {
+      const cached = isBrowser && localStorage.getItem("chores_escrow");
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [escrowModal, setEscrowModal] = useState(null);
   const [checkoutModal, setCheckoutModal] = useState(null);
   const [reviewModal, setReviewModal] = useState(null); // {job, person, role:"worker"|"poster"}
@@ -5406,7 +5505,12 @@ export default function ChoresApp() {
     if (!token) return;
     fetch(`${BACKEND}/api/escrow`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
-      .then(data => { if (data.transactions) setEscrowData(data.transactions); })
+      .then(data => {
+        if (data.transactions) {
+          setEscrowData(data.transactions);
+          try { localStorage.setItem("chores_escrow", JSON.stringify(data.transactions)); } catch {}
+        }
+      })
       .catch(() => {});
   }, []);
 
