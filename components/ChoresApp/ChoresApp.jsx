@@ -906,6 +906,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   }, []);
 
   const [tab, setTab] = useState("profile");
+  // Auto-switch to payments tab if worker has pending payments to accept
+  React.useEffect(() => {
+    if (role === "worker" && escrowData.filter(t => t.status === "held" && !t.workerConfirmed).length > 0) {
+      setTab("payments");
+    }
+  }, [escrowData, role]);
   const [subPage, setSubPage] = useState(null);
   const settingsRef = React.useRef(null);
   React.useEffect(()=>{
@@ -2565,11 +2571,15 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       {/* Tab nav */}
       <div style={{ position:"relative", marginBottom:18 }}>
         <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none" }}>
-          {tabs.map(t=>(
-            <div key={t.id} className="chip tap" onClick={()=>setTab(t.id)} style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, background:tab===t.id?G.green:G.white, color:tab===t.id?"#fff":G.text, border:`1.5px solid ${tab===t.id?G.green:G.border}`, display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap", flexShrink:0 }}>
+          {tabs.map(t=>{
+            const isPending = t.id==="payments" && role==="worker" && escrowData.filter(x=>x.status==="held"&&!x.workerConfirmed).length>0;
+            return (
+            <div key={t.id} className="chip tap" onClick={()=>setTab(t.id)} style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, background:tab===t.id?G.green:G.white, color:tab===t.id?"#fff":G.text, border:`1.5px solid ${tab===t.id?G.green:G.border}`, display:"flex", alignItems:"center", gap:4, whiteSpace:"nowrap", flexShrink:0, position:"relative" }}>
               {t.label}
+              {isPending && <div style={{ position:"absolute", top:-4, right:-4, width:10, height:10, borderRadius:"50%", background:G.red, border:"2px solid #fff" }} />}
             </div>
-          ))}
+            );
+          })}
         </div>
         {/* Fade + arrow hint */}
         <div style={{ position:"absolute", right:0, top:0, bottom:2, width:48, background:"linear-gradient(to right, transparent, #F5F0E8 70%)", pointerEvents:"none", display:"flex", alignItems:"center", justifyContent:"flex-end" }}>
@@ -2693,16 +2703,24 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         <div className="fade">
           {/* Worker: jobs awaiting your confirmation */}
           {role==="worker" && escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length>0&&(
-            <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:18, padding:16, marginBottom:16, color:"#fff" }}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Action Required</div>
-              <div style={{ fontSize:13, opacity:.9, marginBottom:12 }}>You have {escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length} job{escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length>1?"s":""} awaiting your confirmation to release payment.</div>
+            <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:20, padding:20, marginBottom:16, color:"#fff", boxShadow:`0 6px 24px ${G.green}55` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <div style={{ width:36, height:36, borderRadius:12, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>💰</div>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:17 }}>You have money waiting!</div>
+                  <div style={{ fontSize:12, opacity:.85 }}>Confirm completion to release your payment</div>
+                </div>
+              </div>
               {escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).map(t=>(
-                <div key={t.id} className="tap" onClick={()=>setSelectedTxn(t)} style={{ background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 14px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div key={t.id} className="tap" onClick={()=>setSelectedTxn(t)} style={{ background:"rgba(255,255,255,.2)", borderRadius:14, padding:"14px 16px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center", border:"1.5px solid rgba(255,255,255,.3)" }}>
                   <div>
-                    <div style={{ fontWeight:700, fontSize:13 }}>{t.job}</div>
-                    <div style={{ fontSize:11, opacity:.8 }}>From {t.poster} · ${t.workerGets.toFixed(2)}</div>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{t.job}</div>
+                    <div style={{ fontSize:12, opacity:.85, marginTop:2 }}>From {t.poster}</div>
                   </div>
-                  <div style={{ background:"#fff", color:G.green, fontSize:11, fontWeight:800, padding:"6px 12px", borderRadius:10 }}>Confirm →</div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:18 }}>${t.workerGets.toFixed(2)}</div>
+                    <div style={{ background:"#fff", color:G.green, fontSize:11, fontWeight:800, padding:"5px 12px", borderRadius:10, marginTop:4 }}>Accept →</div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -5383,15 +5401,23 @@ export default function ChoresApp() {
   }, [appView]);
 
   // Load escrow transactions from backend
-  React.useEffect(() => {
-    if (appView !== "user") return;
+  const fetchEscrow = React.useCallback(() => {
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
     if (!token) return;
     fetch(`${BACKEND}/api/escrow`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { if (data.transactions) setEscrowData(data.transactions); })
       .catch(() => {});
-  }, [appView]);
+  }, []);
+
+  React.useEffect(() => {
+    if (appView !== "user") return;
+    fetchEscrow();
+    // Re-fetch when tab becomes visible (e.g. worker switches back to the app)
+    const onVisible = () => { if (document.visibilityState === "visible") fetchEscrow(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [appView, fetchEscrow]);
 
   // Geolocation: auto-detect zip code based on current position
   const detectLocation = React.useCallback(() => {
@@ -5464,7 +5490,7 @@ export default function ChoresApp() {
     }));
   };
   const handleDispute = (id) => { setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"}); };
-  const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); };
+  const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); setTimeout(fetchEscrow, 1500); };
 
   if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
   if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
