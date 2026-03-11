@@ -949,10 +949,11 @@ app.post("/api/connect/onboard", requireAuth, async (req, res) => {
         .update({ stripe_connect_id: accountId }).eq("id", req.user.id);
     }
 
+    const frontendUrl = (process.env.FRONTEND_URL || "https://choresnearme.com").replace(/^http:\/\//, "https://");
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: `${process.env.FRONTEND_URL}/connect/refresh`,
-      return_url:  `${process.env.FRONTEND_URL}/connect/complete`,
+      refresh_url: `${frontendUrl}/?connect=refresh`,
+      return_url:  `${frontendUrl}/?connect=complete`,
       type: "account_onboarding",
     });
 

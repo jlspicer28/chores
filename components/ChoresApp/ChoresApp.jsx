@@ -866,6 +866,55 @@ function ProfileField({ label, value, onChange, type="text", rows, placeholder="
   );
 }
 
+// Standalone bank edit form — own state so keystrokes don't re-render SettingsScreen
+function BankEditForm({ initialFields, onSave, onCancel, bankSaved }) {
+  const [fields, setFields] = React.useState(initialFields);
+  const inputStyle = { width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" };
+  const labelStyle = { fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 };
+  return (
+    <div style={{ background:G.white, borderRadius:20, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:14 }}>
+      <div style={{ fontSize:13, fontWeight:700, marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Update Bank Details
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <label style={labelStyle}>Account Holder Name</label>
+        <input value={fields.holder} onChange={e=>setFields(f=>({...f,holder:e.target.value}))} placeholder="Your full name" style={inputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <label style={labelStyle}>Bank Name</label>
+        <input value={fields.bankName} onChange={e=>setFields(f=>({...f,bankName:e.target.value}))} placeholder="Chase" style={inputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <label style={labelStyle}>Account Type</label>
+        <div style={{ display:"flex", gap:8 }}>
+          {["Checking","Savings"].map(t=>(
+            <div key={t} className="tap" onClick={()=>setFields(f=>({...f,type:t}))} style={{ flex:1, padding:"10px 14px", borderRadius:12, textAlign:"center", fontSize:13, fontWeight:600, background:fields.type===t?G.green:"transparent", color:fields.type===t?"#fff":G.text, border:`1.5px solid ${fields.type===t?G.green:G.border}`, transition:"all .2s" }}>{t}</div>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <label style={labelStyle}>Routing Number</label>
+        <input value={fields.routing} onChange={e=>setFields(f=>({...f,routing:e.target.value}))} placeholder="9 digits" style={inputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <label style={labelStyle}>Account Number</label>
+        <input value={fields.account} onChange={e=>setFields(f=>({...f,account:e.target.value}))} placeholder="Account number" style={inputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+      </div>
+      {bankSaved
+        ? <div style={{ textAlign:"center", padding:12, borderRadius:14, background:"#dcfce7", color:G.green, fontWeight:700, fontSize:14 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M20 6L9 17l-5-5"/></svg>
+            Bank Updated!
+          </div>
+        : <div style={{ display:"flex", gap:8 }}>
+            <Btn onClick={onCancel} variant="ghost" style={{ flex:1, padding:12, borderRadius:14 }}>Cancel</Btn>
+            <Btn onClick={()=>onSave(fields)} style={{ flex:2, padding:12, borderRadius:14 }}>Save Changes</Btn>
+          </div>
+      }
+    </div>
+  );
+}
+
 function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
   const [liveUser, setLiveUser] = React.useState(currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })());
   const storedUser = liveUser;
@@ -989,6 +1038,43 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [bankEditing, setBankEditing] = useState(false);
   const [bankFields, setBankFields] = useState({ holder:"", routing:"", account:"", bankName:"", type:"Checking" });
   const [bankSaved, setBankSaved] = useState(false);
+  // Stripe Connect state
+  const [connectStatus, setConnectStatus] = useState(null); // null=loading, {ready, payoutsEnabled, chargesEnabled, reason}
+  const [connectLoading, setConnectLoading] = useState(false);
+
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    const checkStatus = () =>
+      fetch(`${BACKEND}/api/connect/status`, { headers: { "Authorization": `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(data => setConnectStatus(data))
+        .catch(() => setConnectStatus({ ready: false, reason: "Could not check status" }));
+    checkStatus();
+    // If returning from Stripe, re-check after a short delay
+    if (isBrowser && new URLSearchParams(window.location.search).get("connect") === "complete") {
+      setTimeout(checkStatus, 2000);
+    }
+  }, []);
+
+  const handleConnectOnboard = async () => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    setConnectLoading(true);
+    try {
+      const res = await fetch(`${BACKEND}/api/connect/onboard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ returnUrl: isBrowser ? window.location.href : "" }),
+      }).then(r => r.json());
+      if (res.url || res.onboardingUrl) {
+        if (isBrowser) window.location.href = res.url || res.onboardingUrl;
+      } else {
+        alert(res.error || "Could not start onboarding");
+      }
+    } catch { alert("Network error — try again"); }
+    setConnectLoading(false);
+  };
 
   // Load bank details from backend on mount
   React.useEffect(() => {
@@ -1946,24 +2032,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   if (subPage==="bankAccount") {
     const editing = bankEditing, setEditing = setBankEditing;
     const editFields = bankFields, setEditFields = setBankFields;
-    const handleBankSave = async () => {
-      if(!editFields.routing||!editFields.account) return;
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      const last4 = editFields.account.slice(-4);
-      setBank({ name:editFields.bankName, last4, routing:"•••••"+editFields.routing.slice(-4), type:editFields.type, holder:editFields.holder });
-      setBankSaved(true);
-      // Persist to backend (we only store masked values — never full account number)
-      if (token) {
-        fetch(`${BACKEND}/api/bank-details`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify({ holder: editFields.holder, bankName: editFields.bankName, accountType: editFields.type, routing: editFields.routing, accountLast4: last4 }),
-        }).catch(()=>{});
-      }
-      setTimeout(()=>{setBankSaved(false);setEditing(false);},1200);
-    };
-    const bankInputStyle = { width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" };
-    const bankLabelStyle = { fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
         <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
@@ -2006,46 +2074,27 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
         {/* Edit form or button */}
         {editing ? (
-          <div style={{ background:G.white, borderRadius:20, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:14 }}>
-            <div style={{ fontSize:13, fontWeight:700, marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Update Bank Details
-            </div>
-            <div style={{ marginBottom:12 }}>
-              <label style={bankLabelStyle}>Account Holder Name</label>
-              <input value={editFields.holder} onChange={e=>setEditFields(f=>({...f,holder:e.target.value}))} placeholder="You" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-            </div>
-            <div style={{ marginBottom:12 }}>
-              <label style={bankLabelStyle}>Bank Name</label>
-              <input value={editFields.bankName} onChange={e=>setEditFields(f=>({...f,bankName:e.target.value}))} placeholder="Chase" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-            </div>
-            <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:4, textTransform:"uppercase", letterSpacing:.5 }}>Account Type</label>
-              <div style={{ display:"flex", gap:8 }}>
-                {["Checking","Savings"].map(t=>(
-                  <div key={t} className="tap" onClick={()=>setEditFields(f=>({...f,type:t}))} style={{ flex:1, padding:"10px 14px", borderRadius:12, textAlign:"center", fontSize:13, fontWeight:600, background:editFields.type===t?G.green:"transparent", color:editFields.type===t?"#fff":G.text, border:`1.5px solid ${editFields.type===t?G.green:G.border}`, transition:"all .2s" }}>{t}</div>
-                ))}
-              </div>
-            </div>
-            <div style={{ marginBottom:12 }}>
-              <label style={bankLabelStyle}>Routing Number</label>
-              <input value={editFields.routing} onChange={e=>setEditFields(f=>({...f,routing:e.target.value}))} placeholder="9 digits" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-            </div>
-            <div style={{ marginBottom:12 }}>
-              <label style={bankLabelStyle}>Account Number</label>
-              <input value={editFields.account} onChange={e=>setEditFields(f=>({...f,account:e.target.value}))} placeholder="Account number" style={bankInputStyle} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-            </div>
-            {bankSaved
-              ? <div style={{ textAlign:"center", padding:12, borderRadius:14, background:"#dcfce7", color:G.green, fontWeight:700, fontSize:14 }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M20 6L9 17l-5-5"/></svg>
-                  Bank Updated!
-                </div>
-              : <div style={{ display:"flex", gap:8 }}>
-                  <Btn onClick={()=>setEditing(false)} variant="ghost" style={{ flex:1, padding:12, borderRadius:14 }}>Cancel</Btn>
-                  <Btn onClick={handleBankSave} style={{ flex:2, padding:12, borderRadius:14 }}>Save Changes</Btn>
-                </div>
-            }
-          </div>
+          <BankEditForm
+            initialFields={editFields}
+            bankSaved={bankSaved}
+            onCancel={()=>setEditing(false)}
+            onSave={async (fields) => {
+              if(!fields.routing||!fields.account) return;
+              const token = isBrowser ? localStorage.getItem("chores_token") : null;
+              const last4 = fields.account.slice(-4);
+              setBank({ name:fields.bankName, last4, routing:"•••••"+fields.routing.slice(-4), type:fields.type, holder:fields.holder });
+              setEditFields(fields);
+              setBankSaved(true);
+              if (token) {
+                fetch(`${BACKEND}/api/bank-details`, {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+                  body:JSON.stringify({ holder:fields.holder, bankName:fields.bankName, accountType:fields.type, routing:fields.routing, accountLast4:last4 }),
+                }).catch(()=>{});
+              }
+              setTimeout(()=>{setBankSaved(false);setEditing(false);},1200);
+            }}
+          />
         ) : (
           <Btn onClick={()=>setEditing(true)} variant="outline" style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -2747,6 +2796,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       {/* ── PAYMENTS & ESCROW ── */}
       {tab==="payments"&&(
         <div className="fade">
+          {/* Worker: not connected to Stripe yet — warn them */}
+          {role==="worker" && connectStatus !== null && !connectStatus?.ready && (
+            <div className="tap" onClick={handleConnectOnboard} style={{ background:"linear-gradient(135deg,#635bff,#7c6aff)", borderRadius:18, padding:16, marginBottom:16, color:"#fff", boxShadow:"0 6px 20px rgba(99,91,255,.4)", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:40, height:40, borderRadius:12, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🏦</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14 }}>Connect your bank to get paid</div>
+                <div style={{ fontSize:12, opacity:.85, marginTop:2 }}>Tap here to set up payouts via Stripe → takes 2 min</div>
+              </div>
+              <span style={{ fontSize:18, opacity:.8 }}>›</span>
+            </div>
+          )}
           {/* Worker: jobs awaiting your confirmation */}
           {role==="worker" && myWorkerTxns.filter(t=>t.status==="held"&&!t.workerConfirmed).length>0&&(
             <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:20, padding:20, marginBottom:16, color:"#fff", boxShadow:`0 6px 24px ${G.green}55` }}>
@@ -2850,8 +2910,52 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           {role==="worker"&&(
             <>
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Payout Settings</div>
+
+              {/* Stripe Connect status banner */}
+              {connectStatus?.ready ? (
+                <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:18, padding:18, marginBottom:12, color:"#fff", boxShadow:`0 6px 20px ${G.green}44` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:42, height:42, borderRadius:14, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>✅</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15 }}>Payouts Enabled</div>
+                      <div style={{ fontSize:12, opacity:.85, marginTop:2 }}>Your Stripe account is verified. You'll receive payments automatically.</div>
+                    </div>
+                  </div>
+                  <div className="tap" onClick={handleConnectOnboard} style={{ marginTop:12, background:"rgba(255,255,255,.2)", borderRadius:12, padding:"10px 14px", textAlign:"center", fontSize:13, fontWeight:700, border:"1.5px solid rgba(255,255,255,.3)" }}>
+                    Manage Stripe Account →
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background:`linear-gradient(135deg,#1a1a2e,#16213e)`, borderRadius:18, padding:18, marginBottom:12, color:"#fff", boxShadow:"0 6px 20px rgba(0,0,0,.25)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+                    <div style={{ width:42, height:42, borderRadius:14, background:"rgba(99,91,255,.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🏦</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:16 }}>Set Up Payouts</div>
+                      <div style={{ fontSize:12, opacity:.75, marginTop:2 }}>Connect your bank to receive payments directly.</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
+                    {[
+                      "Takes ~2 minutes",
+                      "Powered by Stripe — bank-level security",
+                      "Payments hit your account in 1–2 days",
+                    ].map(t => (
+                      <div key={t} style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, opacity:.85 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        {t}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="tap" onClick={handleConnectOnboard} style={{ background:"linear-gradient(135deg,#635bff,#7c6aff)", borderRadius:14, padding:"14px 20px", textAlign:"center", fontSize:15, fontWeight:800, letterSpacing:.3, boxShadow:"0 4px 16px rgba(99,91,255,.5)", opacity:connectLoading?.5:1 }}>
+                    {connectLoading ? "Redirecting to Stripe…" : "Connect Bank Account →"}
+                  </div>
+                  {connectStatus?.reason && (
+                    <div style={{ marginTop:10, fontSize:11, opacity:.6, textAlign:"center" }}>{connectStatus.reason}</div>
+                  )}
+                </div>
+              )}
+
               <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-                <SettingRow icon="🏦" label="Bank Account" sub={bank.last4 ? `${bank.name} •••• ${bank.last4}` : "Not linked"} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Edit</div>} onClick={()=>setSubPage("bankAccount")} />
                 <SettingRow icon="⚡" label="Instant Payout" sub="$0.50 fee per transfer" right={<Toggle on={toggles.instantPayout} onChange={()=>tog("instantPayout")} />} />
                 <SettingRow icon="📅" label="Payout Schedule" sub={`${payoutFreq==="daily"?"Daily":payoutFreq==="monthly"?"Monthly (1st)":payoutFreq==="biweekly"?`Bi-Weekly (${payoutDay})`:`Weekly (${payoutDay})`}`} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} last onClick={()=>setSubPage("payoutSchedule")} />
               </div>
@@ -5379,6 +5483,26 @@ export default function ChoresApp() {
   const [loginPrefillEmail, setLoginPrefillEmail] = useState("");
   const [role, setRole] = useState(storedUser?.role || "worker");
   const [currentUserData, setCurrentUserData] = useState(storedUser);
+
+  // Handle Stripe Connect return — re-check status and show success
+  React.useEffect(() => {
+    if (!isBrowser) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connect") === "complete") {
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+      // Re-check connect status
+      const token = localStorage.getItem("chores_token");
+      if (token) {
+        fetch(`${BACKEND}/api/connect/status`, { headers: { "Authorization": `Bearer ${token}` } })
+          .then(r => r.json())
+          .then(data => {
+            // Update connect status in SettingsScreen via a custom event
+            window.__connectStatusUpdate = data;
+          }).catch(()=>{});
+      }
+    }
+  }, []);
 
   // Load fresh user data from backend on startup — clear stale token if invalid
   React.useEffect(() => {
