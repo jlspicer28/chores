@@ -1391,6 +1391,7 @@ app.get("/api/notifications", requireAuth, async (req, res) => {
     body: n.body,
     job: n.job?.title || null,
     job_id: n.job_id,
+    related_user_id: n.related_user_id || null,
     unread: !n.read,
     time: timeAgo(n.created_at),
     created_at: n.created_at,

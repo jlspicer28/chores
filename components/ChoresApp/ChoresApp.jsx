@@ -2196,10 +2196,23 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── BADGES & SKILLS SUB-PAGE ──
   if (subPage==="badgesSkills") {
-    // Real stats derived from actual escrow/job data
-    const completedJobs = escrowData.filter(t=>t.status==="released").length;
-    const totalEarned = escrowData.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0);
-    const categoriesDone = [...new Set(escrowData.filter(t=>t.status==="released").map(t=>t.category).filter(Boolean))].length;
+    // Real badge stats from backend
+    const [badgeStats, setBadgeStats] = React.useState(null);
+    React.useEffect(() => {
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      if (!token) return;
+      fetch(`${BACKEND}/api/badge-stats`, { headers: { "Authorization": `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(d => { if (!d.error) setBadgeStats(d); })
+        .catch(() => {});
+    }, []);
+    const completedJobs = badgeStats?.jobsCompleted ?? escrowData.filter(t=>t.status==="released").length;
+    const totalEarned = badgeStats?.totalEarned ?? escrowData.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0);
+    const categoriesDone = badgeStats?.categoriesDone ?? [...new Set(escrowData.filter(t=>t.status==="released").map(t=>t.category).filter(Boolean))].length;
+    const jobsToday = badgeStats?.jobsToday ?? 0;
+    const consecutiveFiveStar = badgeStats?.consecutiveFiveStar ?? 0;
+    const uniqueRehireClients = badgeStats?.uniqueRehireClients ?? 0;
+    const cancellations30d = badgeStats?.cancellations30d ?? 0;
 
     // SVG badge icons with color
     const BadgeIcon = ({ id, size=28, dim=false }) => {
@@ -2222,18 +2235,18 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     };
 
     const BADGES = [
-      { id:"first_job",   label:"First Job",        desc:"Complete your first job",                  earned:completedJobs>=1,   progress:completedJobs, goal:1 },
-      { id:"five_star",   label:"5-Star Streak",     desc:"Get 5 consecutive 5-star reviews",         earned:false,              progress:0, goal:5 },
-      { id:"speed_demon", label:"Speed Demon",       desc:"Complete 3 jobs in one day",               earned:false,              progress:0, goal:3 },
-      { id:"repeat_fav",  label:"Repeat Favorite",   desc:"Get rehired by 5 different clients",       earned:false,              progress:0, goal:5 },
-      { id:"top_earner",  label:"Top Earner",        desc:"Earn over $1,000 total",                   earned:totalEarned>=1000,  progress:Math.round(totalEarned), goal:1000 },
-      { id:"early_bird",  label:"Early Bird",        desc:"Accept a job within 1 minute of posting",  earned:false,              progress:0, goal:1 },
-      { id:"jack_trades", label:"Jack of All Trades",desc:"Complete jobs in 5+ categories",           earned:categoriesDone>=5,  progress:categoriesDone, goal:5 },
-      { id:"reliable",    label:"Reliable",          desc:"Zero cancellations in 30 days",            earned:false,              progress:0, goal:30 },
-      { id:"centurion",   label:"Centurion",         desc:"Complete 100 jobs",                        earned:completedJobs>=100, progress:completedJobs, goal:100 },
-      { id:"superhost",   label:"Superhost",         desc:"Maintain 4.9+ rating for 90 days",        earned:false,              progress:0, goal:90 },
-      { id:"marathon",    label:"Marathon",          desc:"Work 50 hours total",                      earned:false,              progress:0, goal:50 },
-      { id:"community",   label:"Community Hero",    desc:"Complete 10 volunteer/discounted jobs",    earned:false,              progress:0, goal:10 },
+      { id:"first_job",   label:"First Job",        desc:"Complete your first job",                  earned:completedJobs>=1,                           progress:Math.min(completedJobs,1),      goal:1 },
+      { id:"five_star",   label:"5-Star Streak",     desc:"Get 5 consecutive 5-star reviews",         earned:consecutiveFiveStar>=5,                     progress:Math.min(consecutiveFiveStar,5), goal:5 },
+      { id:"speed_demon", label:"Speed Demon",       desc:"Complete 3 jobs in one day",               earned:jobsToday>=3,                               progress:Math.min(jobsToday,3),          goal:3 },
+      { id:"repeat_fav",  label:"Repeat Favorite",   desc:"Get hired by 5 different clients",         earned:uniqueRehireClients>=5,                     progress:Math.min(uniqueRehireClients,5), goal:5 },
+      { id:"top_earner",  label:"Top Earner",        desc:"Earn over $1,000 total",                   earned:totalEarned>=1000,                          progress:Math.round(Math.min(totalEarned,1000)), goal:1000 },
+      { id:"early_bird",  label:"Early Bird",        desc:"Accept a job within 1 minute of posting",  earned:false,                                      progress:0,                              goal:1 },
+      { id:"jack_trades", label:"Jack of All Trades",desc:"Complete jobs in 5+ categories",           earned:categoriesDone>=5,                          progress:Math.min(categoriesDone,5),     goal:5 },
+      { id:"reliable",    label:"Reliable",          desc:"Zero cancellations in 30 days",            earned:cancellations30d===0&&completedJobs>0,       progress:cancellations30d===0?completedJobs:0, goal:1 },
+      { id:"centurion",   label:"Centurion",         desc:"Complete 100 jobs",                        earned:completedJobs>=100,                         progress:Math.min(completedJobs,100),    goal:100 },
+      { id:"superhost",   label:"Superhost",         desc:"Maintain 4.9+ rating for 90 days",        earned:badgeStats?.rating>=4.9&&completedJobs>=10,  progress:badgeStats?.rating>=4.9?completedJobs:0, goal:10 },
+      { id:"marathon",    label:"Marathon",          desc:"Complete 50 jobs total",                   earned:completedJobs>=50,                          progress:Math.min(completedJobs,50),     goal:50 },
+      { id:"community",   label:"Community Hero",    desc:"Complete 10+ jobs in your neighborhood",   earned:completedJobs>=10,                          progress:Math.min(completedJobs,10),     goal:10 },
     ];
     const SKILL_CATS = [
       { id:"lawn",        label:"Lawn Care" },
@@ -3030,11 +3043,12 @@ function NotifIcon({ type, size=22 }) {
   return <svg style={s} viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap={c}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 }
 
-function NotificationsScreen({ role, onNavigate }) {
+function NotificationsScreen({ role, onNavigate, onReview }) {
   const [notifs, setNotifs] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = useState("all");
   const [selectedNotif, setSelectedNotif] = useState(null);
+  const [localReviewModal, setLocalReviewModal] = useState(null);
   const notifRef = React.useRef(null);
 
   // Fetch from DB on mount + poll every 20s
@@ -3165,13 +3179,31 @@ function NotificationsScreen({ role, onNavigate }) {
         {/* Action buttons */}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {d.actions.map((action,i)=>{
+            const isLeaveReview = action === "Leave Review";
+            const isSkip = action === "Skip";
             const dest = action.toLowerCase().includes("job")||action.toLowerCase().includes("apply") ? "home"
               : action.toLowerCase().includes("message") ? "messages"
               : action.toLowerCase().includes("receipt")||action.toLowerCase().includes("transaction") ? "profile"
               : action.toLowerCase().includes("map")||action.toLowerCase().includes("direction") ? "map"
               : null;
             return (
-              <Btn key={action} onClick={()=>{ setSelectedNotif(null); if(dest&&onNavigate) onNavigate(dest); }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>
+              <Btn key={action} onClick={()=>{
+                if (isLeaveReview) {
+                  const workerName = d.info.find(x=>x.label==="Worker")?.value || n.body || "Worker";
+                  setLocalReviewModal({
+                    person: workerName,
+                    personId: n.related_user_id || null,
+                    job: n.job || n.title || "Job",
+                    jobId: n.job_id || null,
+                  });
+                  setSelectedNotif(null);
+                } else if (isSkip) {
+                  setSelectedNotif(null);
+                } else {
+                  setSelectedNotif(null);
+                  if(dest&&onNavigate) onNavigate(dest);
+                }
+              }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>
             );
           })}
         </div>
@@ -3182,6 +3214,7 @@ function NotificationsScreen({ role, onNavigate }) {
   }
 
   return (
+    <>
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: G.muted, textTransform: "uppercase", letterSpacing: .8 }}>Inbox</div>
@@ -3219,6 +3252,17 @@ function NotificationsScreen({ role, onNavigate }) {
         })}
       </div>
     </div>
+    {localReviewModal && (
+      <ReviewModal
+        target={localReviewModal.person}
+        targetId={localReviewModal.personId}
+        jobTitle={localReviewModal.job}
+        jobId={localReviewModal.jobId}
+        onSubmit={()=>{}}
+        onClose={()=>setLocalReviewModal(null)}
+      />
+    )}
+    </>
   );
 }
 
@@ -5801,7 +5845,7 @@ export default function ChoresApp() {
         {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} onViewProfile={(id)=>setViewingProfileId(id)} escrowData={escrowData} />}
         {view==="myjobs"&&<MyJobsScreen onPostJob={()=>setShowPostJob(true)} onCheckout={(job)=>setCheckoutModal(job)} refreshSignal={lastJobPost} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
-        {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
+        {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} onReview={(data)=>setReviewModal(data)} />}
         {view==="messages"&&(
           <MessagesTab
             inboxMessages={inboxMessages}
