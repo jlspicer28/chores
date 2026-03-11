@@ -2650,7 +2650,38 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       {/* ── PAYMENTS & ESCROW ── */}
       {tab==="payments"&&(
         <div className="fade">
-          {/* Escrow wallet summary */}
+          {/* Worker: jobs awaiting your confirmation */}
+          {role==="worker" && escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length>0&&(
+            <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:18, padding:16, marginBottom:16, color:"#fff" }}>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Action Required</div>
+              <div style={{ fontSize:13, opacity:.9, marginBottom:12 }}>You have {escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length} job{escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).length>1?"s":""} awaiting your confirmation to release payment.</div>
+              {escrowData.filter(t=>t.status==="held"&&!t.workerConfirmed).map(t=>(
+                <div key={t.id} className="tap" onClick={()=>setSelectedTxn(t)} style={{ background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 14px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{t.job}</div>
+                    <div style={{ fontSize:11, opacity:.8 }}>From {t.poster} · ${t.workerGets.toFixed(2)}</div>
+                  </div>
+                  <div style={{ background:"#fff", color:G.green, fontSize:11, fontWeight:800, padding:"6px 12px", borderRadius:10 }}>Confirm →</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Poster: jobs awaiting poster confirmation */}
+          {role==="poster" && escrowData.filter(t=>t.status==="held"&&!t.posterConfirmed).length>0&&(
+            <div style={{ background:`linear-gradient(135deg,${G.gold}CC,${G.gold})`, borderRadius:18, padding:16, marginBottom:16, color:"#fff" }}>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Confirm Job Complete</div>
+              <div style={{ fontSize:13, opacity:.9, marginBottom:12 }}>Tap a job below to confirm completion and release payment to your worker.</div>
+              {escrowData.filter(t=>t.status==="held"&&!t.posterConfirmed).map(t=>(
+                <div key={t.id} className="tap" onClick={()=>setSelectedTxn(t)} style={{ background:"rgba(255,255,255,.2)", borderRadius:12, padding:"10px 14px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{t.job}</div>
+                    <div style={{ fontSize:11, opacity:.8 }}>Worker: {t.worker} · ${t.workerGets.toFixed(2)}</div>
+                  </div>
+                  <div style={{ background:"#fff", color:G.gold, fontSize:11, fontWeight:800, padding:"6px 12px", borderRadius:10 }}>Confirm →</div>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ marginBottom:16 }}>
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Escrow Wallet</div>
             <div style={{ display:"flex", gap:10 }}>
@@ -3010,7 +3041,7 @@ function NotificationsScreen({ role, onNavigate }) {
 
 // ─── DISCOVERY SCREEN ───────────────────────────────────────────────────────
 
-function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0, onApplicationSent, onViewProfile }) {
+function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, onGuestAction, userZip, maxDist, setMaxDist, profileVisible=true, refreshSignal=0, onApplicationSent, onViewProfile, escrowData=[] }) {
   const [discoverView, setDiscoverView] = useState("feed");
   const [activeCategory, setActiveCategory] = useState([]);
   const [payRange, setPayRange] = useState([0,5000]);
@@ -3055,6 +3086,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
     desc: j.description || "",
     photos: [],
     posterId: j.poster_id,
+    status: j.status || "open",
   });
 
   const fetchJobs = React.useCallback(() => {
@@ -3278,7 +3310,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
             <div style={{ background:"rgba(255,255,255,.12)", borderRadius:14, padding:"12px 16px", flex:1, backdropFilter:"blur(4px)" }}>
               <div style={{ fontSize:11, color:"rgba(255,255,255,.5)" }}>Pay</div>
               <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:"#fff" }}>${job.pay}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>you get ${(job.pay*.92).toFixed(0)}</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>you get ${job.pay.toFixed(0)}</div>
             </div>
             <div style={{ background:"rgba(255,255,255,.12)", borderRadius:14, padding:"12px 16px", flex:1 }}>
               <div style={{ fontSize:11, color:"rgba(255,255,255,.5)" }}>Date</div>
@@ -3357,7 +3389,16 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         {/* Fixed bottom CTA */}
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
           {role==="poster"
-            ? <Btn onClick={()=>{onCheckout(job);setSelectedJob(null);}} style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>💳 Hire & Pay ${job.pay}</Btn>
+            ? (() => {
+                const alreadyPaid = job.status === "booked" || job.status === "completed" ||
+                  escrowData.some(t => String(t.jobId) === String(job.id) && ["held","released","completed"].includes(t.status));
+                if (alreadyPaid) return (
+                  <div style={{ flex:1, padding:16, borderRadius:16, fontSize:15, background:G.greenPale, color:G.greenMid, fontWeight:700, textAlign:"center", border:`2px solid ${G.greenLight}` }}>
+                    Paid · In Escrow
+                  </div>
+                );
+                return <Btn onClick={()=>{onCheckout(job);setSelectedJob(null);}} style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>💳 Hire & Pay ${job.pay}</Btn>;
+              })()
             : hasApplied
               ? <Btn variant="ghost" style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>✓ Application Sent</Btn>
               : <Btn onClick={()=>{if(isGuest){onGuestAction();return;}setApplyModal(job);setSelectedJob(null);}} style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>Apply Now →</Btn>
@@ -3504,7 +3545,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
                     <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:G.greenMid }}>${job.pay}</div>
-                    <div style={{ fontSize:10, color:G.muted, marginTop:1 }}>you get ${(job.pay*.92).toFixed(0)}</div>
+                    <div style={{ fontSize:10, color:G.muted, marginTop:1 }}>you get ${job.pay.toFixed(0)}</div>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>{job.tags.map(t=><Tag key={t}>{t}</Tag>)}</div>
@@ -3515,7 +3556,12 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:12 }}>
                   <span style={{ fontSize:12, color:G.muted }}>{job.applicants===0?"🌟 Be first!":`${job.applicants} applied`}</span>
                   <div style={{ display:"flex", gap:6 }} onClick={e=>e.stopPropagation()}>
-                    {role==="poster"&&<Btn onClick={()=>onCheckout(job)} variant="orange" style={{ padding:"7px 14px", fontSize:12 }}>💳 Hire & Pay</Btn>}
+                    {role==="poster"&&(()=>{
+                      const paid = job.status==="booked"||job.status==="completed"||escrowData.some(t=>String(t.jobId)===String(job.id)&&["held","released","completed"].includes(t.status));
+                      return paid
+                        ? <div style={{ padding:"7px 14px", fontSize:12, borderRadius:10, background:G.greenPale, color:G.greenMid, fontWeight:700 }}>Paid</div>
+                        : <Btn onClick={()=>onCheckout(job)} variant="orange" style={{ padding:"7px 14px", fontSize:12 }}>💳 Hire & Pay</Btn>;
+                    })()}
                     <Btn onClick={()=>{if(isGuest){onGuestAction();return;}if(!applied.includes(job.id))setApplyModal(job); else setApplied(a=>a);}} variant={applied.includes(job.id)?"ghost":"primary"} style={{ padding:"7px 16px", fontSize:12 }}>{applied.includes(job.id)?"✓ Applied":"Quick Apply"}</Btn>
                   </div>
                 </div>
@@ -5436,7 +5482,7 @@ export default function ChoresApp() {
 
       {/* Content */}
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
-        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} onViewProfile={(id)=>setViewingProfileId(id)} />}
+        {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} onViewProfile={(id)=>setViewingProfileId(id)} escrowData={escrowData} />}
         {view==="myjobs"&&<MyJobsScreen onPostJob={()=>setShowPostJob(true)} onCheckout={(job)=>setCheckoutModal(job)} refreshSignal={lastJobPost} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
