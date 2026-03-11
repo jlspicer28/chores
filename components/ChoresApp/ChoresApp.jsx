@@ -2796,17 +2796,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       {/* ── PAYMENTS & ESCROW ── */}
       {tab==="payments"&&(
         <div className="fade">
-          {/* Worker: not connected to Stripe yet — warn them */}
-          {role==="worker" && connectStatus !== null && !connectStatus?.ready && (
-            <div className="tap" onClick={handleConnectOnboard} style={{ background:"linear-gradient(135deg,#635bff,#7c6aff)", borderRadius:18, padding:16, marginBottom:16, color:"#fff", boxShadow:"0 6px 20px rgba(99,91,255,.4)", display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:40, height:40, borderRadius:12, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🏦</div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:800, fontSize:14 }}>Connect your bank to get paid</div>
-                <div style={{ fontSize:12, opacity:.85, marginTop:2 }}>Tap here to set up payouts via Stripe → takes 2 min</div>
-              </div>
-              <span style={{ fontSize:18, opacity:.8 }}>›</span>
-            </div>
-          )}
           {/* Worker: jobs awaiting your confirmation */}
           {role==="worker" && myWorkerTxns.filter(t=>t.status==="held"&&!t.workerConfirmed).length>0&&(
             <div style={{ background:`linear-gradient(135deg,${G.green},${G.greenMid})`, borderRadius:20, padding:20, marginBottom:16, color:"#fff", boxShadow:`0 6px 24px ${G.green}55` }}>
@@ -5482,6 +5471,7 @@ export default function ChoresApp() {
   const [appView, setAppView] = useState((storedToken && storedUser) ? "user" : "onboarding");
   const [loginPrefillEmail, setLoginPrefillEmail] = useState("");
   const [role, setRole] = useState(storedUser?.role || "worker");
+  const [showRoleModal, setShowRoleModal] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(storedUser);
 
   // Handle Stripe Connect return — re-check status and show success
@@ -5720,8 +5710,8 @@ export default function ChoresApp() {
   const handleDispute = (id) => { setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"}); };
   const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); setTimeout(fetchEscrow, 1500); };
 
-  if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
-  if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
+  if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole)setShowRoleModal(true);}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
+  if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole&&r!=="guest")setShowRoleModal(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
 
   if (appView==="admin") return (
     <div style={{ maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)" }}>
@@ -5736,6 +5726,43 @@ export default function ChoresApp() {
     <div className="chores-app" style={{ "--text":darkMode?DARK.text:LIGHT.text, "--tab-bg":darkMode?"rgba(30,30,30,.97)":"rgba(255,255,255,.95)", fontFamily:"'Outfit',sans-serif", background:darkMode?DARK.cream:LIGHT.cream, minHeight:"100vh", maxWidth:430, margin:"0 auto", position:"relative", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", transition:"background .3s", color:darkMode?DARK.text:LIGHT.text }}>
       <style>{CSS}</style>
       {toast&&<Toast notif={toast} onDismiss={()=>setToast(null)} />}
+
+      {/* Default Role Picker Modal — shown once after first login/signup */}
+      {showRoleModal&&(
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:24, backdropFilter:"blur(6px)" }}>
+          <div style={{ background:darkMode?DARK.cream:LIGHT.cream, borderRadius:28, padding:32, maxWidth:360, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,.3)", textAlign:"center" }}>
+            <div style={{ fontSize:44, marginBottom:12 }}>👋</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:darkMode?DARK.text:LIGHT.text, marginBottom:8 }}>How will you use Chores?</div>
+            <div style={{ fontSize:14, color:darkMode?"rgba(255,255,255,.55)":"rgba(0,0,0,.45)", marginBottom:28, lineHeight:1.5 }}>Choose your default view. You can always switch anytime from the top of the home screen.</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20 }}>
+              {[
+                { val:"worker", icon:"🔨", title:"Worker", sub:"Browse jobs and get paid" },
+                { val:"poster", icon:"📋", title:"Poster", sub:"Post jobs and hire people" },
+              ].map(opt=>(
+                <div key={opt.val} className="tap" onClick={()=>{
+                  setRole(opt.val);
+                  localStorage.setItem("chores_default_role", opt.val);
+                  const u = JSON.parse(localStorage.getItem("chores_user")||"{}");
+                  u.role = opt.val;
+                  localStorage.setItem("chores_user", JSON.stringify(u));
+                  setShowRoleModal(false);
+                }} style={{ display:"flex", alignItems:"center", gap:16, padding:"16px 20px", borderRadius:18, border:`2px solid ${G.green}22`, background:darkMode?"rgba(255,255,255,.06)":"rgba(0,0,0,.03)", textAlign:"left", transition:"all .2s" }}
+                onMouseEnter={e=>e.currentTarget.style.background=`${G.green}18`}
+                onMouseLeave={e=>e.currentTarget.style.background=darkMode?"rgba(255,255,255,.06)":"rgba(0,0,0,.03)"}>
+                  <div style={{ width:48, height:48, borderRadius:16, background:`${G.green}22`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{opt.icon}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:16, color:darkMode?DARK.text:LIGHT.text }}>{opt.title}</div>
+                    <div style={{ fontSize:13, color:darkMode?"rgba(255,255,255,.45)":"rgba(0,0,0,.4)", marginTop:2 }}>{opt.sub}</div>
+                  </div>
+                  <div style={{ color:G.greenMid, fontSize:20 }}>›</div>
+                </div>
+              ))}
+            </div>
+            <div className="tap" onClick={()=>setShowRoleModal(false)} style={{ fontSize:13, color:darkMode?"rgba(255,255,255,.35)":"rgba(0,0,0,.3)", padding:8 }}>Skip for now</div>
+          </div>
+        </div>
+      )}
+
       {escrowModal&&<EscrowHoldModal job={escrowModal} onClose={()=>setEscrowModal(null)} onConfirm={handleFund} />}
       {checkoutModal&&<CheckoutModal job={checkoutModal} onClose={()=>setCheckoutModal(null)} onComplete={handleFund} />}
       {reviewModal&&<ReviewModal target={reviewModal.person} targetId={reviewModal.personId} jobTitle={reviewModal.job} jobId={reviewModal.jobId} onSubmit={()=>setToast({icon:"⭐",title:"Review submitted!",body:"Thanks for your feedback"})} onClose={()=>setReviewModal(null)} />}

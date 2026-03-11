@@ -904,6 +904,16 @@ app.post("/api/refund", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DEFAULT ROLE — Save user's preferred default role
+app.post("/api/user/default-role", requireAuth, async (req, res) => {
+  const { defaultRole } = req.body;
+  if (!["worker","poster"].includes(defaultRole)) return res.json({ error: "Invalid role" });
+  const { error } = await supabase.from("users").update({ default_role: defaultRole }).eq("id", req.user.id);
+  if (error) return res.json({ error: error.message });
+  res.json({ success: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BANK ACCOUNT — Save and load worker bank details
 app.post("/api/bank-details", requireAuth, async (req, res) => {
   const { holder, bankName, accountType, routing, accountLast4 } = req.body;
