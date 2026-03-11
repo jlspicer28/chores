@@ -220,13 +220,22 @@ app.post("/api/auth/upload-avatar", requireAuth, async (req, res) => {
   try {
     // Convert base64 to buffer
     const buffer = Buffer.from(base64.replace(/^data:.*?;base64,/, ""), "base64");
-    const ext = mimeType.split("/")[1] || "jpg";
-    const fileName = `avatars/${req.user.id}.${ext}`;
+    const ext = (mimeType.split("/")[1] || "jpg").replace("jpeg","jpg");
+    // Use timestamp in filename to bust CDN cache on update
+    const fileName = `avatars/${req.user.id}_${Date.now()}.${ext}`;
+
+    // Delete old avatar files for this user to keep storage clean
+    try {
+      const { data: existingFiles } = await supabase.storage.from("avatars").list("avatars", { search: req.user.id });
+      if (existingFiles && existingFiles.length > 0) {
+        await supabase.storage.from("avatars").remove(existingFiles.map(f => `avatars/${f.name}`));
+      }
+    } catch(e) { /* non-fatal */ }
 
     // Upload to Supabase Storage (bucket: "avatars")
     const { error: uploadError } = await supabase.storage
       .from("avatars")
-      .upload(fileName, buffer, { contentType: mimeType, upsert: true });
+      .upload(fileName, buffer, { contentType: mimeType, upsert: false });
 
     if (uploadError) return res.json({ error: uploadError.message });
 

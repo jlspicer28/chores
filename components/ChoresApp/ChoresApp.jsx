@@ -5517,7 +5517,13 @@ export default function ChoresApp() {
         setCurrentUserData(u);
         localStorage.setItem("chores_user", JSON.stringify(u));
         if (data.user.zip) setUserZip(data.user.zip);
-        if (data.user.role) setRole(data.user.role);
+        // Apply default_role if set, otherwise fall back to role
+        if (data.user.default_role) {
+          setRole(data.user.default_role);
+          localStorage.setItem("chores_default_role", data.user.default_role);
+        } else if (data.user.role) {
+          setRole(data.user.role);
+        }
       })
       .catch(()=>{}); // network error — keep existing session
   }, []);
@@ -5743,9 +5749,12 @@ export default function ChoresApp() {
                   setRole(opt.val);
                   localStorage.setItem("chores_default_role", opt.val);
                   const u = JSON.parse(localStorage.getItem("chores_user")||"{}");
-                  u.role = opt.val;
+                  u.default_role = opt.val;
                   localStorage.setItem("chores_user", JSON.stringify(u));
                   setShowRoleModal(false);
+                  // Save to Supabase
+                  const tok = localStorage.getItem("chores_token");
+                  if (tok) fetch(`${BACKEND}/api/user/default-role`, { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${tok}`}, body:JSON.stringify({defaultRole:opt.val}) }).catch(()=>{});
                 }} style={{ display:"flex", alignItems:"center", gap:16, padding:"16px 20px", borderRadius:18, border:`2px solid ${G.green}22`, background:darkMode?"rgba(255,255,255,.06)":"rgba(0,0,0,.03)", textAlign:"left", transition:"all .2s" }}
                 onMouseEnter={e=>e.currentTarget.style.background=`${G.green}18`}
                 onMouseLeave={e=>e.currentTarget.style.background=darkMode?"rgba(255,255,255,.06)":"rgba(0,0,0,.03)"}>
