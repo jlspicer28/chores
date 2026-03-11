@@ -615,10 +615,16 @@ app.post("/api/charge", requireAuth, async (req, res) => {
 // Get all escrow transactions for current user
 app.get("/api/escrow", requireAuth, async (req, res) => {
   const userId = req.user.id;
+
+  // First get job IDs where user is the worker (covers old records with null worker_id)
+  const { data: workerJobs } = await supabase
+    .from("jobs").select("id").eq("worker_id", userId);
+  const workerJobIds = (workerJobs || []).map(j => j.id);
+
   const { data, error } = await supabase
     .from("escrow")
-    .select("*, job:jobs(title, category), poster:users!poster_id(first_name, last_name), worker:users!worker_id(first_name, last_name), worker_user:users!worker_id(id), poster_user:users!poster_id(id)")
-    .or(`poster_id.eq.${userId},worker_id.eq.${userId}`)
+    .select("*, job:jobs(title, category), poster:users!poster_id(first_name, last_name), worker:users!worker_id(first_name, last_name)")
+    .or(`poster_id.eq.${userId},worker_id.eq.${userId}${workerJobIds.length ? `,job_id.in.(${workerJobIds.join(",")})` : ""}`)
     .order("created_at", { ascending: false });
 
   if (error) return res.json({ error: error.message });
@@ -651,7 +657,14 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
   if (!escrow) return res.json({ error: "Escrow not found" });
 
   const isPoster = escrow.poster_id === req.user.id;
-  const isWorker = escrow.worker_id === req.user.id;
+  let isWorker = escrow.worker_id === req.user.id;
+  // Fallback: check if user is worker on the associated job (covers null worker_id records)
+  if (!isWorker && !isPoster && escrow.job_id) {
+    const { data: job } = await supabase.from("jobs").select("worker_id").eq("id", escrow.job_id).maybeSingle();
+    if (job?.worker_id === req.user.id) isWorker = true;
+    // Also patch the escrow worker_id so future calls work
+    if (isWorker) await supabase.from("escrow").update({ worker_id: req.user.id }).eq("id", escrow.id);
+  }
   if (!isPoster && !isWorker) return res.json({ error: "Not authorized" });
 
   const update = isPoster ? { poster_confirmed: true } : { worker_confirmed: true };
@@ -754,21 +767,29 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
 
 // Refund escrow (dispute resolved for poster, or worker no-show)
 app.post("/api/charge-saved", requireAuth, async (req, res) => {
-  const { paymentMethodId, amountCents, jobId, jobTitle } = req.body;
+  const { paymentMethodId, amountCents, jobId, jobTitle, workerId } = req.body;
   try {
     const { data: user } = await supabase
       .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
     if (!user?.stripe_customer_id) return res.json({ error: "No saved payment method found." });
 
+    // Fetch job for pay amount
+    const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
+    if (!job) return res.json({ error: "Job not found" });
+
+    const workerCents = Math.round(job.pay * 100);
+    const feeCents = Math.round(workerCents * 0.08);
+    const totalCents = workerCents + feeCents;
+
     const intent = await stripe.paymentIntents.create({
-      amount: amountCents,
+      amount: totalCents,
       currency: "usd",
       payment_method: paymentMethodId,
       customer: user.stripe_customer_id,
       confirm: true,
       capture_method: "manual",
       off_session: true,
-      metadata: { jobId, posterId: req.user.id },
+      metadata: { jobId, posterId: req.user.id, workerId: workerId || "" },
       return_url: process.env.FRONTEND_URL || "https://choresnearme.com",
     });
 
@@ -777,6 +798,35 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
     }
     if (intent.status !== "requires_capture") {
       return res.json({ error: "Payment failed — please try a different card." });
+    }
+
+    // Create escrow record
+    await supabase.from("escrow").insert({
+      job_id: jobId,
+      poster_id: req.user.id,
+      worker_id: workerId || null,
+      amount: job.pay,
+      fee: job.pay * 0.08,
+      worker_gets: job.pay,
+      stripe_intent_id: intent.id,
+      status: "held",
+    });
+
+    // Mark job as booked
+    if (workerId) {
+      await supabase.from("jobs").update({ status: "booked", worker_id: workerId }).eq("id", jobId);
+    }
+
+    // Notify worker
+    if (workerId) {
+      const { data: posterUser } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+      const posterName = posterUser ? `${posterUser.first_name} ${posterUser.last_name}`.trim() : "The poster";
+      await notify(workerId, {
+        type: "accepted", category: "job", icon: "✅",
+        title: "You've been hired!",
+        body: `${posterName} hired you for "${job.title}" · $${job.pay} in escrow`,
+        jobId, relatedUserId: req.user.id,
+      });
     }
 
     res.json({ success: true, intentId: intent.id });
@@ -1209,6 +1259,34 @@ async function notify(userId, { type, category, icon, title, body, jobId=null, r
   });
   if (error) console.warn("⚠️  Notify error:", error.message);
 }
+
+// Get applicants for a job (poster only)
+app.get("/api/jobs/:id/applicants", requireAuth, async (req, res) => {
+  const jobId = req.params.id;
+  const { data: job } = await supabase.from("jobs").select("poster_id").eq("id", jobId).maybeSingle();
+  if (!job || job.poster_id !== req.user.id) return res.json({ error: "Not authorized" });
+
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*, worker:users!worker_id(id, first_name, last_name, avatar_url, rating, jobs_completed)")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: true });
+
+  if (error) return res.json({ error: error.message });
+
+  const applicants = (data || []).map(a => ({
+    id: a.worker_id,
+    name: a.worker ? `${a.worker.first_name} ${a.worker.last_name}`.trim() : "Worker",
+    avatarUrl: a.worker?.avatar_url || null,
+    rating: a.worker?.rating || 5.0,
+    jobsDone: a.worker?.jobs_completed || 0,
+    message: a.message || "",
+    availability: a.availability || "",
+    appliedAt: new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+  }));
+
+  res.json({ applicants });
+});
 
 app.post("/api/jobs/:id/apply", async (req, res) => {
   const { message, availability, workerId, workerName } = req.body;
