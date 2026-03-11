@@ -479,16 +479,29 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
 // CHECKOUT PAGE (full payment flow with card entry)
 // ═══════════════════════════════════════════════════════════════════════════
 function CheckoutModal({ job, onClose, onComplete }) {
-  const [step, setStep] = useState(0); // 0=summary, 1=card entry, 2=review, 3=processing, 4=success
+  const [step, setStep] = useState(0); // 0=pick worker, 1=summary, 2=card entry, 3=review, 4=processing, 5=success
   const [card, setCard] = useState({ number:"", expiry:"", cvc:"", name:"", save:true });
-  const [payMethod, setPayMethod] = useState("new"); // "new","visa","apple"
+  const [payMethod, setPayMethod] = useState("new"); // "new",<cardId>
   const [tipPct, setTipPct] = useState(0);
   const [pmCards, setPmCards] = useState([]);
+  const [applicants, setApplicants] = useState([]);
+  const [applicantsLoading, setApplicantsLoading] = useState(true);
+  const [selectedWorker, setSelectedWorker] = useState(null); // { id, name }
 
-  // Fetch saved cards on mount
+  // Fetch applicants and saved cards on mount
   React.useEffect(() => {
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
     if (!token) return;
+    // Load applicants
+    fetch(`${BACKEND}/api/jobs/${job.id}/applicants`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        setApplicants(data.applicants || []);
+        if (data.applicants?.length === 1) setSelectedWorker(data.applicants[0]); // auto-select if only one
+        setApplicantsLoading(false);
+      })
+      .catch(() => setApplicantsLoading(false));
+    // Load saved cards
     fetch(`${BACKEND}/api/customer/cards`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
@@ -509,12 +522,11 @@ function CheckoutModal({ job, onClose, onComplete }) {
   const total = +(job.pay + fee + tip).toFixed(2);
   const workerGets = +(job.pay + tip).toFixed(2);
 
-  // Called when "Pay" is tapped — tokenize the card with Stripe
   const handleStripeCharge = async () => {
     setStripeError("");
     if (payMethod === "new") {
       if (!stripeRef) { setStripeError("Stripe is still loading, please wait."); return; }
-      setStep(3);
+      setStep(4);
       const { stripe, card: cardEl } = stripeRef;
       const result = await stripe.createPaymentMethod({
         type: "card",
@@ -522,7 +534,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
         billing_details: { name: card.name || "Chores User" },
       });
       if (result.error) {
-        setStep(2);
+        setStep(3);
         setStripeError(result.error.message);
         return;
       }
@@ -532,32 +544,33 @@ function CheckoutModal({ job, onClose, onComplete }) {
 
       // ── Real backend charge ──
       try {
+        const token = isBrowser ? localStorage.getItem("chores_token") : null;
         const res = await fetch(`${BACKEND}/api/charge`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
           body: JSON.stringify({
             paymentMethodId: result.paymentMethod.id,
             amountCents: Math.round(total * 100),
             jobId: String(job.id),
             jobTitle: job.title,
+            workerId: selectedWorker?.id || null,
           }),
         });
         const data = await res.json();
         if (data.error) {
-          setStep(2);
+          setStep(3);
           setStripeError(data.error);
           return;
         }
-        // data.intentId is the escrow ID — store it for release/refund later
         setPaymentMethodId(result.paymentMethod.id + "|" + data.intentId);
-        setStep(4);
+        setStep(5);
       } catch (err) {
-        setStep(2);
+        setStep(3);
         setStripeError("Network error — please try again.");
       }
     } else {
       // Saved card — charge via backend using stored payment method
-      setStep(3);
+      setStep(4);
       try {
         const token = isBrowser ? localStorage.getItem("chores_token") : null;
         const res = await fetch(`${BACKEND}/api/charge-saved`, {
@@ -568,25 +581,26 @@ function CheckoutModal({ job, onClose, onComplete }) {
             amountCents: Math.round(total * 100),
             jobId: String(job.id),
             jobTitle: job.title,
+            workerId: selectedWorker?.id || null,
           }),
         });
         const data = await res.json();
         if (data.error) {
-          setStep(2);
+          setStep(3);
           setStripeError(data.error);
           return;
         }
         setPaymentMethodId(payMethod + "|" + data.intentId);
-        setStep(4);
+        setStep(5);
       } catch (err) {
-        setStep(2);
+        setStep(3);
         setStripeError("Network error — please try again.");
       }
     }
   };
 
-  // Step 3 — Processing
-  if (step === 3) {
+  // Step 4 — Processing
+  if (step === 4) {
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
         <div className="fade" style={{ background:G.white, borderRadius:24, padding:"48px 32px", width:"100%", maxWidth:400, textAlign:"center" }}>
@@ -601,34 +615,23 @@ function CheckoutModal({ job, onClose, onComplete }) {
     );
   }
 
-  // Step 4 — Success
-  if (step === 4) return (
+  // Step 5 — Success
+  if (step === 5) return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
       <div className="fade" style={{ background:G.white, borderRadius:24, padding:"32px 24px", width:"100%", maxWidth:400, textAlign:"center" }}>
         <div className="check-pop" style={{ width:72, height:72, borderRadius:"50%", background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, margin:"0 auto 16px" }}>✅</div>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.green }}>Payment Authorized!</div>
         <div style={{ fontSize:14, color:G.muted, marginTop:8, lineHeight:1.5 }}>
-          <strong>${total}</strong> authorized. <strong>${job.pay.toFixed(2)}</strong> held in escrow.
+          <strong>${total}</strong> held in escrow for <strong>{selectedWorker?.name||"your worker"}</strong>.
         </div>
-        {paymentMethodId && (
-          <div style={{ background:"#EBF8FF", borderRadius:12, padding:"8px 14px", marginTop:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-            <span style={{ fontSize:13 }}>💳</span>
-            <span style={{ fontSize:12, color:G.blue, fontWeight:600 }}>
-              {cardBrand ? cardBrand.charAt(0).toUpperCase()+cardBrand.slice(1) : "Card"} •••• {cardLast4} · Tokenized ✓
-            </span>
-          </div>
-        )}
         <div style={{ background:G.greenPale, borderRadius:14, padding:14, marginTop:16, textAlign:"left" }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.greenMid, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Receipt</div>
-          {[["Job",job.title],["Amount",`$${job.pay.toFixed(2)}`],["Fee (8%)",`$${fee.toFixed(2)}`],["Tip",`$${tip.toFixed(2)}`],["Total",`$${total}`],["Worker gets",`$${workerGets.toFixed(2)}`],
-            ...(paymentMethodId ? [["Stripe Token", paymentMethodId.slice(0,18)+"…"]] : [])
-          ].map(([l,v])=>(
-            <div key={l} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"4px 0", borderBottom:`1px solid ${G.greenLight}20` }}><span style={{ color:G.greenMid }}>{l}</span><span style={{ fontWeight:700, color:G.text, maxWidth:"60%", textAlign:"right", wordBreak:"break-all" }}>{v}</span></div>
+          {[["Job",job.title],["Worker",selectedWorker?.name||"Worker"],["Amount",`$${job.pay.toFixed(2)}`],["Platform fee (8%)",`+$${fee.toFixed(2)}`],["Tip",`$${tip.toFixed(2)}`],["Total charged",`$${total}`]].map(([l,v])=>(
+            <div key={l} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"4px 0", borderBottom:`1px solid ${G.greenLight}20` }}><span style={{ color:G.greenMid }}>{l}</span><span style={{ fontWeight:700, color:G.text }}>{v}</span></div>
           ))}
         </div>
-        <div style={{ fontSize:11, color:G.muted, marginTop:12 }}>Send token to your backend to capture when job completes</div>
         <Btn onClick={()=>{
-          onComplete({ id:`ESC-${2042+Math.floor(Math.random()*100)}`, jobId:job.id, job:job.title, worker:"Pending", poster:job.poster, amount:job.pay, fee, workerGets, status:"held", createdAt:"Just now", scheduledDate:job.date, note:"Funds held until job completion", stripeIntentId: paymentMethodId?.split("|")[1] || null });
+          onComplete({ id:`ESC-${Date.now()}`, jobId:job.id, job:job.title, worker:selectedWorker?.name||"Worker", workerId:selectedWorker?.id||null, poster:job.poster, amount:job.pay, fee, workerGets, status:"held", createdAt:"Just now", scheduledDate:job.date, note:"Funds held until job completion", stripeIntentId: paymentMethodId?.split("|")[1] || null });
           onClose();
         }} style={{ width:"100%", marginTop:20, padding:15, borderRadius:16 }}>Done →</Btn>
       </div>
@@ -641,16 +644,54 @@ function CheckoutModal({ job, onClose, onComplete }) {
         {/* Header */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
           <div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800 }}>{step===0?"Checkout":step===1?"Payment Details":"Review Order"}</div>
-            <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>Step {step+1} of 3</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800 }}>{step===0?"Select Worker":step===1?"Checkout":step===2?"Payment Details":"Review Order"}</div>
+            <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>Step {step+1} of {applicants.length>0?4:3}</div>
           </div>
           <div className="tap" onClick={onClose} style={{ fontSize:24, color:G.muted }}>×</div>
         </div>
         <div style={{ height:4, background:G.sand, borderRadius:2, marginBottom:18 }}>
-          <div className="progress-fill" style={{ height:"100%", width:`${((step+1)/3)*100}%`, background:G.greenLight, borderRadius:2 }} />
+          <div className="progress-fill" style={{ height:"100%", width:`${((step+1)/(applicants.length>0?4:3))*100}%`, background:G.greenLight, borderRadius:2 }} />
         </div>
 
+        {/* Step 0: Pick a worker */}
         {step===0 && (<>
+          {applicantsLoading ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:G.muted }}>
+              <div style={{ width:36, height:36, borderRadius:"50%", border:`3px solid ${G.green}`, borderTopColor:"transparent", margin:"0 auto 12px", animation:"spin .8s linear infinite" }} />
+              <div style={{ fontSize:13 }}>Loading applicants...</div>
+              <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </div>
+          ) : applicants.length === 0 ? (
+            <div style={{ background:G.white, borderRadius:18, padding:24, textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+              <div style={{ fontSize:32, marginBottom:12 }}>👥</div>
+              <div style={{ fontWeight:700, fontSize:15, marginBottom:8 }}>No applicants yet</div>
+              <div style={{ fontSize:13, color:G.muted, marginBottom:20 }}>Wait for workers to apply before hiring.</div>
+              <Btn onClick={onClose} variant="outline" style={{ padding:"12px 24px", borderRadius:12 }}>Close</Btn>
+            </div>
+          ) : (<>
+            <div style={{ fontSize:13, color:G.muted, marginBottom:14 }}>Choose who to hire for this job:</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+              {applicants.map(a=>(
+                <div key={a.id} className="tap" onClick={()=>setSelectedWorker(a)} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`2px solid ${selectedWorker?.id===a.id?G.green:G.border}`, display:"flex", gap:12, alignItems:"center", transition:"all .15s" }}>
+                  <Avatar name={a.name} size={44} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{a.name}</div>
+                    <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>⭐ {Number(a.rating).toFixed(1)} · {a.jobsDone} jobs done · Applied {a.appliedAt}</div>
+                    {a.message && <div style={{ fontSize:12, color:G.text, marginTop:4, fontStyle:"italic" }}>"{a.message.slice(0,80)}{a.message.length>80?"...":""}"</div>}
+                  </div>
+                  <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${selectedWorker?.id===a.id?G.green:G.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                    {selectedWorker?.id===a.id&&<div style={{ width:10, height:10, borderRadius:"50%", background:G.green }}/>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Btn onClick={()=>setStep(1)} disabled={!selectedWorker} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15, opacity:selectedWorker?1:.5 }}>
+              Continue with {selectedWorker?.name||"Worker"} →
+            </Btn>
+          </>)}
+        </>)}
+
+        {step===1 && (<>
           {/* Job summary */}
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
@@ -697,10 +738,10 @@ function CheckoutModal({ job, onClose, onComplete }) {
             </div>
           </div>
 
-          <Btn onClick={()=>setStep(1)} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>Continue to Payment →</Btn>
+          <Btn onClick={()=>setStep(2)} style={{ width:"100%", padding:16, borderRadius:16, fontSize:15 }}>Continue to Payment →</Btn>
         </>)}
 
-        {step===1 && (<>
+        {step===2 && (<>
           {/* Payment method selection */}
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Saved Cards</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
@@ -759,12 +800,12 @@ function CheckoutModal({ job, onClose, onComplete }) {
           </div>
 
           <div style={{ display:"flex", gap:10 }}>
-            <Btn onClick={()=>setStep(0)} variant="outline" style={{ flex:1, padding:15, borderRadius:14 }}>← Back</Btn>
-            <Btn onClick={()=>setStep(2)} disabled={payMethod==="new"&&!stripeRef} style={{ flex:2, padding:15, borderRadius:14, fontSize:15, opacity:(payMethod!=="new"||stripeRef)?1:.5 }}>Review Order →</Btn>
+            <Btn onClick={()=>setStep(1)} variant="outline" style={{ flex:1, padding:15, borderRadius:14 }}>← Back</Btn>
+            <Btn onClick={()=>setStep(3)} disabled={payMethod==="new"&&!stripeRef} style={{ flex:2, padding:15, borderRadius:14, fontSize:15, opacity:(payMethod!=="new"||stripeRef)?1:.5 }}>Review Order →</Btn>
           </div>
         </>)}
 
-        {step===2 && (<>
+        {step===3 && (<>
           {/* Final review */}
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ display:"flex", gap:12, alignItems:"center", paddingBottom:12, borderBottom:`1px solid ${G.border}` }}>
@@ -789,7 +830,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
               <div style={{ fontWeight:700, fontSize:13 }}>{(() => { const c = pmCards.find(x=>x.id===payMethod); if(!c) return "Selected card"; const bl = {visa:"Visa",mastercard:"Mastercard",amex:"Amex",discover:"Discover"}[c.brand]||"Card"; return `${bl} •••• ${c.last4}`; })()}</div>
               <div style={{ fontSize:11, color:G.muted }}>{payMethod==="apple"?"Face ID":"Charged immediately"}</div>
             </div>
-            <div className="tap" onClick={()=>setStep(1)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>
+            <div className="tap" onClick={()=>setStep(2)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>
           </div>
 
           <div style={{ background:G.orangeLight, borderRadius:14, padding:14, marginBottom:18, display:"flex", gap:10, alignItems:"flex-start" }}>
@@ -798,7 +839,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
           </div>
 
           <div style={{ display:"flex", gap:10 }}>
-            <Btn onClick={()=>setStep(1)} variant="outline" style={{ flex:1, padding:15, borderRadius:14 }}>← Back</Btn>
+            <Btn onClick={()=>setStep(2)} variant="outline" style={{ flex:1, padding:15, borderRadius:14 }}>← Back</Btn>
             <Btn onClick={handleStripeCharge} style={{ flex:2, padding:15, borderRadius:14, fontSize:15 }}>💳 Pay ${total}</Btn>
           </div>
 
@@ -2604,8 +2645,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            {[{icon:"⭐",label:"Reviews",sub:myReviews.length > 0 ? `${myReviews.length} review${myReviews.length!==1?"s":""} · ${Number(storedUser?.rating||5).toFixed(1)} avg` : "No reviews yet"},{icon:"🏆",label:"Badges & Skills",sub:"Track your achievements",last:true}].map(r=>(
-              <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Reviews"?()=>setSubPage("reviews"):r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
+            {[{icon:"🏆",label:"Badges & Skills",sub:"Track your achievements",last:true}].map(r=>(
+              <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             ))}
           </div>
         </div>

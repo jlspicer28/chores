@@ -276,6 +276,14 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
 
 app.get("/api/ping", (req, res) => res.json({ ok: true }));
 
+// Debug: check what escrow records exist for the current user (remove in production)
+app.get("/api/debug/escrow", requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const { data: allEscrow } = await supabase.from("escrow").select("id, job_id, poster_id, worker_id, status, amount, created_at").order("created_at", { ascending: false }).limit(20);
+  const { data: myJobs } = await supabase.from("jobs").select("id, title, status, worker_id, poster_id").or(`worker_id.eq.${userId},poster_id.eq.${userId}`);
+  res.json({ userId, allEscrow: allEscrow || [], myJobs: myJobs || [] });
+});
+
 app.get("/api/jobs/applied", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.json({ jobIds: [] });
@@ -615,38 +623,55 @@ app.post("/api/charge", requireAuth, async (req, res) => {
 // Get all escrow transactions for current user
 app.get("/api/escrow", requireAuth, async (req, res) => {
   const userId = req.user.id;
+  const SEL = "*, job:jobs(title, category), poster:users!poster_id(first_name, last_name), worker:users!worker_id(first_name, last_name)";
 
-  // First get job IDs where user is the worker (covers old records with null worker_id)
+  // Query 1: records where user is explicitly poster or worker
+  const { data: direct, error: e1 } = await supabase
+    .from("escrow").select(SEL)
+    .or(`poster_id.eq.${userId},worker_id.eq.${userId}`)
+    .order("created_at", { ascending: false });
+  if (e1) return res.json({ error: e1.message });
+
+  // Query 2: jobs where this user is the worker (catches old null worker_id escrow records)
   const { data: workerJobs } = await supabase
     .from("jobs").select("id").eq("worker_id", userId);
   const workerJobIds = (workerJobs || []).map(j => j.id);
 
-  const { data, error } = await supabase
-    .from("escrow")
-    .select("*, job:jobs(title, category), poster:users!poster_id(first_name, last_name), worker:users!worker_id(first_name, last_name)")
-    .or(`poster_id.eq.${userId},worker_id.eq.${userId}${workerJobIds.length ? `,job_id.in.(${workerJobIds.join(",")})` : ""}`)
-    .order("created_at", { ascending: false });
+  let extra = [];
+  if (workerJobIds.length > 0) {
+    const directIds = new Set((direct || []).map(e => e.id));
+    const { data: byJob } = await supabase
+      .from("escrow").select(SEL)
+      .in("job_id", workerJobIds)
+      .order("created_at", { ascending: false });
+    extra = (byJob || []).filter(e => !directIds.has(e.id));
+    // Self-heal: stamp worker_id on records that are missing it
+    for (const e of extra) {
+      if (!e.worker_id) {
+        supabase.from("escrow").update({ worker_id: userId }).eq("id", e.id).then(() => {});
+      }
+    }
+  }
 
-  if (error) return res.json({ error: error.message });
-
-  const transactions = (data || []).map(e => ({
+  const mapTxn = e => ({
     id: e.id,
     job: e.job?.title || "Job",
     jobId: e.job_id,
-    amount: e.amount,
-    workerGets: e.worker_gets || e.amount,
+    amount: parseFloat(e.amount) || 0,
+    workerGets: parseFloat(e.worker_gets) || parseFloat(e.amount) || 0,
     status: e.status || "held",
     poster: e.poster ? `${e.poster.first_name} ${e.poster.last_name}`.trim() : "Poster",
     posterId: e.poster_id,
     worker: e.worker ? `${e.worker.first_name} ${e.worker.last_name}`.trim() : "Worker",
-    workerId: e.worker_id,
+    workerId: e.worker_id || userId,
     posterConfirmed: e.poster_confirmed || false,
     workerConfirmed: e.worker_confirmed || false,
     createdAt: new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     releasedAt: e.released_at ? new Date(e.released_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null,
     stripeIntentId: e.stripe_intent_id,
-  }));
+  });
 
+  const transactions = [...(direct || []), ...extra].map(mapTxn);
   res.json({ transactions });
 });
 
