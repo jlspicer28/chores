@@ -209,10 +209,25 @@ function Toast({ notif, onDismiss }) {
 // ═══════════════════════════════════════════════════════════════════════════
 function EscrowHoldModal({ job, onClose, onConfirm }) {
   const [step, setStep] = useState(0);
-  const [payMethod, setPayMethod] = useState("visa");
+  const [payMethod, setPayMethod] = useState("new");
   const [processing, setProcessing] = useState(false);
+  const [pmCards, setPmCards] = useState([]);
   const fee = +(job.pay * 0.08).toFixed(2);
   const total = +(job.pay + fee).toFixed(2);
+
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/customer/cards`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.cards && data.cards.length > 0) {
+          setPmCards(data.cards);
+          setPayMethod(data.cards.find(c => c.isDefault)?.id || data.cards[0].id);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const workerGets = +(job.pay * 0.92).toFixed(2);
 
   if (step === 2) return (
@@ -468,6 +483,22 @@ function CheckoutModal({ job, onClose, onComplete }) {
   const [card, setCard] = useState({ number:"", expiry:"", cvc:"", name:"", save:true });
   const [payMethod, setPayMethod] = useState("new"); // "new","visa","apple"
   const [tipPct, setTipPct] = useState(0);
+  const [pmCards, setPmCards] = useState([]);
+
+  // Fetch saved cards on mount
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/customer/cards`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.cards && data.cards.length > 0) {
+          setPmCards(data.cards);
+          setPayMethod(data.cards.find(c => c.isDefault)?.id || data.cards[0].id);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [stripeRef, setStripeRef] = useState(null); // { stripe, card } from StripeCardInput
   const [stripeError, setStripeError] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState(null);
@@ -925,6 +956,18 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [customSkill, setCustomSkill] = useState("");
   const togSkill = (id) => setSelSkills(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const [reviewFilter, setReviewFilter] = useState("all");
+  const [myReviews, setMyReviews] = useState([]);
+
+  // Fetch real reviews from backend
+  React.useEffect(() => {
+    if (!isBrowser) return;
+    const token = localStorage.getItem("chores_token");
+    if (!token) return;
+    fetch(`${BACKEND}/api/reviews/mine`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.reviews) setMyReviews(data.reviews); })
+      .catch(() => {});
+  }, []);
   const [pwFields, setPwFields] = useState({ current:"", newPw:"", confirm:"" });
   const [pwError, setPwError] = useState("");
   const [pwSaved, setPwSaved] = useState(false);
@@ -2380,10 +2423,10 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── REVIEWS SUB-PAGE ──
   if (subPage==="reviews") {
-    const avg = (MY_REVIEWS.reduce((s,r)=>s+r.rating,0)/MY_REVIEWS.length).toFixed(1);
-    const dist = [5,4,3,2,1].map(s=>({ s, count:MY_REVIEWS.filter(r=>r.rating===s).length }));
+    const avg = myReviews.length > 0 ? (myReviews.reduce((s,r)=>s+r.rating,0)/myReviews.length).toFixed(1) : "—";
+    const dist = [5,4,3,2,1].map(s=>({ s, count:myReviews.filter(r=>r.rating===s).length }));
     const maxCount = Math.max(...dist.map(d=>d.count),1);
-    const filtered = reviewFilter==="all"?MY_REVIEWS:MY_REVIEWS.filter(r=>r.rating===parseInt(reviewFilter));
+    const filtered = reviewFilter==="all"?myReviews:myReviews.filter(r=>r.rating===parseInt(reviewFilter));
 
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:80 }}>
@@ -2404,7 +2447,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                   <svg key={s} width="14" height="14" viewBox="0 0 24 24" fill={s<=Math.round(parseFloat(avg))?G.green:G.border} stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 ))}
               </div>
-              <div style={{ fontSize:11, color:G.muted, marginTop:4 }}>{MY_REVIEWS.length} reviews</div>
+              <div style={{ fontSize:11, color:G.muted, marginTop:4 }}>{myReviews.length} reviews</div>
             </div>
             {/* Bar chart */}
             <div style={{ flex:1 }}>
@@ -2427,7 +2470,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Top Qualities</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {(() => {
-              const allTags = MY_REVIEWS.flatMap(r=>r.tags);
+              const allTags = myReviews.flatMap(r=>r.tags);
               const counts = {};
               allTags.forEach(t=>counts[t]=(counts[t]||0)+1);
               return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([tag,count])=>(
@@ -2450,10 +2493,10 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         ) : filtered.map(r=>(
           <div key={r.id} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
-              <Avatar name={r.from} size={40} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
+              <Avatar name={r.reviewerName} size={40} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:14 }}>{r.from}</div>
-                <div style={{ fontSize:11, color:G.muted }}>{r.job}</div>
+                <div style={{ fontWeight:700, fontSize:14 }}>{r.reviewerName}</div>
+                <div style={{ fontSize:11, color:G.muted }}>{r.jobTitle}</div>
               </div>
               <div style={{ fontSize:11, color:G.muted }}>{r.date}</div>
             </div>
@@ -2462,9 +2505,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 <svg key={s} width="14" height="14" viewBox="0 0 24 24" fill={s<=r.rating?G.green:G.border} stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               ))}
             </div>
-            <div style={{ fontSize:13, color:G.text, lineHeight:1.5, marginBottom:8 }}>{r.text}</div>
+            <div style={{ fontSize:13, color:G.text, lineHeight:1.5, marginBottom:8 }}>{r.comment}</div>
             <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-              {r.tags.map(t=>(
+              {(r.tags||[]).map(t=>(
                 <div key={t} style={{ padding:"3px 8px", borderRadius:6, fontSize:10, fontWeight:600, background:G.sand, color:G.muted, textTransform:"capitalize" }}>{t}</div>
               ))}
             </div>
@@ -2542,12 +2585,26 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8 }}>Recent Reviews</div>
               <div className="tap" onClick={()=>setSubPage("reviews")} style={{ fontSize:11, fontWeight:700, color:G.greenMid }}>See All →</div>
             </div>
-            <div style={{ fontSize:13, color:G.muted, textAlign:"center", padding:"12px 0" }}>No reviews yet — complete jobs to earn reviews</div>
+            {myReviews.length === 0 ? (
+              <div style={{ fontSize:13, color:G.muted, textAlign:"center", padding:"12px 0" }}>No reviews yet — complete jobs to earn reviews</div>
+            ) : myReviews.slice(0,2).map(r=>(
+              <div key={r.id} style={{ paddingBottom:10, marginBottom:10, borderBottom:`1px solid ${G.border}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                  <div style={{ fontWeight:700, fontSize:13 }}>{r.reviewerName}</div>
+                  <div style={{ display:"flex", gap:2 }}>
+                    {[1,2,3,4,5].map(s=>(
+                      <svg key={s} width="11" height="11" viewBox="0 0 24 24" fill={s<=r.rating?G.green:G.border} stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    ))}
+                  </div>
+                </div>
+                {r.comment && <div style={{ fontSize:12, color:G.muted, lineHeight:1.4 }}>{r.comment}</div>}
+              </div>
+            ))}
           </div>
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            {[{icon:"⭐",label:"Reviews",sub:storedUser?.jobs_completed ? `${storedUser.jobs_completed} review${storedUser.jobs_completed!==1?"s":""} · ${Number(storedUser.rating||5).toFixed(1)} avg` : "No reviews yet"},{icon:"🏆",label:"Badges & Skills",sub:"Track your achievements",last:true}].map(r=>(
+            {[{icon:"⭐",label:"Reviews",sub:myReviews.length > 0 ? `${myReviews.length} review${myReviews.length!==1?"s":""} · ${Number(storedUser?.rating||5).toFixed(1)} avg` : "No reviews yet"},{icon:"🏆",label:"Badges & Skills",sub:"Track your achievements",last:true}].map(r=>(
               <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Reviews"?()=>setSubPage("reviews"):r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             ))}
           </div>
@@ -4151,7 +4208,7 @@ const COMPLETED_JOBS = [];
 
 const REVIEW_TAGS = ["punctual","thorough","friendly","reliable","skilled","hardworking","communicative","careful","kind","efficient","detail-oriented","professional"];
 
-function ReviewModal({ target, jobTitle, onSubmit, onClose }) {
+function ReviewModal({ target, targetId, jobTitle, jobId, onSubmit, onClose }) {
   const [stars, setStars] = useState(0);
   const [hover, setHover] = useState(0);
   const [text, setText] = useState("");
@@ -4163,11 +4220,10 @@ function ReviewModal({ target, jobTitle, onSubmit, onClose }) {
     setStep(1);
     try {
       const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
       await fetch(`${BACKEND}/api/reviews/create`, {
         method:"POST",
         headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
-        body: JSON.stringify({ jobTitle, targetName: target, stars, text, tags, reviewerId: user.id })
+        body: JSON.stringify({ jobId, revieweeId: targetId, rating: stars, comment: text, tags })
       });
     } catch(e) { console.error("Review error:", e); }
     setStep(2);
@@ -5239,6 +5295,17 @@ export default function ChoresApp() {
     return () => clearInterval(interval);
   }, [appView]);
 
+  // Load escrow transactions from backend
+  React.useEffect(() => {
+    if (appView !== "user") return;
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/escrow`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.transactions) setEscrowData(data.transactions); })
+      .catch(() => {});
+  }, [appView]);
+
   // Geolocation: auto-detect zip code based on current position
   const detectLocation = React.useCallback(() => {
     if (!navigator.geolocation) { setLocStatus("denied"); return; }
@@ -5277,7 +5344,17 @@ export default function ChoresApp() {
     if (msg) setToast(msg);
   };
 
-  const handleConfirmSide = (id, side) => {
+  const handleConfirmSide = async (id, side) => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    // Call backend to confirm
+    if (token) {
+      try {
+        await fetch(`${BACKEND}/api/escrow/${id}/confirm`, {
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ side }),
+        });
+      } catch(e) {}
+    }
     setEscrowData(d=>d.map(t=>{
       if (t.id!==id) return t;
       const updated = { ...t };
@@ -5288,8 +5365,9 @@ export default function ChoresApp() {
         updated.status = "released";
         updated.releasedAt = "Just now";
         // Trigger review modal after a short delay
+        const reviewTarget = side==="poster" ? { person: t.worker, personId: t.workerId } : { person: t.poster, personId: t.posterId };
         setTimeout(()=>{
-          setReviewModal({ job:t.job, person:side==="poster"?t.worker:t.poster, role:side });
+          setReviewModal({ job: t.job, jobId: t.jobId, ...reviewTarget, role: side });
         }, 600);
         setToast({icon:"💸",title:"Payment released!",body:`Both confirmed · $${t.workerGets.toFixed(2)} sent to ${t.worker}`});
       } else {
@@ -5319,7 +5397,7 @@ export default function ChoresApp() {
       {toast&&<Toast notif={toast} onDismiss={()=>setToast(null)} />}
       {escrowModal&&<EscrowHoldModal job={escrowModal} onClose={()=>setEscrowModal(null)} onConfirm={handleFund} />}
       {checkoutModal&&<CheckoutModal job={checkoutModal} onClose={()=>setCheckoutModal(null)} onComplete={handleFund} />}
-      {reviewModal&&<ReviewModal target={reviewModal.person} jobTitle={reviewModal.job} onSubmit={()=>setToast({icon:"⭐",title:"Review submitted!",body:"Thanks for your feedback"})} onClose={()=>setReviewModal(null)} />}
+      {reviewModal&&<ReviewModal target={reviewModal.person} targetId={reviewModal.personId} jobTitle={reviewModal.job} jobId={reviewModal.jobId} onSubmit={()=>setToast({icon:"⭐",title:"Review submitted!",body:"Thanks for your feedback"})} onClose={()=>setReviewModal(null)} />}
       {viewingProfileId&&(
         <div style={{ position:"fixed", inset:0, zIndex:300, background:G.cream, overflowY:"auto" }}>
           <PublicProfileScreen userId={viewingProfileId} onBack={()=>setViewingProfileId(null)} />

@@ -612,6 +612,38 @@ app.post("/api/charge", requireAuth, async (req, res) => {
 });
 
 // Confirm job complete (either party confirms — when both confirm, auto-release)
+// Get all escrow transactions for current user
+app.get("/api/escrow", requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const { data, error } = await supabase
+    .from("escrow")
+    .select("*, job:jobs(title, category), poster:users!poster_id(first_name, last_name), worker:users!worker_id(first_name, last_name), worker_user:users!worker_id(id), poster_user:users!poster_id(id)")
+    .or(`poster_id.eq.${userId},worker_id.eq.${userId}`)
+    .order("created_at", { ascending: false });
+
+  if (error) return res.json({ error: error.message });
+
+  const transactions = (data || []).map(e => ({
+    id: e.id,
+    job: e.job?.title || "Job",
+    jobId: e.job_id,
+    amount: e.amount,
+    workerGets: e.worker_gets || e.amount * 0.92,
+    status: e.status || "held",
+    poster: e.poster ? `${e.poster.first_name} ${e.poster.last_name}`.trim() : "Poster",
+    posterId: e.poster_id,
+    worker: e.worker ? `${e.worker.first_name} ${e.worker.last_name}`.trim() : "Worker",
+    workerId: e.worker_id,
+    posterConfirmed: e.poster_confirmed || false,
+    workerConfirmed: e.worker_confirmed || false,
+    createdAt: new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    releasedAt: e.released_at ? new Date(e.released_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null,
+    stripeIntentId: e.stripe_intent_id,
+  }));
+
+  res.json({ transactions });
+});
+
 app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
   const { data: escrow } = await supabase
     .from("escrow").select("*").eq("id", req.params.id).single();
@@ -1053,7 +1085,12 @@ app.post("/api/verify/email/check", async (req, res) => {
 // REVIEWS
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/reviews/create", requireAuth, async (req, res) => {
-  const { jobId, revieweeId, rating, comment } = req.body;
+  const { jobId, revieweeId, rating, comment, tags } = req.body;
+
+  // Prevent duplicate reviews for same job
+  const { data: existing } = await supabase.from("reviews")
+    .select("id").eq("job_id", jobId).eq("reviewer_id", req.user.id).maybeSingle();
+  if (existing) return res.json({ success: true, alreadyReviewed: true });
 
   const { error } = await supabase.from("reviews").insert({
     job_id: jobId,
@@ -1061,6 +1098,7 @@ app.post("/api/reviews/create", requireAuth, async (req, res) => {
     reviewee_id: revieweeId,
     rating,
     comment,
+    tags: tags || [],
   });
 
   if (error) return res.json({ error: error.message });
@@ -1073,6 +1111,30 @@ app.post("/api/reviews/create", requireAuth, async (req, res) => {
   await supabase.from("users").update({ rating: Math.round(avg * 10) / 10 }).eq("id", revieweeId);
 
   res.json({ success: true });
+});
+
+// Get reviews about the current user (received reviews)
+app.get("/api/reviews/mine", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("*, reviewer:users!reviewer_id(first_name, last_name, avatar_url), job:jobs(title)")
+    .eq("reviewee_id", req.user.id)
+    .order("created_at", { ascending: false });
+
+  if (error) return res.json({ error: error.message });
+
+  const reviews = (data || []).map(r => ({
+    id: r.id,
+    rating: r.rating,
+    comment: r.comment,
+    tags: r.tags || [],
+    jobTitle: r.job?.title || "Completed job",
+    reviewerName: r.reviewer ? `${r.reviewer.first_name} ${r.reviewer.last_name}`.trim() : "Anonymous",
+    reviewerAvatar: r.reviewer?.avatar_url || null,
+    date: new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+  }));
+
+  res.json({ reviews });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
