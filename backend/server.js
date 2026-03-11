@@ -35,7 +35,32 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Auth middleware — verifies Supabase JWT on protected routes ───────────────
+// ── Geo helpers ───────────────────────────────────────────────────────────────
+// Haversine distance in miles between two lat/lng points
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// Simple in-memory zip→{lat,lng} cache (lives as long as the server process)
+const zipCache = {};
+async function zipToCoords(zip) {
+  if (zipCache[zip]) return zipCache[zip];
+  try {
+    const r = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    const coords = { lat: parseFloat(d.places[0].latitude), lng: parseFloat(d.places[0].longitude) };
+    zipCache[zip] = coords;
+    return coords;
+  } catch { return null; }
+}
+
+
 async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "No token provided" });
@@ -305,9 +330,10 @@ app.get("/api/jobs/applied", async (req, res) => {
   res.json({ jobIds: (data || []).map(a => a.job_id) });
 });
 
-// Get all open jobs (optionally filter by zip)
+// Get all open jobs filtered by distance from worker's zip
 app.get("/api/jobs", async (req, res) => {
-  const { zip, category, limit = 50 } = req.query;
+  const { zip, maxDist = 10, category, limit = 200 } = req.query;
+  const maxDistMiles = parseFloat(maxDist);
 
   let query = supabase
     .from("jobs")
@@ -321,8 +347,7 @@ app.get("/api/jobs", async (req, res) => {
   const { data, error } = await query;
   if (error) return res.json({ error: error.message });
 
-  // Normalize jobs with poster info
-  const jobs = (data || []).map(j => ({
+  let jobs = (data || []).map(j => ({
     ...j,
     poster_name: j.poster ? `${j.poster.first_name} ${j.poster.last_name}`.trim() : "Anonymous",
     poster_rating: j.poster?.rating || 5.0,
@@ -331,6 +356,26 @@ app.get("/api/jobs", async (req, res) => {
     poster_verified: j.poster?.identity_verified || false,
     applicant_count: j.applications?.[0]?.count || 0,
   }));
+
+  // Filter by distance if worker zip is provided
+  if (zip && zip.length === 5) {
+    const workerCoords = await zipToCoords(zip);
+    if (workerCoords) {
+      // For jobs that have lat/lng stored, use those directly.
+      // For jobs that only have a zip, resolve that zip to coords.
+      const jobsWithCoords = await Promise.all(jobs.map(async j => {
+        let jobLat = j.lat, jobLng = j.lng;
+        if ((!jobLat || !jobLng) && j.zip && j.zip.length === 5) {
+          const c = await zipToCoords(j.zip);
+          if (c) { jobLat = c.lat; jobLng = c.lng; }
+        }
+        if (!jobLat || !jobLng) return null; // can't filter without coords — exclude
+        const dist = haversine(workerCoords.lat, workerCoords.lng, jobLat, jobLng);
+        return dist <= maxDistMiles ? { ...j, dist: Math.round(dist * 10) / 10 } : null;
+      }));
+      jobs = jobsWithCoords.filter(Boolean);
+    }
+  }
 
   res.json({ jobs });
 });
@@ -1391,7 +1436,6 @@ app.get("/api/notifications", requireAuth, async (req, res) => {
     body: n.body,
     job: n.job?.title || null,
     job_id: n.job_id,
-    related_user_id: n.related_user_id || null,
     unread: !n.read,
     time: timeAgo(n.created_at),
     created_at: n.created_at,
