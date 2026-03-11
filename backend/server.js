@@ -538,9 +538,9 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       await supabase.from("users").update({ stripe_customer_id: stripeCustomerId }).eq("id", req.user.id);
     }
 
-    const amountCents = Math.round(job.pay * 100);
-    const feeCents = Math.round(amountCents * 0.08);
-    const workerCents = amountCents - feeCents;
+    const workerCents = Math.round(job.pay * 100);
+    const feeCents = Math.round(workerCents * 0.08);
+    const amountCents = workerCents + feeCents; // poster pays job.pay * 1.08
 
     // Fetch worker's Connect ID
     const { data: worker } = await supabase
@@ -579,7 +579,7 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       worker_id: workerId,
       amount: job.pay,
       fee: job.pay * 0.08,
-      worker_gets: job.pay * 0.92,
+      worker_gets: job.pay,
       stripe_intent_id: intent.id,
       status: "held",
     }).select().single();
@@ -628,7 +628,7 @@ app.get("/api/escrow", requireAuth, async (req, res) => {
     job: e.job?.title || "Job",
     jobId: e.job_id,
     amount: e.amount,
-    workerGets: e.worker_gets || e.amount * 0.92,
+    workerGets: e.worker_gets || e.amount,
     status: e.status || "held",
     poster: e.poster ? `${e.poster.first_name} ${e.poster.last_name}`.trim() : "Poster",
     posterId: e.poster_id,

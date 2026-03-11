@@ -214,6 +214,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
   const [pmCards, setPmCards] = useState([]);
   const fee = +(job.pay * 0.08).toFixed(2);
   const total = +(job.pay + fee).toFixed(2);
+  const workerGets = +job.pay.toFixed(2);
 
   React.useEffect(() => {
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
@@ -228,7 +229,6 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
       })
       .catch(() => {});
   }, []);
-  const workerGets = +(job.pay * 0.92).toFixed(2);
 
   if (step === 2) return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
@@ -389,7 +389,7 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
 
         <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Payment</div>
-          {[["Job amount",`$${txn.amount.toFixed(2)}`],["Fee (8%)",`$${txn.fee.toFixed(2)}`],["Worker receives",`$${txn.workerGets.toFixed(2)}`]].map(([l,v],i)=>(
+          {[["Job amount",`$${txn.amount.toFixed(2)}`],["Platform fee (8%)",`+$${(txn.fee||txn.amount*0.08).toFixed(2)}`],["Poster charged",`$${(txn.amount+(txn.fee||txn.amount*0.08)).toFixed(2)}`],["Worker receives",`$${txn.workerGets.toFixed(2)}`]].map(([l,v],i)=>(
             <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"9px 0", borderBottom:`1px solid ${G.border}`, fontSize:13 }}>
               <span style={{ color:G.muted }}>{l}</span><span style={{ fontWeight:i===2?800:600, color:i===2?G.greenMid:G.text }}>{v}</span>
             </div>
@@ -422,11 +422,11 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
             </div>
           ))}
         </div>
-        {txn.note&&<div style={{ background:"#FFF7ED", borderRadius:14, padding:14, marginBottom:16, border:"1px solid rgba(244,162,97,.2)" }}><div style={{ fontSize:12, color:G.gold, fontWeight:600 }}>📝 {txn.note}</div></div>}
+        {txn.note&&<div style={{ background:"#FFF7ED", borderRadius:14, padding:14, marginBottom:16, border:"1px solid rgba(244,162,97,.2)" }}><div style={{ fontSize:12, color:G.gold, fontWeight:600 }}>{txn.note}</div></div>}
 
         {confirmAction&&(
           <div style={{ background:confirmAction==="confirm"?G.greenPale:G.redLight, borderRadius:16, padding:16, marginBottom:14, border:`1.5px solid ${confirmAction==="confirm"?G.greenLight:G.red}` }}>
-            <div style={{ fontWeight:700, fontSize:14, color:confirmAction==="confirm"?G.greenMid:G.red, marginBottom:6 }}>{confirmAction==="confirm"?"✅ Confirm Job Complete":"⚠️ Open Dispute"}</div>
+            <div style={{ fontWeight:700, fontSize:14, color:confirmAction==="confirm"?G.greenMid:G.red, marginBottom:6 }}>{confirmAction==="confirm"?"Confirm Job Complete":"Open Dispute"}</div>
             <div style={{ fontSize:13, color:G.text, lineHeight:1.5, marginBottom:12 }}>
               {confirmAction==="confirm"
                 ? otherConfirmed
@@ -464,9 +464,9 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M20 6L9 17l-5-5"/></svg>
                   You Confirmed · Waiting on {otherLabel}
                 </Btn>
-              : <Btn onClick={()=>setConfirmAction("confirm")} style={{ flex:2, padding:14, borderRadius:16 }}>✅ Confirm Job Complete</Btn>
+              : <Btn onClick={()=>setConfirmAction("confirm")} style={{ flex:2, padding:14, borderRadius:16 }}>Confirm Job Complete</Btn>
             }
-            <Btn onClick={()=>setConfirmAction("dispute")} variant="outline" style={{ flex:1, padding:14, borderRadius:16, fontSize:13 }}>⚠️ Dispute</Btn>
+            <Btn onClick={()=>setConfirmAction("dispute")} variant="outline" style={{ flex:1, padding:14, borderRadius:16, fontSize:13 }}>Dispute</Btn>
           </div>
         )}
         <Btn onClick={onClose} variant="ghost" style={{ width:"100%", padding:13, borderRadius:16 }}>Close</Btn>
@@ -507,7 +507,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
   const fee = +(job.pay * 0.08).toFixed(2);
   const tip = +(job.pay * tipPct / 100).toFixed(2);
   const total = +(job.pay + fee + tip).toFixed(2);
-  const workerGets = +((job.pay + tip) * 0.92).toFixed(2);
+  const workerGets = +(job.pay + tip).toFixed(2);
 
   // Called when "Pay" is tapped — tokenize the card with Stripe
   const handleStripeCharge = async () => {
