@@ -1015,7 +1015,15 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [pmCards, setPmCards] = useState([]);
   const [pmLoading, setPmLoading] = useState(false);
 
-  // Load real cards from Stripe when payment methods subpage opens
+  // Load real cards from Stripe on mount and when payment methods subpage opens
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/customer/cards`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.cards) setPmCards(data.cards); })
+      .catch(() => {});
+  }, []);
   React.useEffect(() => {
     if (subPage !== "paymentMethods") return;
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
@@ -1273,9 +1281,11 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                       if (uploadRes.avatarUrl) {
                         setProfile(p => ({ ...p, photo: uploadRes.avatarUrl }));
                         setNewPhotoFile(null);
-                        // Update localStorage with new avatar
+                        // Update localStorage + currentUserData with new avatar so header updates instantly
                         const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
-                        localStorage.setItem("chores_user", JSON.stringify({ ...existing, avatar_url: uploadRes.avatarUrl }));
+                        const updated = { ...existing, avatar_url: uploadRes.avatarUrl };
+                        localStorage.setItem("chores_user", JSON.stringify(updated));
+                        if (typeof setCurrentUserData === "function") setCurrentUserData(u => ({ ...u, avatar_url: uploadRes.avatarUrl }));
                       }
                     }
                     const payload = { firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio.trim(), skills: selSkills };
@@ -2212,33 +2222,31 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     };
 
     const BADGES = [
-      { id:"first_job",   label:"First Job",        desc:"Complete your first job",                  earned:completedJobs>=1,   date:"Jan 15, 2025" },
-      { id:"five_star",   label:"5-Star Streak",     desc:"Get 5 consecutive 5-star reviews",         earned:true,               date:"Feb 2, 2025" },
-      { id:"speed_demon", label:"Speed Demon",       desc:"Complete 3 jobs in one day",               earned:true,               date:"Feb 10, 2025" },
-      { id:"repeat_fav",  label:"Repeat Favorite",   desc:"Get rehired by 5 different clients",       earned:true,               date:"Feb 18, 2025" },
-      { id:"top_earner",  label:"Top Earner",        desc:"Earn over $1,000 total",                   earned:totalEarned>=1000,  date:"Feb 22, 2025" },
-      { id:"early_bird",  label:"Early Bird",        desc:"Accept a job within 1 minute of posting",  earned:true,               date:"Jan 28, 2025" },
-      { id:"jack_trades", label:"Jack of All Trades",desc:"Complete jobs in 5+ categories",           earned:categoriesDone>=5,  date:"Feb 14, 2025" },
-      { id:"reliable",    label:"Reliable",          desc:"Zero cancellations in 30 days",            earned:true,               date:"Feb 25, 2025" },
+      { id:"first_job",   label:"First Job",        desc:"Complete your first job",                  earned:completedJobs>=1,   progress:completedJobs, goal:1 },
+      { id:"five_star",   label:"5-Star Streak",     desc:"Get 5 consecutive 5-star reviews",         earned:false,              progress:0, goal:5 },
+      { id:"speed_demon", label:"Speed Demon",       desc:"Complete 3 jobs in one day",               earned:false,              progress:0, goal:3 },
+      { id:"repeat_fav",  label:"Repeat Favorite",   desc:"Get rehired by 5 different clients",       earned:false,              progress:0, goal:5 },
+      { id:"top_earner",  label:"Top Earner",        desc:"Earn over $1,000 total",                   earned:totalEarned>=1000,  progress:Math.round(totalEarned), goal:1000 },
+      { id:"early_bird",  label:"Early Bird",        desc:"Accept a job within 1 minute of posting",  earned:false,              progress:0, goal:1 },
+      { id:"jack_trades", label:"Jack of All Trades",desc:"Complete jobs in 5+ categories",           earned:categoriesDone>=5,  progress:categoriesDone, goal:5 },
+      { id:"reliable",    label:"Reliable",          desc:"Zero cancellations in 30 days",            earned:false,              progress:0, goal:30 },
       { id:"centurion",   label:"Centurion",         desc:"Complete 100 jobs",                        earned:completedJobs>=100, progress:completedJobs, goal:100 },
-      { id:"superhost",   label:"Superhost",         desc:"Maintain 4.9+ rating for 90 days",        earned:false, progress:65, goal:90 },
-      { id:"marathon",    label:"Marathon",          desc:"Work 50 hours total",                      earned:false, progress:38, goal:50 },
-      { id:"community",   label:"Community Hero",    desc:"Complete 10 volunteer/discounted jobs",    earned:false, progress:3,  goal:10 },
+      { id:"superhost",   label:"Superhost",         desc:"Maintain 4.9+ rating for 90 days",        earned:false,              progress:0, goal:90 },
+      { id:"marathon",    label:"Marathon",          desc:"Work 50 hours total",                      earned:false,              progress:0, goal:50 },
+      { id:"community",   label:"Community Hero",    desc:"Complete 10 volunteer/discounted jobs",    earned:false,              progress:0, goal:10 },
     ];
     const SKILL_CATS = [
-      { id:"lawn", label:"Lawn Care", level:3, jobs:18 },
-      { id:"cleaning", label:"Cleaning", level:2, jobs:12 },
-      { id:"moving", label:"Moving", level:2, jobs:8 },
-      { id:"pets", label:"Pet Care", level:1, jobs:4 },
-      { id:"painting", label:"Painting", level:1, jobs:3 },
-      { id:"errands", label:"Errands", level:1, jobs:5 },
-      { id:"babysitting", label:"Babysitting", level:0, jobs:0 },
-      { id:"tech", label:"Tech Help", level:0, jobs:0 },
-      { id:"windows", label:"Window Washing", level:0, jobs:0 },
-      { id:"cooking", label:"Cooking", level:0, jobs:0 },
+      { id:"lawn",        label:"Lawn Care" },
+      { id:"cleaning",    label:"Cleaning" },
+      { id:"moving",      label:"Moving" },
+      { id:"pets",        label:"Pet Care" },
+      { id:"painting",    label:"Painting" },
+      { id:"errands",     label:"Errands" },
+      { id:"babysitting", label:"Babysitting" },
+      { id:"tech",        label:"Tech Help" },
+      { id:"windows",     label:"Window Washing" },
+      { id:"cooking",     label:"Cooking" },
     ];
-    const levelLabels = ["—","Beginner","Skilled","Expert"];
-    const levelColors = ["transparent",G.blue,G.gold,G.green];
     const earnedCount = BADGES.filter(b=>b.earned).length;
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -2272,7 +2280,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                 <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><BadgeIcon id={b.id} size={30} /></div>
                 <div style={{ fontWeight:700, fontSize:13 }}>{b.label}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2, lineHeight:1.4 }}>{b.desc}</div>
-                <div style={{ fontSize:10, color:G.greenMid, fontWeight:600, marginTop:6 }}>{b.date}</div>
+                <div style={{ fontSize:10, color:G.greenMid, fontWeight:700, marginTop:6 }}>✓ Earned</div>
               </div>
             ))}
           </div>
@@ -2303,14 +2311,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             {SKILL_CATS.filter(s=>selSkills.includes(s.id)).map(s=>(
               <div key={s.id} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
                 <div style={{ flex:1 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                    <div style={{ fontWeight:700, fontSize:14 }}>{s.label}</div>
-                    {s.level>0&&<div style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:6, background:levelColors[s.level]+"22", color:levelColors[s.level] }}>{levelLabels[s.level]}</div>}
-                  </div>
-                  <div style={{ fontSize:12, color:G.muted }}>{s.jobs} jobs completed</div>
-                  {s.level<3&&<div style={{ height:4, background:G.sand, borderRadius:2, marginTop:6, overflow:"hidden" }}>
-                    <div style={{ width:`${Math.min((s.jobs/(s.level===0?5:s.level===1?15:30))*100,100)}%`, height:"100%", background:levelColors[Math.max(s.level,1)], borderRadius:2 }} />
-                  </div>}
+                  <div style={{ fontWeight:700, fontSize:14 }}>{s.label}</div>
+                  <div style={{ fontSize:12, color:G.greenMid, marginTop:2 }}>Active skill</div>
                 </div>
                 <div className="tap" onClick={()=>togSkill(s.id)} style={{ padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, background:G.redLight, color:G.red }}>Remove</div>
               </div>
@@ -2325,23 +2327,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             ))}
           </div>
 
-          {/* Level legend */}
-          <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginTop:20 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Skill Levels</div>
-            {[
-              { level:"Beginner", color:G.blue, req:"5+ jobs in category" },
-              { level:"Skilled", color:G.gold, req:"15+ jobs with 4.5+ avg rating" },
-              { level:"Expert", color:G.green, req:"30+ jobs with 4.8+ avg rating" },
-            ].map(l=>(
-              <div key={l.level} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${G.border}` }}>
-                <div style={{ width:10, height:10, borderRadius:"50%", background:l.color, flexShrink:0 }} />
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:13, color:l.color }}>{l.level}</div>
-                  <div style={{ fontSize:11, color:G.muted }}>{l.req}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+
         </>}
       </div>
     );
@@ -2945,7 +2931,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               )}
 
               <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-                <SettingRow icon="⚡" label="Instant Payout" sub="$0.50 fee per transfer" right={<Toggle on={toggles.instantPayout} onChange={()=>tog("instantPayout")} />} />
                 <SettingRow icon="📅" label="Payout Schedule" sub={`${payoutFreq==="daily"?"Daily":payoutFreq==="monthly"?"Monthly (1st)":payoutFreq==="biweekly"?`Bi-Weekly (${payoutDay})`:`Weekly (${payoutDay})`}`} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} last onClick={()=>setSubPage("payoutSchedule")} />
               </div>
             </>

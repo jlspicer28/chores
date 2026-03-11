@@ -524,6 +524,20 @@ app.post("/api/jobs/:id/cancel", requireAuth, async (req, res) => {
       jobId: req.params.id, relatedUserId: req.user.id,
     });
   }
+
+  // If worker cancels their own accepted job, increment their cancellation count
+  if (cancelledJob?.worker_id === req.user.id) {
+    const thirtyDaysAgo = new Date(Date.now() - 30*24*60*60*1000).toISOString();
+    const { data: recentCancels } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("worker_id", req.user.id)
+      .eq("status", "cancelled")
+      .gte("updated_at", thirtyDaysAgo);
+    await supabase.from("users").update({
+      cancellations_30d: (recentCancels?.length || 0) + 1
+    }).eq("id", req.user.id);
+  }
   res.json({ success: true });
 });
 
@@ -731,11 +745,48 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
 
       await supabase.from("jobs").update({ status: "completed" }).eq("id", escrow.job_id);
 
-      // Update worker stats
-      await supabase.rpc("increment_worker_stats", {
-        worker_id: escrow.worker_id,
-        earned: escrow.worker_gets,
-      });
+      // Update worker stats — fetch current stats first for streak/badge logic
+      const { data: workerStats } = await supabase
+        .from("users")
+        .select("jobs_completed, total_earned, last_job_date, daily_jobs_streak, jobs_today, jobs_today_date, five_star_streak, consecutive_five_star, cancellations_30d, unique_rehire_clients, poster_ids_worked_for")
+        .eq("id", escrow.worker_id).single();
+
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      const lastJobDate = workerStats?.last_job_date?.slice(0, 10);
+
+      // Track jobs completed today (for Speed Demon badge)
+      let jobsToday = (workerStats?.jobs_today_date === todayStr) ? (workerStats?.jobs_today || 0) + 1 : 1;
+
+      // Track unique posters this worker has worked for (for Repeat Favorite)
+      const posterIdsRaw = workerStats?.poster_ids_worked_for || [];
+      const posterIds = Array.isArray(posterIdsRaw) ? posterIdsRaw : [];
+      const newPosterId = String(escrow.poster_id);
+      const updatedPosterIds = posterIds.includes(newPosterId) ? posterIds : [...posterIds, newPosterId];
+      const uniqueRehireClients = updatedPosterIds.length;
+
+      // Fetch the job category for this escrow
+      const { data: escrowJob } = await supabase.from("jobs").select("category, completed_at").eq("id", escrow.job_id).maybeSingle();
+
+      // 5-star streak: check latest review for this worker
+      const { data: recentReviews } = await supabase
+        .from("reviews")
+        .select("rating")
+        .eq("reviewee_id", escrow.worker_id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      const consecutiveFiveStar = recentReviews ? recentReviews.filter(r => r.rating === 5).length : 0;
+
+      await supabase.from("users").update({
+        jobs_completed: (workerStats?.jobs_completed || 0) + 1,
+        total_earned: (workerStats?.total_earned || 0) + escrow.worker_gets,
+        last_job_date: now.toISOString(),
+        jobs_today: jobsToday,
+        jobs_today_date: todayStr,
+        poster_ids_worked_for: updatedPosterIds,
+        unique_rehire_clients: uniqueRehireClients,
+        consecutive_five_star: consecutiveFiveStar,
+      }).eq("id", escrow.worker_id);
 
       // Fetch job title for notifications
       const { data: completedJob } = await supabase.from("jobs").select("title").eq("id", escrow.job_id).maybeSingle();
@@ -983,6 +1034,51 @@ app.post("/api/connect/onboard", requireAuth, async (req, res) => {
 });
 
 // Check connect status
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BADGE STATS — Return all badge-relevant stats for the current user
+app.get("/api/badge-stats", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("users")
+    .select("jobs_completed, total_earned, rating, jobs_today, jobs_today_date, consecutive_five_star, unique_rehire_clients, cancellations_30d, poster_ids_worked_for, skills, created_at")
+    .eq("id", req.user.id).single();
+
+  if (error || !data) return res.json({ error: "Could not fetch badge stats" });
+
+  // Count unique job categories completed by this worker
+  const { data: completedEscrows } = await supabase
+    .from("escrow")
+    .select("job_id")
+    .eq("worker_id", req.user.id)
+    .eq("status", "released");
+
+  let categoriesDone = 0;
+  if (completedEscrows && completedEscrows.length > 0) {
+    const jobIds = completedEscrows.map(e => e.job_id).filter(Boolean);
+    if (jobIds.length > 0) {
+      const { data: jobs } = await supabase.from("jobs").select("category").in("id", jobIds);
+      const cats = [...new Set((jobs || []).map(j => j.category).filter(Boolean))];
+      categoriesDone = cats.length;
+    }
+  }
+
+  // Today's jobs (for Speed Demon)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const jobsToday = data.jobs_today_date === todayStr ? (data.jobs_today || 0) : 0;
+
+  res.json({
+    jobsCompleted: data.jobs_completed || 0,
+    totalEarned: data.total_earned || 0,
+    rating: data.rating || 0,
+    jobsToday,
+    consecutiveFiveStar: data.consecutive_five_star || 0,
+    uniqueRehireClients: data.unique_rehire_clients || 0,
+    cancellations30d: data.cancellations_30d || 0,
+    categoriesDone,
+    skillsCount: Array.isArray(data.skills) ? data.skills.length : 0,
+  });
+});
+
 app.get("/api/connect/status", requireAuth, async (req, res) => {
   const { data: user } = await supabase
     .from("users").select("stripe_connect_id").eq("id", req.user.id).single();
