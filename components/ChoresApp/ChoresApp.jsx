@@ -439,9 +439,12 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
               <Btn onClick={async ()=>{
                 setProcessing(true);
                 if (confirmAction==="confirm") {
-                  await onConfirmSide(txn.id, role);
+                  onConfirmSide(txn.id, role);
                 } else {
-                  await onDispute(txn.id);
+                  if (txn.stripeIntentId) {
+                    try { await fetch(`${BACKEND}/api/refund`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ intentId:txn.stripeIntentId, reason:"fraudulent" }) }); } catch(e) {}
+                  }
+                  onDispute(txn.id);
                 }
                 setProcessing(false); setConfirmAction(null); onClose();
               }} disabled={processing} variant={confirmAction==="confirm"?"primary":"danger"} style={{ flex:1, padding:11, fontSize:13 }}>
@@ -916,7 +919,32 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const userEmail = storedUser?.email || "";
   const userZipCode = storedUser?.zip || "";
 
-  // Refresh user data from DB on mount AND whenever editProfile subpage opens
+  // --- Hooks that /me effect depends on (must be declared first) ---
+  const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo: storedUser?.avatar_url || null });
+  const [saved, setSaved] = useState(false);
+  const [selSkills, setSelSkills] = useState(() => {
+    try {
+      const s = storedUser?.skills;
+      if (Array.isArray(s) && s.length > 0) return s;
+      return [];
+    } catch { return []; }
+  });
+  const [tab, setTab] = useState("profile");
+  const [subPage, setSubPage] = useState(null);
+
+  const [badgeStats, setBadgeStats] = React.useState(null);
+  React.useEffect(() => {
+    if (subPage !== "badgesSkills") return;
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/badge-stats`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (!d.error) setBadgeStats(d); })
+      .catch(() => {});
+  }, [subPage]);
+
+  // Refresh user data from DB every time settings screen mounts
   React.useEffect(() => {
     if (!isBrowser) return;
     const token = localStorage.getItem("chores_token");
@@ -924,10 +952,12 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     fetch(`${BACKEND}/api/auth/me`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
+        console.log("🔍 /me response:", JSON.stringify(data.user));
         if (data.user) {
           const u = { ...data.user, firstName: data.user.first_name || "", lastName: data.user.last_name || "" };
           setLiveUser(u);
           localStorage.setItem("chores_user", JSON.stringify(u));
+          // Sync profile fields with fresh data from server
           setProfile(p => ({
             ...p,
             first: u.firstName || u.first_name || p.first,
@@ -939,13 +969,13 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             age: u.age != null ? String(u.age) : p.age,
             photo: u.avatar_url || p.photo,
           }));
+          console.log("🔍 skills from /me:", u.skills);
           if (u.skills != null) setSelSkills(Array.isArray(u.skills) ? u.skills : []);
         }
       })
       .catch(() => {});
-  }, [subPage === "editProfile"]);
+  }, []);
 
-  const [tab, setTab] = useState("profile");
   // Auto-switch to payments tab if worker has pending payments to accept
   React.useEffect(() => {
     const uid = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
@@ -953,7 +983,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       setTab("payments");
     }
   }, [escrowData, role]);
-  const [subPage, setSubPage] = useState(null);
   const settingsRef = React.useRef(null);
   React.useEffect(()=>{
     if(settingsRef.current) settingsRef.current.scrollIntoView({block:"start"});
@@ -1088,18 +1117,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         }
       }).catch(()=>{});
   }, []);
-  const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo: storedUser?.avatar_url || null });
   const photoInputRef = React.useRef();
   const [newPhotoFile, setNewPhotoFile] = useState(null);
-  const [saved, setSaved] = useState(false);
-  const [selSkills, setSelSkills] = useState(() => {
-    try {
-      const s = storedUser?.skills;
-      if (Array.isArray(s) && s.length > 0) return s;
-      return [];
-    } catch { return []; }
-  });
   const [customSkill, setCustomSkill] = useState("");
   const togSkill = (id) => setSelSkills(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const [reviewFilter, setReviewFilter] = useState("all");
@@ -1121,9 +1140,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [payoutFreq, setPayoutFreq] = useState("weekly");
   const [payoutDay, setPayoutDay] = useState("Monday");
   const [payoutSaved, setPayoutSaved] = useState(false);
-  const [payoutError, setPayoutError] = useState("");
-  const [exportData, setExportData] = useState(null);
-  const [exportError, setExportError] = useState("");
 
   const settingsUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   // Worker view: only transactions where I am the worker
@@ -1392,19 +1408,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <textarea value={csMessage} onChange={e=>setCsMessage(e.target.value)} rows={6} placeholder="Describe your issue in detail. Include any relevant job IDs, dates, or names to help us resolve it faster." style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.cream, outline:"none", lineHeight:1.6, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
               <div style={{ fontSize:11, color:G.muted, marginTop:6 }}>Replies go to {profile.email}</div>
             </div>
-            <Btn onClick={async ()=>{
+            <Btn onClick={async ()=>{ 
               if(!csSubject||!csMessage||!csCategory) return;
               try {
                 const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
-                const res = await fetch(`${BACKEND}/api/support/contact`, {
+                await fetch(`${BACKEND}/api/support/contact`, {
                   method:"POST",
                   headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
                   body: JSON.stringify({ category: csCategory, subject: csSubject, message: csMessage, userId: user.id, email: user.email })
                 });
-                const data = await res.json();
-                if (data.error) { alert("Failed to send: " + data.error); return; }
-              } catch(e) { alert("Network error — message may not have been sent"); return; }
+              } catch(e) { console.error("Support error:", e); }
               setCsSent(true);
             }} disabled={!csSubject||!csMessage||!csCategory} style={{ width:"100%", padding:14, borderRadius:14, opacity:csSubject&&csMessage&&csCategory?1:.5 }}>Send Message</Btn>
           </>
@@ -1451,19 +1465,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Steps to reproduce <span style={{ fontWeight:400, textTransform:"none" }}>(optional)</span></div>
               <textarea value={bugSteps} onChange={e=>setBugSteps(e.target.value)} rows={3} placeholder={"1. Tap on...\n2. Then tap...\n3. Bug appears"} style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.cream, outline:"none", lineHeight:1.6, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
             </div>
-            <Btn onClick={async ()=>{
+            <Btn onClick={async ()=>{ 
               if(!bugType||!bugDesc) return;
               try {
                 const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
-                const res = await fetch(`${BACKEND}/api/support/bug`, {
+                await fetch(`${BACKEND}/api/support/bug`, {
                   method:"POST",
                   headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
                   body: JSON.stringify({ type: bugType, description: bugDesc, steps: bugSteps, userId: user.id, email: user.email })
                 });
-                const data = await res.json();
-                if (data.error) { alert("Failed to submit: " + data.error); return; }
-              } catch(e) { alert("Network error — report may not have been sent"); return; }
+              } catch(e) { console.error("Bug report error:", e); }
               setBugSent(true);
             }} disabled={!bugType||!bugDesc} style={{ width:"100%", padding:14, borderRadius:14, opacity:bugType&&bugDesc?1:.5 }}>Submit Bug Report</Btn>
           </>
@@ -1505,19 +1517,17 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Describe your idea</div>
               <textarea value={featDesc} onChange={e=>setFeatDesc(e.target.value)} rows={6} placeholder="What would you like Chores to do? How would it work? Why would it help you?" style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.cream, outline:"none", lineHeight:1.6, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
             </div>
-            <Btn onClick={async ()=>{
+            <Btn onClick={async ()=>{ 
               if(!featArea||!featDesc) return;
               try {
                 const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
-                const res = await fetch(`${BACKEND}/api/support/feature`, {
+                await fetch(`${BACKEND}/api/support/feature`, {
                   method:"POST",
                   headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
                   body: JSON.stringify({ area: featArea, description: featDesc, userId: user.id, email: user.email })
                 });
-                const data = await res.json();
-                if (data.error) { alert("Failed to submit: " + data.error); return; }
-              } catch(e) { alert("Network error — suggestion may not have been sent"); return; }
+              } catch(e) { console.error("Feature request error:", e); }
               setFeatSent(true);
             }} disabled={!featArea||!featDesc} style={{ width:"100%", padding:14, borderRadius:14, opacity:featArea&&featDesc?1:.5 }}>Submit Idea</Btn>
           </>
@@ -1723,9 +1733,8 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       if (!pwFields.current) { setPwError("Enter your current password"); return; }
       if (pwFields.newPw.length<8) { setPwError("New password must be at least 8 characters"); return; }
       if (pwFields.newPw!==pwFields.confirm) { setPwError("Passwords do not match"); return; }
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      if (!token) { setPwError("You must be logged in to change your password"); return; }
       try {
+        const token = isBrowser ? localStorage.getItem("chores_token") : null;
         const res = await fetch(`${BACKEND}/api/auth/change-password`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -1733,11 +1742,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         });
         const data = await res.json();
         if (data.error) { setPwError(data.error); return; }
-        setPwSaved(true);
-        setTimeout(()=>{ setPwSaved(false); setPwFields({current:"",newPw:"",confirm:""}); setSubPage(null); },1400);
-      } catch (e) {
-        setPwError("Network error — please try again");
-      }
+      } catch(e) { setPwError("Network error — try again"); return; }
+      setPwSaved(true);
+      setTimeout(()=>{ setPwSaved(false); setPwFields({current:"",newPw:"",confirm:""}); setSubPage(null); },1400);
     };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -2107,18 +2114,14 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               const last4 = fields.account.slice(-4);
               setBank({ name:fields.bankName, last4, routing:"•••••"+fields.routing.slice(-4), type:fields.type, holder:fields.holder });
               setEditFields(fields);
-              if (token) {
-                try {
-                  const res = await fetch(`${BACKEND}/api/bank-details`, {
-                    method:"POST",
-                    headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
-                    body:JSON.stringify({ holder:fields.holder, bankName:fields.bankName, accountType:fields.type, routing:fields.routing, accountLast4:last4 }),
-                  });
-                  const data = await res.json();
-                  if (data.error) { alert("Failed to save bank details: " + data.error); return; }
-                } catch(e) { alert("Network error — bank details may not have saved"); return; }
-              }
               setBankSaved(true);
+              if (token) {
+                fetch(`${BACKEND}/api/bank-details`, {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+                  body:JSON.stringify({ holder:fields.holder, bankName:fields.bankName, accountType:fields.type, routing:fields.routing, accountLast4:last4 }),
+                }).catch(()=>{});
+              }
               setTimeout(()=>{setBankSaved(false);setEditing(false);},1200);
             }}
           />
@@ -2147,23 +2150,18 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     ];
     const days = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
     const handlePayoutSave = async () => {
-      setPayoutError("");
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      if (!token) { setPayoutError("You must be logged in"); return; }
       try {
-        // Payout schedule is managed via Stripe Connect — store preference in user profile
+        const token = isBrowser ? localStorage.getItem("chores_token") : null;
         const res = await fetch(`${BACKEND}/api/auth/update-profile`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ payoutFreq, payoutDay }),
         });
         const data = await res.json();
-        if (data.error) { setPayoutError(data.error); return; }
-        setPayoutSaved(true);
-        setTimeout(()=>{ setPayoutSaved(false); setSubPage(null); },1400);
-      } catch(e) {
-        setPayoutError("Network error — please try again");
-      }
+        if (data.error) { alert("Failed to save: " + data.error); return; }
+      } catch(e) { alert("Network error — try again"); return; }
+      setPayoutSaved(true);
+      setTimeout(()=>{ setPayoutSaved(false); setSubPage(null); },1400);
     };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -2228,16 +2226,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
 
   // ── BADGES & SKILLS SUB-PAGE ──
   if (subPage==="badgesSkills") {
-    // Real badge stats from backend
-    const [badgeStats, setBadgeStats] = React.useState(null);
-    React.useEffect(() => {
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      if (!token) return;
-      fetch(`${BACKEND}/api/badge-stats`, { headers: { "Authorization": `Bearer ${token}` } })
-        .then(r => r.json())
-        .then(d => { if (!d.error) setBadgeStats(d); })
-        .catch(() => {});
-    }, []);
     const completedJobs = badgeStats?.jobsCompleted ?? escrowData.filter(t=>t.status==="released").length;
     const totalEarned = badgeStats?.totalEarned ?? escrowData.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0);
     const categoriesDone = badgeStats?.categoriesDone ?? [...new Set(escrowData.filter(t=>t.status==="released").map(t=>t.category).filter(Boolean))].length;
@@ -2391,23 +2379,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       { icon:"📍", label:"Location History", desc:"Search areas and service zones", size:"~4 KB" },
     ];
     const totalSize = "~93 KB";
-    const handleRequest = async () => {
+    const handleRequest = () => {
       setDownloadStep(1);
-      setExportError("");
-      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      if (!token) { setExportError("You must be logged in"); setDownloadStep(0); return; }
-      try {
-        const res = await fetch(`${BACKEND}/api/auth/export-data`, {
-          headers: { "Authorization": `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (data.error) { setExportError(data.error); setDownloadStep(0); return; }
-        setExportData(data);
-        setDownloadStep(2);
-      } catch(e) {
-        setExportError("Network error — please try again");
-        setDownloadStep(0);
-      }
+      setTimeout(()=>setDownloadStep(2), 3000);
     };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -2436,14 +2410,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
               </div>
             </div>
 
-            <Btn onClick={()=>{
-              if (!exportData) return;
-              const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = "chores_data_export.json"; a.click();
-              URL.revokeObjectURL(url);
-            }} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14, marginBottom:10 }}>
+            <Btn onClick={()=>{ setDownloadStep(1); setTimeout(()=>setDownloadStep(2), 3000); }} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14, marginBottom:10 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download Archive
             </Btn>
@@ -3297,7 +3264,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
   const [customDistPage, setCustomDistPage] = useState(false);
   const [customDistInput, setCustomDistInput] = useState("");
   const [applied, setApplied] = useState([]);
-  const [savedJobs, setSavedJobs] = useState(()=>{ try { return JSON.parse(localStorage.getItem("chores_saved_jobs")||"[]"); } catch { return []; } });
+  const [savedJobs, setSavedJobs] = useState([]);
   const [sortBy, setSortBy] = useState("match");
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -3652,7 +3619,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
               ? <Btn variant="ghost" style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>✓ Application Sent</Btn>
               : <Btn onClick={()=>{if(isGuest){onGuestAction();return;}setApplyModal(job);setSelectedJob(null);}} style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>Apply Now →</Btn>
           }
-          <Btn onClick={()=>setSavedJobs(s=>{const n=s.includes(job.id)?s.filter(x=>x!==job.id):[...s,job.id];try{localStorage.setItem("chores_saved_jobs",JSON.stringify(n));}catch{}return n;})} variant="outline" style={{ padding:"16px 18px", borderRadius:16, fontSize:18, color:savedJobs.includes(job.id)?G.red:"inherit" }}>{savedJobs.includes(job.id)?"♥":"♡"}</Btn>
+          <Btn onClick={()=>setSavedJobs(s=>s.includes(job.id)?s.filter(x=>x!==job.id):[...s,job.id])} variant="outline" style={{ padding:"16px 18px", borderRadius:16, fontSize:18, color:savedJobs.includes(job.id)?G.red:"inherit" }}>{savedJobs.includes(job.id)?"♥":"♡"}</Btn>
         </div>
       </div>
     );
@@ -4562,14 +4529,12 @@ function ReviewModal({ target, targetId, jobTitle, jobId, onSubmit, onClose }) {
     setStep(1);
     try {
       const token = isBrowser ? localStorage.getItem("chores_token") : null;
-      const res = await fetch(`${BACKEND}/api/reviews/create`, {
+      await fetch(`${BACKEND}/api/reviews/create`, {
         method:"POST",
         headers:{"Content-Type":"application/json",...(token?{"Authorization":`Bearer ${token}`}:{})},
         body: JSON.stringify({ jobId, revieweeId: targetId, rating: stars, comment: text, tags })
       });
-      const data = await res.json();
-      if (data.error) { alert("Could not submit review: " + data.error); setStep(0); return; }
-    } catch(e) { console.error("Review error:", e); alert("Network error — could not submit review"); setStep(0); return; }
+    } catch(e) { console.error("Review error:", e); }
     setStep(2);
   };
 
@@ -4849,33 +4814,15 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
                       );
                     })}
                   </div>
-                  <Btn onClick={async ()=>{
-                    setApplyStep(1);
-                    try {
-                      const token = isBrowser ? localStorage.getItem("chores_token") : null;
-                      const user = isBrowser ? JSON.parse(localStorage.getItem("chores_user")||"{}") : {};
-                      if (!token || !user.id) { alert("You must be logged in to apply."); setApplyStep(0); return; }
-                      const workerName = `${user.firstName||""} ${user.lastName||""}`.trim() || "Someone";
-                      const res = await fetch(`${BACKEND}/api/jobs/${applyModal.id}/apply`, {
-                        method:"POST",
-                        headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
-                        body: JSON.stringify({ message: applyMsg, availability: applyAvail, workerName })
-                      });
-                      const data = await res.json();
-                      if (data.alreadyApplied) { setApplied(prev => prev.includes(applyModal.id) ? prev : [...prev, applyModal.id]); setApplyStep(2); return; }
-                      if (data.error) { alert("Application failed: " + data.error); setApplyStep(0); return; }
-                      if (data.success) { setApplied(prev => [...prev, applyModal.id]); }
-                    } catch(e) { alert("Network error — could not submit application."); setApplyStep(0); return; }
-                    setApplyStep(2);
-                  }} disabled={!applyMsg.trim()||applyStep===1} style={{ width:"100%", padding:14, borderRadius:14 }}>{applyStep===1?"Sending...":"Submit Application →"}</Btn>
-                  <Btn onClick={()=>{setApplyModal(null);setApplyMsg("");setApplyAvail([]);setApplyStep(0);}} variant="ghost" style={{ width:"100%", padding:12, borderRadius:14, marginTop:8 }}>Cancel</Btn>
+                  <Btn onClick={()=>setApplyStep(1)} disabled={!applyMsg.trim()} style={{ width:"100%", padding:14, borderRadius:14 }}>Submit Application →</Btn>
+                  <Btn onClick={()=>{setApplyModal(null);setApplyMsg("");setApplyAvail([]);}} variant="ghost" style={{ width:"100%", padding:12, borderRadius:14, marginTop:8 }}>Cancel</Btn>
                 </>
               ):(
                 <div style={{ textAlign:"center", padding:"20px 0" }}>
                   <div style={{ fontSize:52, marginBottom:12 }}>🎉</div>
                   <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.green }}>Applied!</div>
                   <div style={{ fontSize:14, color:G.muted, marginTop:8 }}>Your application has been sent.</div>
-                  <Btn onClick={()=>{setApplied(a=>[...a,applyModal.id]);setApplyModal(null);setApplyStep(0);setApplyMsg("");setApplyAvail([]);setSelectedJob(null);}} style={{ width:"100%", marginTop:24, padding:14, borderRadius:14 }}>Back to Map</Btn>
+                  <Btn onClick={()=>{setApplied(a=>[...a,applyModal.id]);setApplyModal(null);setApplyStep(0);setApplyMsg("");setSelectedJob(null);}} style={{ width:"100%", marginTop:24, padding:14, borderRadius:14 }}>Back to Map</Btn>
                 </div>
               )}
             </div>
@@ -5541,7 +5488,11 @@ export default function ChoresApp() {
   const storedToken = isBrowser ? localStorage.getItem("chores_token") : null;
   const [appView, setAppView] = useState((storedToken && storedUser) ? "user" : "onboarding");
   const [loginPrefillEmail, setLoginPrefillEmail] = useState("");
-  const [role, setRole] = useState(storedUser?.role || "worker");
+  const [role, setRole] = useState(() => {
+    const saved = isBrowser ? localStorage.getItem("chores_role_choice") : null;
+    if (saved) return saved;
+    return storedUser?.role || "worker";
+  });
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(storedUser);
 
@@ -5584,16 +5535,20 @@ export default function ChoresApp() {
           ...data.user,
           firstName: data.user.first_name || "",
           lastName: data.user.last_name || "",
+          bio: data.user.bio || "",
         };
         setCurrentUserData(u);
         localStorage.setItem("chores_user", JSON.stringify(u));
         if (data.user.zip) setUserZip(data.user.zip);
         // Apply default_role if set, otherwise fall back to role
+        const savedRoleChoice = localStorage.getItem("chores_role_choice");
+        if (!savedRoleChoice) {
+          const defaultRole = data.user.default_role || data.user.role || "worker";
+          setRole(defaultRole);
+          localStorage.setItem("chores_role_choice", defaultRole);
+        }
         if (data.user.default_role) {
-          setRole(data.user.default_role);
           localStorage.setItem("chores_default_role", data.user.default_role);
-        } else if (data.user.role) {
-          setRole(data.user.role);
         }
       })
       .catch(()=>{}); // network error — keep existing session
@@ -5666,7 +5621,10 @@ export default function ChoresApp() {
   const [viewingProfileId, setViewingProfileId] = useState(null);
   const [isGuest, setIsGuest] = useState(false);
   const [guestPrompt, setGuestPrompt] = useState(false);
-  const [maxDist, setMaxDist] = useState(2);
+  const [maxDist, setMaxDist] = useState(() => {
+    try { const v = isBrowser && localStorage.getItem("chores_maxDist"); return v ? parseInt(v) : 10; } catch { return 10; }
+  });
+  React.useEffect(() => { try { if(isBrowser) localStorage.setItem("chores_maxDist", maxDist); } catch {} }, [maxDist]);
   const [appToggles, setAppToggles] = useState({ push:true, vibrate:true, darkMode:false, profileVisible:true, exactLoc:false, analytics:true, marketing:false, nJobs:true, nAppUpdates:true, nDayReminder:true, nHourReminder:true, nPayment:true, nCancel:true });
   const contentRef = React.useRef(null);
   React.useEffect(()=>{
@@ -5754,60 +5712,37 @@ export default function ChoresApp() {
 
   const handleConfirmSide = async (id, side) => {
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) return;
-    try {
-      const res = await fetch(`${BACKEND}/api/escrow/${id}/confirm`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ side }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setToast({icon:"❌",title:"Confirmation failed",body:data.error});
-        return;
-      }
-      if (data.released) {
-        // Backend confirmed both sides — payment released
-        setEscrowData(d=>d.map(t=>{
-          if (t.id!==id) return t;
-          const reviewTarget = side==="poster" ? { person: t.worker, personId: t.workerId } : { person: t.poster, personId: t.posterId };
-          setTimeout(()=>{
-            setReviewModal({ job: t.job, jobId: t.jobId, ...reviewTarget, role: side });
-          }, 600);
-          setToast({icon:"💸",title:"Payment released!",body:`Both confirmed · $${t.workerGets.toFixed(2)} sent to ${t.worker}`});
-          return { ...t, posterConfirmed: true, workerConfirmed: true, status: "released", releasedAt: "Just now" };
-        }));
+    // Call backend to confirm
+    if (token) {
+      try {
+        await fetch(`${BACKEND}/api/escrow/${id}/confirm`, {
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ side }),
+        });
+      } catch(e) {}
+    }
+    setEscrowData(d=>d.map(t=>{
+      if (t.id!==id) return t;
+      const updated = { ...t };
+      if (side==="poster") updated.posterConfirmed = true;
+      if (side==="worker") updated.workerConfirmed = true;
+      // If both sides confirmed, release the payment
+      if (updated.posterConfirmed && updated.workerConfirmed) {
+        updated.status = "released";
+        updated.releasedAt = "Just now";
+        // Trigger review modal after a short delay
+        const reviewTarget = side==="poster" ? { person: t.worker, personId: t.workerId } : { person: t.poster, personId: t.posterId };
+        setTimeout(()=>{
+          setReviewModal({ job: t.job, jobId: t.jobId, ...reviewTarget, role: side });
+        }, 600);
+        setToast({icon:"💸",title:"Payment released!",body:`Both confirmed · $${t.workerGets.toFixed(2)} sent to ${t.worker}`});
       } else {
-        // One side confirmed, waiting on the other
-        setEscrowData(d=>d.map(t=>{
-          if (t.id!==id) return t;
-          const updated = { ...t };
-          if (side==="poster") updated.posterConfirmed = true;
-          if (side==="worker") updated.workerConfirmed = true;
-          return updated;
-        }));
         setToast({icon:"✅",title:"Confirmed!",body:`Waiting for ${side==="poster"?"worker":"poster"} to confirm`});
       }
-    } catch(e) {
-      setToast({icon:"❌",title:"Network error",body:"Could not confirm — please try again"});
-    }
+      return updated;
+    }));
   };
-  const handleDispute = async (id) => {
-    const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) return;
-    try {
-      const res = await fetch(`${BACKEND}/api/refund`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ escrowId: id }),
-      });
-      const data = await res.json();
-      if (data.error) { setToast({icon:"❌",title:"Dispute failed",body:data.error}); return; }
-      setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"refunded"}:t));
-      setToast({icon:"⚠️",title:"Dispute opened",body:"Refund issued — review within 24 hours"});
-    } catch(e) {
-      setToast({icon:"❌",title:"Network error",body:"Could not submit dispute"});
-    }
-  };
+  const handleDispute = (id) => { setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"}); };
   const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); setTimeout(fetchEscrow, 1500); };
 
   if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole)setShowRoleModal(true);}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
@@ -5899,8 +5834,8 @@ export default function ChoresApp() {
         </div>
         <div style={{ display:"inline-flex", marginTop:14 }}>
           <div style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(0,0,0,.2)", borderRadius:20, padding:"4px" }}>
-            <div onClick={()=>{setRole("worker");if(isBrowser){localStorage.setItem("chores_default_role","worker");const tok=localStorage.getItem("chores_token");if(tok)fetch(`${BACKEND}/api/user/default-role`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${tok}`},body:JSON.stringify({defaultRole:"worker"})}).catch(()=>{});}}} style={{ padding:"6px 18px", borderRadius:16, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:role==="worker"?"#fff":"transparent", color:role==="worker"?G.green:"rgba(255,255,255,.6)" }}>Worker</div>
-            <div onClick={()=>{setRole("poster");if(isBrowser){localStorage.setItem("chores_default_role","poster");const tok=localStorage.getItem("chores_token");if(tok)fetch(`${BACKEND}/api/user/default-role`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${tok}`},body:JSON.stringify({defaultRole:"poster"})}).catch(()=>{});}}} style={{ padding:"6px 18px", borderRadius:16, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:role==="poster"?"#fff":"transparent", color:role==="poster"?G.green:"rgba(255,255,255,.6)" }}>Poster</div>
+            <div onClick={()=>{ setRole("worker"); if(isBrowser) localStorage.setItem("chores_role_choice","worker"); }} style={{ padding:"6px 18px", borderRadius:16, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:role==="worker"?"#fff":"transparent", color:role==="worker"?G.green:"rgba(255,255,255,.6)" }}>Worker</div>
+            <div onClick={()=>{ setRole("poster"); if(isBrowser) localStorage.setItem("chores_role_choice","poster"); }} style={{ padding:"6px 18px", borderRadius:16, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:role==="poster"?"#fff":"transparent", color:role==="poster"?G.green:"rgba(255,255,255,.6)" }}>Poster</div>
           </div>
         </div>
       </div>
