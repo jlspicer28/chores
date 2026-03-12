@@ -351,9 +351,6 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
 
 app.get("/api/ping", (req, res) => res.json({ ok: true }));
 
-// Debug: check what escrow records exist for the current user (remove in production)
-});
-
 app.get("/api/jobs/applied", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.json({ jobIds: [] });
