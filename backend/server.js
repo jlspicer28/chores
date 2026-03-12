@@ -27,10 +27,21 @@ const supabase = createClient(
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use("/api/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "10mb" }));
+const ALLOWED_ORIGINS = [
+  process.env.FRONTEND_URL || "https://choresnearme.com",
+  "https://choresnearme.com",
+  "http://localhost:3000",
+  "http://localhost:3001",
+].filter(Boolean);
+
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Credentials", "true");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
@@ -280,19 +291,80 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
 });
 
 
+// ── Change Password ─────────────────────────────────────────────────────────
+app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.json({ error: "Current and new passwords are required" });
+  if (newPassword.length < 8) return res.json({ error: "New password must be at least 8 characters" });
+
+  try {
+    // Verify current password by attempting to sign in
+    const { data: profile } = await supabase.from("users").select("email").eq("id", req.user.id).single();
+    if (!profile) return res.json({ error: "User not found" });
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: profile.email,
+      password: currentPassword,
+    });
+    if (signInError) return res.json({ error: "Current password is incorrect" });
+
+    // Update password via admin API
+    const { error: updateError } = await supabase.auth.admin.updateUserById(req.user.id, {
+      password: newPassword,
+    });
+    if (updateError) return res.json({ error: updateError.message });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Change password error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+// ── Data Export ──────────────────────────────────────────────────────────────
+app.get("/api/auth/export-data", requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const [
+      { data: profile },
+      { data: jobs },
+      { data: applications },
+      { data: messages },
+      { data: reviews },
+      { data: notifications },
+      { data: escrowRecords },
+    ] = await Promise.all([
+      supabase.from("users").select("id, email, first_name, last_name, phone, zip, role, bio, skills, rating, jobs_completed, total_earned, created_at").eq("id", userId).single(),
+      supabase.from("jobs").select("id, title, description, category, pay, zip, date, duration, status, created_at").eq("poster_id", userId),
+      supabase.from("applications").select("id, job_id, message, availability, status, created_at").eq("worker_id", userId),
+      supabase.from("messages").select("id, sender_id, recipient_id, job_id, type, body, created_at").or(`sender_id.eq.${userId},recipient_id.eq.${userId}`).order("created_at", { ascending: false }).limit(500),
+      supabase.from("reviews").select("id, job_id, reviewer_id, reviewee_id, rating, comment, tags, created_at").or(`reviewer_id.eq.${userId},reviewee_id.eq.${userId}`),
+      supabase.from("notifications").select("id, type, category, title, body, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(500),
+      supabase.from("escrow").select("id, job_id, amount, fee, worker_gets, status, created_at, released_at").or(`poster_id.eq.${userId},worker_id.eq.${userId}`),
+    ]);
+
+    res.json({
+      exportedAt: new Date().toISOString(),
+      profile: profile || {},
+      jobs: jobs || [],
+      applications: applications || [],
+      messages: (messages || []).length,
+      reviewsReceived: (reviews || []).filter(r => r.reviewee_id === userId),
+      reviewsGiven: (reviews || []).filter(r => r.reviewer_id === userId),
+      notifications: (notifications || []).length,
+      escrow: escrowRecords || [],
+    });
+  } catch (err) {
+    console.error("Data export error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // JOBS — Create, list, apply, book
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.get("/api/ping", (req, res) => res.json({ ok: true }));
-
-// Debug: check what escrow records exist for the current user (remove in production)
-app.get("/api/debug/escrow", requireAuth, async (req, res) => {
-  const userId = req.user.id;
-  const { data: allEscrow } = await supabase.from("escrow").select("id, job_id, poster_id, worker_id, status, amount, created_at").order("created_at", { ascending: false }).limit(20);
-  const { data: myJobs } = await supabase.from("jobs").select("id, title, status, worker_id, poster_id").or(`worker_id.eq.${userId},poster_id.eq.${userId}`);
-  res.json({ userId, allEscrow: allEscrow || [], myJobs: myJobs || [] });
-});
 
 app.get("/api/jobs/applied", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -924,11 +996,20 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
 
 app.post("/api/refund", requireAuth, async (req, res) => {
   const { escrowId } = req.body;
+  if (!escrowId) return res.json({ error: "escrowId is required" });
 
   const { data: escrow } = await supabase
     .from("escrow").select("*").eq("id", escrowId).single();
 
   if (!escrow) return res.json({ error: "Escrow not found" });
+
+  // Only poster or worker can request a refund
+  if (escrow.poster_id !== req.user.id && escrow.worker_id !== req.user.id) {
+    return res.json({ error: "Not authorized to refund this escrow" });
+  }
+  if (escrow.status !== "held") {
+    return res.json({ error: "Can only refund escrow that is currently held" });
+  }
 
   try {
     const intent = await stripe.paymentIntents.retrieve(escrow.stripe_intent_id);
@@ -1301,6 +1382,21 @@ app.post("/api/verify/email/check", async (req, res) => {
 app.post("/api/reviews/create", requireAuth, async (req, res) => {
   const { jobId, revieweeId, rating, comment, tags } = req.body;
 
+  if (!jobId || !revieweeId || !rating) return res.json({ error: "jobId, revieweeId, and rating are required" });
+  if (rating < 1 || rating > 5) return res.json({ error: "Rating must be between 1 and 5" });
+
+  // Verify reviewer was part of this job (poster or worker)
+  const { data: job } = await supabase.from("jobs")
+    .select("poster_id, worker_id, status")
+    .eq("id", jobId).maybeSingle();
+  if (!job) return res.json({ error: "Job not found" });
+  if (job.poster_id !== req.user.id && job.worker_id !== req.user.id) {
+    return res.json({ error: "You can only review jobs you participated in" });
+  }
+  if (job.status !== "completed") {
+    return res.json({ error: "You can only review completed jobs" });
+  }
+
   // Prevent duplicate reviews for same job
   const { data: existing } = await supabase.from("reviews")
     .select("id").eq("job_id", jobId).eq("reviewer_id", req.user.id).maybeSingle();
@@ -1452,12 +1548,13 @@ app.get("/api/jobs/:id/applicants", requireAuth, async (req, res) => {
   res.json({ applicants });
 });
 
-app.post("/api/jobs/:id/apply", async (req, res) => {
-  const { message, availability, workerId, workerName } = req.body;
+app.post("/api/jobs/:id/apply", requireAuth, async (req, res) => {
+  const { message, availability, workerName } = req.body;
   const jobId = req.params.id;
+  const workerId = req.user.id;
   console.log("📝 Application:", { jobId, workerId, workerName });
 
-  if (!jobId || !workerId) return res.json({ error: "jobId and workerId are required" });
+  if (!jobId) return res.json({ error: "jobId is required" });
   if (!message) return res.json({ error: "Message is required" });
 
   try {
