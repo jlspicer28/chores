@@ -195,7 +195,7 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   const { firstName, lastName, phone, zip, age, bio, skills } = req.body;
   console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age });
 
-  // Only update fields that were explicitly sent — avoid wiping fields with undefined
+  // Only update fields explicitly sent — never wipe fields with undefined
   const updates = {};
   if (firstName !== undefined) updates.first_name = firstName;
   if (lastName !== undefined) updates.last_name = lastName;
@@ -207,10 +207,7 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
 
   if (Object.keys(updates).length === 0) return res.json({ success: true });
 
-  const { error } = await supabase
-    .from("users")
-    .update(updates)
-    .eq("id", req.user.id);
+  const { error } = await supabase.from("users").update(updates).eq("id", req.user.id);
 
   console.log("📝 update-profile result:", error ? error.message : "success");
   if (error) return res.json({ error: error.message });

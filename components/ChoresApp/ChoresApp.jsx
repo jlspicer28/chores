@@ -922,7 +922,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const userEmail = storedUser?.email || "";
   const userZipCode = storedUser?.zip || "";
 
-  // Refresh user data from DB every time settings screen mounts
+  // Refresh user data from DB on mount AND whenever editProfile subpage opens
   React.useEffect(() => {
     if (!isBrowser) return;
     const token = localStorage.getItem("chores_token");
@@ -930,12 +930,10 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
     fetch(`${BACKEND}/api/auth/me`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
-        console.log("🔍 /me response:", JSON.stringify(data.user));
         if (data.user) {
           const u = { ...data.user, firstName: data.user.first_name || "", lastName: data.user.last_name || "" };
           setLiveUser(u);
           localStorage.setItem("chores_user", JSON.stringify(u));
-          // Sync profile fields with fresh data from server
           setProfile(p => ({
             ...p,
             first: u.firstName || u.first_name || p.first,
@@ -943,16 +941,15 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
             email: u.email || p.email,
             phone: u.phone || p.phone,
             zip: u.zip || p.zip,
-            bio: u.bio != null ? u.bio : p.bio,
+            bio: typeof u.bio === "string" ? u.bio : (p.bio || ""),
             age: u.age != null ? String(u.age) : p.age,
             photo: u.avatar_url || p.photo,
           }));
-          console.log("🔍 skills from /me:", u.skills);
           if (u.skills != null) setSelSkills(Array.isArray(u.skills) ? u.skills : []);
         }
       })
       .catch(() => {});
-  }, []);
+  }, [subPage === "editProfile"]);
 
   const [tab, setTab] = useState("profile");
   // Auto-switch to payments tab if worker has pending payments to accept
@@ -5511,7 +5508,6 @@ export default function ChoresApp() {
           ...data.user,
           firstName: data.user.first_name || "",
           lastName: data.user.last_name || "",
-          bio: data.user.bio || "",
         };
         setCurrentUserData(u);
         localStorage.setItem("chores_user", JSON.stringify(u));
