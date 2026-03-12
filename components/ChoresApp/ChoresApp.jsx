@@ -1121,6 +1121,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
   const [payoutFreq, setPayoutFreq] = useState("weekly");
   const [payoutDay, setPayoutDay] = useState("Monday");
   const [payoutSaved, setPayoutSaved] = useState(false);
+  const [payoutError, setPayoutError] = useState("");
+  const [exportData, setExportData] = useState(null);
+  const [exportError, setExportError] = useState("");
 
   const settingsUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   // Worker view: only transactions where I am the worker
@@ -2143,7 +2146,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       { id:"monthly", label:"Monthly", desc:"1st of each month" },
     ];
     const days = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
-    const [payoutError, setPayoutError] = React.useState("");
     const handlePayoutSave = async () => {
       setPayoutError("");
       const token = isBrowser ? localStorage.getItem("chores_token") : null;
@@ -2389,8 +2391,6 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       { icon:"📍", label:"Location History", desc:"Search areas and service zones", size:"~4 KB" },
     ];
     const totalSize = "~93 KB";
-    const [exportData, setExportData] = React.useState(null);
-    const [exportError, setExportError] = React.useState("");
     const handleRequest = async () => {
       setDownloadStep(1);
       setExportError("");
