@@ -3043,12 +3043,11 @@ function NotifIcon({ type, size=22 }) {
   return <svg style={s} viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap={c}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 }
 
-function NotificationsScreen({ role, onNavigate, onReview }) {
+function NotificationsScreen({ role, onNavigate }) {
   const [notifs, setNotifs] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = useState("all");
   const [selectedNotif, setSelectedNotif] = useState(null);
-  const [localReviewModal, setLocalReviewModal] = useState(null);
   const notifRef = React.useRef(null);
 
   // Fetch from DB on mount + poll every 20s
@@ -3179,31 +3178,13 @@ function NotificationsScreen({ role, onNavigate, onReview }) {
         {/* Action buttons */}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {d.actions.map((action,i)=>{
-            const isLeaveReview = action === "Leave Review";
-            const isSkip = action === "Skip";
             const dest = action.toLowerCase().includes("job")||action.toLowerCase().includes("apply") ? "home"
               : action.toLowerCase().includes("message") ? "messages"
               : action.toLowerCase().includes("receipt")||action.toLowerCase().includes("transaction") ? "profile"
               : action.toLowerCase().includes("map")||action.toLowerCase().includes("direction") ? "map"
               : null;
             return (
-              <Btn key={action} onClick={()=>{
-                if (isLeaveReview) {
-                  const workerName = d.info.find(x=>x.label==="Worker")?.value || n.body || "Worker";
-                  setLocalReviewModal({
-                    person: workerName,
-                    personId: n.related_user_id || null,
-                    job: n.job || n.title || "Job",
-                    jobId: n.job_id || null,
-                  });
-                  setSelectedNotif(null);
-                } else if (isSkip) {
-                  setSelectedNotif(null);
-                } else {
-                  setSelectedNotif(null);
-                  if(dest&&onNavigate) onNavigate(dest);
-                }
-              }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>
+              <Btn key={action} onClick={()=>{ setSelectedNotif(null); if(dest&&onNavigate) onNavigate(dest); }} variant={i===0?"primary":"outline"} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14 }}>{action}</Btn>
             );
           })}
         </div>
@@ -3214,7 +3195,6 @@ function NotificationsScreen({ role, onNavigate, onReview }) {
   }
 
   return (
-    <>
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: G.muted, textTransform: "uppercase", letterSpacing: .8 }}>Inbox</div>
@@ -3252,17 +3232,6 @@ function NotificationsScreen({ role, onNavigate, onReview }) {
         })}
       </div>
     </div>
-    {localReviewModal && (
-      <ReviewModal
-        target={localReviewModal.person}
-        targetId={localReviewModal.personId}
-        jobTitle={localReviewModal.job}
-        jobId={localReviewModal.jobId}
-        onSubmit={()=>{}}
-        onClose={()=>setLocalReviewModal(null)}
-      />
-    )}
-    </>
   );
 }
 
@@ -5542,6 +5511,7 @@ export default function ChoresApp() {
           ...data.user,
           firstName: data.user.first_name || "",
           lastName: data.user.last_name || "",
+          bio: data.user.bio || "",
         };
         setCurrentUserData(u);
         localStorage.setItem("chores_user", JSON.stringify(u));
@@ -5845,7 +5815,7 @@ export default function ChoresApp() {
         {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} onViewProfile={(id)=>setViewingProfileId(id)} escrowData={escrowData} />}
         {view==="myjobs"&&<MyJobsScreen onPostJob={()=>setShowPostJob(true)} onCheckout={(job)=>setCheckoutModal(job)} refreshSignal={lastJobPost} />}
         {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
-        {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} onReview={(data)=>setReviewModal(data)} />}
+        {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
           <MessagesTab
             inboxMessages={inboxMessages}
