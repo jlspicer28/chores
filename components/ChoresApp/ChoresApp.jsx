@@ -439,6 +439,9 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
               <Btn onClick={async ()=>{
                 setProcessing(true);
                 if (confirmAction==="confirm") {
+                  if (txn.stripeIntentId) {
+                    try { await fetch(`${BACKEND}/api/release`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ intentId:txn.stripeIntentId }) }); } catch(e) {}
+                  }
                   onConfirmSide(txn.id, role);
                 } else {
                   if (txn.stripeIntentId) {
@@ -912,7 +915,7 @@ function BankEditForm({ initialFields, onSave, onCancel, bankSaved }) {
   );
 }
 
-function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
+function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, onDispute, onReview, onReviewJob, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
   const [liveUser, setLiveUser] = React.useState(currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })());
   const storedUser = liveUser;
   const fullName = storedUser ? `${storedUser.firstName||storedUser.first_name||""} ${storedUser.lastName||storedUser.last_name||""}`.trim() : "You";
@@ -1728,21 +1731,11 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         </div>
       );
     };
-    const handleSave = async () => {
+    const handleSave = () => {
       setPwError("");
       if (!pwFields.current) { setPwError("Enter your current password"); return; }
       if (pwFields.newPw.length<8) { setPwError("New password must be at least 8 characters"); return; }
       if (pwFields.newPw!==pwFields.confirm) { setPwError("Passwords do not match"); return; }
-      try {
-        const token = isBrowser ? localStorage.getItem("chores_token") : null;
-        const res = await fetch(`${BACKEND}/api/auth/change-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify({ currentPassword: pwFields.current, newPassword: pwFields.newPw }),
-        });
-        const data = await res.json();
-        if (data.error) { setPwError(data.error); return; }
-      } catch(e) { setPwError("Network error — try again"); return; }
       setPwSaved(true);
       setTimeout(()=>{ setPwSaved(false); setPwFields({current:"",newPw:"",confirm:""}); setSubPage(null); },1400);
     };
@@ -2149,17 +2142,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
       { id:"monthly", label:"Monthly", desc:"1st of each month" },
     ];
     const days = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
-    const handlePayoutSave = async () => {
-      try {
-        const token = isBrowser ? localStorage.getItem("chores_token") : null;
-        const res = await fetch(`${BACKEND}/api/auth/update-profile`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify({ payoutFreq, payoutDay }),
-        });
-        const data = await res.json();
-        if (data.error) { alert("Failed to save: " + data.error); return; }
-      } catch(e) { alert("Network error — try again"); return; }
+    const handlePayoutSave = () => {
       setPayoutSaved(true);
       setTimeout(()=>{ setPayoutSaved(false); setSubPage(null); },1400);
     };
@@ -2649,7 +2632,9 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
         ) : filtered.map(r=>(
           <div key={r.id} style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
-              <Avatar name={r.reviewerName} size={40} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />
+              {r.reviewerAvatar
+                ? <img src={r.reviewerAvatar} alt={r.reviewerName} style={{ width:40, height:40, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+                : <Avatar name={r.reviewerName} size={40} bg={`linear-gradient(135deg,${G.green},${G.greenLight})`} />}
               <div style={{ flex:1 }}>
                 <div style={{ fontWeight:700, fontSize:14 }}>{r.reviewerName}</div>
                 <div style={{ fontSize:11, color:G.muted }}>{r.jobTitle}</div>
@@ -2738,7 +2723,7 @@ function SettingsScreen({ role, escrowData, onConfirmSide, onDispute, onReview, 
                     <div style={{ fontWeight:600, fontSize:13 }}>{j.title}</div>
                     <div style={{ fontSize:11, color:G.muted }}>{j.person} · ${j.pay} · {j.date}</div>
                   </div>
-                  <div className="tap" onClick={()=>onReview({job:j.title,person:j.person})} style={{ padding:"6px 14px", borderRadius:10, background:`linear-gradient(135deg,${G.green},${G.greenLight})`, color:"#fff", fontSize:11, fontWeight:700 }}>Rate</div>
+                  <div className="tap" onClick={()=>(typeof onReviewJob==="function"?onReviewJob:onReview)({job:j.title, person:j.person, personId:j.personId, jobId:j.jobId})} style={{ padding:"6px 14px", borderRadius:10, background:`linear-gradient(135deg,${G.green},${G.greenLight})`, color:"#fff", fontSize:11, fontWeight:700 }}>Rate</div>
                 </div>
               ))}
             </div>
@@ -4513,7 +4498,15 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Reviews and completed jobs loaded live from backend
 const MY_REVIEWS = [];
-const COMPLETED_JOBS = [];
+const COMPLETED_JOBS = escrowData
+  .filter(t => t.status === "released")
+  .map(t => ({
+    title: t.job,
+    person: role === "poster" ? t.worker : t.poster,
+    personId: role === "poster" ? t.workerId : t.posterId,
+    jobId: t.jobId,
+    reviewed: reviewedJobIds.includes(t.jobId),
+  }));
 
 const REVIEW_TAGS = ["punctual","thorough","friendly","reliable","skilled","hardworking","communicative","careful","kind","efficient","detail-oriented","professional"];
 
@@ -5372,20 +5365,22 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
 
 function PublicProfileScreen({ userId, onBack }) {
   const [user, setUser] = React.useState(null);
+  const [publicReviews, setPublicReviews] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    fetch(`${BACKEND}/api/users/${userId}/profile`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) { setError(data.error); setLoading(false); return; }
-        setUser(data.user);
-        setLoading(false);
-      })
-      .catch(() => { setError("Could not load profile."); setLoading(false); });
+    Promise.all([
+      fetch(`${BACKEND}/api/users/${userId}/profile`).then(r => r.json()),
+      fetch(`${BACKEND}/api/reviews/user/${userId}`).then(r => r.json()),
+    ]).then(([profileData, reviewData]) => {
+      if (profileData.error) { setError(profileData.error); setLoading(false); return; }
+      setUser(profileData.user);
+      setPublicReviews(reviewData.reviews || []);
+      setLoading(false);
+    }).catch(() => { setError("Could not load profile."); setLoading(false); });
   }, [userId]);
 
   const CATEGORY_LABELS = { lawn:"Lawn & Garden", cleaning:"Cleaning", petcare:"Pet Care", windows:"Windows", babysitting:"Babysitting", moving:"Moving", painting:"Painting", errands:"Errands", other:"Other" };
@@ -5468,6 +5463,52 @@ function PublicProfileScreen({ userId, onBack }) {
               </div>
             </div>
           )}
+
+          {/* Reviews */}
+          <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8 }}>Reviews</div>
+              {publicReviews.length > 0 && (
+                <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:13, fontWeight:700, color:G.text }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#F59E0B" stroke="#F59E0B" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  {(publicReviews.reduce((s,r)=>s+r.rating,0)/publicReviews.length).toFixed(1)}
+                  <span style={{ fontWeight:400, color:G.muted, fontSize:12 }}>({publicReviews.length})</span>
+                </div>
+              )}
+            </div>
+            {publicReviews.length === 0 ? (
+              <div style={{ fontSize:13, color:G.muted, textAlign:"center", padding:"10px 0" }}>No reviews yet</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                {publicReviews.map(r => (
+                  <div key={r.id} style={{ borderBottom:`1px solid ${G.border}`, paddingBottom:12 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                      <div style={{ width:34, height:34, borderRadius:"50%", background:`linear-gradient(135deg,${G.green},${G.greenLight})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700, color:"#fff", flexShrink:0 }}>
+                        {r.reviewerName?.[0]?.toUpperCase() || "?"}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700, fontSize:13 }}>{r.reviewerName}</div>
+                        <div style={{ fontSize:11, color:G.muted }}>{r.jobTitle && `${r.jobTitle} · `}{new Date(r.createdAt).toLocaleDateString("en-US",{month:"short",year:"numeric"})}</div>
+                      </div>
+                      <div style={{ display:"flex", gap:2 }}>
+                        {[1,2,3,4,5].map(s=>(
+                          <svg key={s} width="12" height="12" viewBox="0 0 24 24" fill={s<=r.rating?"#F59E0B":"none"} stroke="#F59E0B" strokeWidth="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        ))}
+                      </div>
+                    </div>
+                    {r.comment && <div style={{ fontSize:13, color:G.text, lineHeight:1.5, marginLeft:44 }}>{r.comment}</div>}
+                    {r.tags?.length > 0 && (
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:6, marginLeft:44 }}>
+                        {r.tags.map(t=>(
+                          <span key={t} style={{ padding:"3px 8px", borderRadius:8, fontSize:10, fontWeight:600, background:G.greenPale, color:G.green, textTransform:"capitalize" }}>{t}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Member since */}
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>
@@ -5618,6 +5659,7 @@ export default function ChoresApp() {
   const [escrowModal, setEscrowModal] = useState(null);
   const [checkoutModal, setCheckoutModal] = useState(null);
   const [reviewModal, setReviewModal] = useState(null); // {job, person, role:"worker"|"poster"}
+  const [reviewedJobIds, setReviewedJobIds] = useState([]);
   const [viewingProfileId, setViewingProfileId] = useState(null);
   const [isGuest, setIsGuest] = useState(false);
   const [guestPrompt, setGuestPrompt] = useState(false);
@@ -5658,6 +5700,9 @@ export default function ChoresApp() {
         if (data.transactions) {
           setEscrowData(data.transactions);
           try { localStorage.setItem("chores_escrow", JSON.stringify(data.transactions)); } catch {}
+        }
+        if (data.reviewedJobIds) {
+          setReviewedJobIds(data.reviewedJobIds);
         }
       })
       .catch(() => {});
@@ -5730,13 +5775,18 @@ export default function ChoresApp() {
       if (updated.posterConfirmed && updated.workerConfirmed) {
         updated.status = "released";
         updated.releasedAt = "Just now";
-        // Trigger review modal after a short delay
+        // Trigger review modal after a short delay for whoever just confirmed
         const reviewTarget = side==="poster" ? { person: t.worker, personId: t.workerId } : { person: t.poster, personId: t.posterId };
         setTimeout(()=>{
           setReviewModal({ job: t.job, jobId: t.jobId, ...reviewTarget, role: side });
         }, 600);
         setToast({icon:"💸",title:"Payment released!",body:`Both confirmed · $${t.workerGets.toFixed(2)} sent to ${t.worker}`});
       } else {
+        // Still prompt for review — the other side already confirmed, this job is functionally done
+        const reviewTarget = side==="poster" ? { person: t.worker, personId: t.workerId } : { person: t.poster, personId: t.posterId };
+        setTimeout(()=>{
+          setReviewModal({ job: t.job, jobId: t.jobId, ...reviewTarget, role: side });
+        }, 800);
         setToast({icon:"✅",title:"Confirmed!",body:`Waiting for ${side==="poster"?"worker":"poster"} to confirm`});
       }
       return updated;
@@ -5855,7 +5905,7 @@ export default function ChoresApp() {
             role={role}
           />
         )}
-        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
+        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} reviewedJobIds={reviewedJobIds} onReviewJob={(j)=>setReviewModal(j)} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
 
       {/* POST JOB MODAL */}

@@ -57,47 +57,6 @@ async function zipToCoords(zip) {
   } catch { return null; }
 }
 
-// ── Change Password ──────────────────────────────────────────────────────────
-app.post("/api/auth/change-password", requireAuth, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) return res.json({ error: "Missing fields" });
-  if (newPassword.length < 8) return res.json({ error: "Password must be at least 8 characters" });
-
-  // Verify current password via Supabase sign-in
-  const { data: user } = await supabase.from("users").select("email").eq("id", req.user.id).single();
-  if (!user) return res.json({ error: "User not found" });
-
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: user.email,
-    password: currentPassword,
-  });
-  if (signInError) return res.json({ error: "Current password is incorrect" });
-
-  const { error } = await supabase.auth.admin.updateUserById(req.user.id, { password: newPassword });
-  if (error) return res.json({ error: error.message });
-  res.json({ success: true });
-});
-
-// ── Export User Data ─────────────────────────────────────────────────────────
-app.get("/api/auth/export-data", requireAuth, async (req, res) => {
-  const uid = req.user.id;
-  const [profile, jobs, applications, reviews, escrow] = await Promise.all([
-    supabase.from("users").select("*").eq("id", uid).single(),
-    supabase.from("jobs").select("*").eq("poster_id", uid),
-    supabase.from("applications").select("*").eq("worker_id", uid),
-    supabase.from("reviews").select("*").eq("reviewer_id", uid),
-    supabase.from("escrow").select("*").or(`poster_id.eq.${uid},worker_id.eq.${uid}`),
-  ]);
-  res.json({
-    profile: profile.data,
-    jobs: jobs.data || [],
-    applications: applications.data || [],
-    reviews: reviews.data || [],
-    escrow: escrow.data || [],
-    exportedAt: new Date().toISOString(),
-  });
-});
-
 // ── Auth middleware — verifies Supabase JWT on protected routes ───────────────
 async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
@@ -255,7 +214,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
-  const { firstName, lastName, phone, zip, age, bio, skills, payoutFreq, payoutDay } = req.body;
+  const { firstName, lastName, phone, zip, age, bio, skills } = req.body;
   console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age });
 
   // Only update fields explicitly provided — never wipe other fields with undefined
@@ -267,8 +226,6 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   if (age !== undefined) updates.age = age ? parseInt(age) : null;
   if (bio !== undefined) updates.bio = (bio && bio.trim()) ? bio.trim() : null;
   if (skills !== undefined) updates.skills = skills || [];
-  if (payoutFreq !== undefined) updates.payout_freq = payoutFreq;
-  if (payoutDay !== undefined) updates.payout_day = payoutDay;
 
   if (Object.keys(updates).length === 0) return res.json({ success: true });
 
@@ -350,6 +307,14 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.get("/api/ping", (req, res) => res.json({ ok: true }));
+
+// Debug: check what escrow records exist for the current user (remove in production)
+app.get("/api/debug/escrow", requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const { data: allEscrow } = await supabase.from("escrow").select("id, job_id, poster_id, worker_id, status, amount, created_at").order("created_at", { ascending: false }).limit(20);
+  const { data: myJobs } = await supabase.from("jobs").select("id, title, status, worker_id, poster_id").or(`worker_id.eq.${userId},poster_id.eq.${userId}`);
+  res.json({ userId, allEscrow: allEscrow || [], myJobs: myJobs || [] });
+});
 
 app.get("/api/jobs/applied", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -770,7 +735,17 @@ app.get("/api/escrow", requireAuth, async (req, res) => {
   });
 
   const transactions = [...(direct || []), ...extra].map(mapTxn);
-  res.json({ transactions });
+
+  // Include set of job IDs already reviewed by this user so frontend can suppress duplicate prompts
+  const jobIds = transactions.map(t => t.jobId).filter(Boolean);
+  let reviewedJobIds = [];
+  if (jobIds.length > 0) {
+    const { data: myReviews } = await supabase
+      .from("reviews").select("job_id").eq("reviewer_id", userId).in("job_id", jobIds);
+    reviewedJobIds = (myReviews || []).map(r => r.job_id);
+  }
+
+  res.json({ transactions, reviewedJobIds });
 });
 
 app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
@@ -1391,14 +1366,36 @@ app.post("/api/reviews/create", requireAuth, async (req, res) => {
 
   if (error) return res.json({ error: error.message });
 
-  // Recalculate reviewee's average rating
-  const { data: reviews } = await supabase
+  // Recalculate reviewee's average rating (mean of ALL reviews)
+  const { data: allRevs } = await supabase
     .from("reviews").select("rating").eq("reviewee_id", revieweeId);
-
-  const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
-  await supabase.from("users").update({ rating: Math.round(avg * 10) / 10 }).eq("id", revieweeId);
+  if (allRevs && allRevs.length > 0) {
+    const avg = allRevs.reduce((s, r) => s + r.rating, 0) / allRevs.length;
+    await supabase.from("users").update({ rating: Math.round(avg * 10) / 10 }).eq("id", revieweeId);
+  }
 
   res.json({ success: true });
+});
+
+// Get reviews for any user (public)
+app.get("/api/reviews/user/:id", async (req, res) => {
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("*, reviewer:users!reviewer_id(first_name, last_name, avatar_url), job:jobs(title)")
+    .eq("reviewee_id", req.params.id)
+    .order("created_at", { ascending: false });
+  if (error) return res.json({ error: error.message });
+  const reviews = (data || []).map(r => ({
+    id: r.id,
+    rating: r.rating,
+    comment: r.comment || "",
+    tags: r.tags || [],
+    createdAt: r.created_at,
+    jobTitle: r.job?.title || "",
+    reviewerName: r.reviewer ? `${r.reviewer.first_name} ${r.reviewer.last_name}`.trim() : "Anonymous",
+    reviewerAvatar: r.reviewer?.avatar_url || null,
+  }));
+  res.json({ reviews });
 });
 
 // Get reviews about the current user (received reviews)
@@ -1527,10 +1524,8 @@ app.get("/api/jobs/:id/applicants", requireAuth, async (req, res) => {
   res.json({ applicants });
 });
 
-app.post("/api/jobs/:id/apply", requireAuth, async (req, res) => {
+app.post("/api/jobs/:id/apply", async (req, res) => {
   const { message, availability, workerId, workerName } = req.body;
-  // Use authenticated user ID if not explicitly passed
-  const resolvedWorkerId = workerId || req.user.id;
   const jobId = req.params.id;
   console.log("📝 Application:", { jobId, workerId, workerName });
 
