@@ -915,7 +915,7 @@ function BankEditForm({ initialFields, onSave, onCancel, bankSaved }) {
   );
 }
 
-function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, onDispute, onReview, onReviewJob, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
+function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide, onDispute, onReview, onReviewJob, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
   const [liveUser, setLiveUser] = React.useState(currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })());
   const storedUser = liveUser;
   const fullName = storedUser ? `${storedUser.firstName||storedUser.first_name||""} ${storedUser.lastName||storedUser.last_name||""}`.trim() : "You";
@@ -938,7 +938,7 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
 
   const [badgeStats, setBadgeStats] = React.useState(null);
   React.useEffect(() => {
-    if (subPage !== "badgesSkills") return;
+    if (subPage !== "badgesSkills" && subPage !== "badgesOnly") return;
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
     if (!token) return;
     fetch(`${BACKEND}/api/badge-stats`, { headers: { "Authorization": `Bearer ${token}` } })
@@ -1123,6 +1123,55 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
   const photoInputRef = React.useRef();
   const [newPhotoFile, setNewPhotoFile] = useState(null);
   const [customSkill, setCustomSkill] = useState("");
+  const [newCustomSkill, setNewCustomSkill] = useState("");
+  const [skillsSaving, setSkillsSaving] = useState(false);
+  const [skillsSaved, setSkillsSaved] = useState(false);
+  const saveSkillsToBackend = useCallback(async (updatedSkills) => {
+    setSkillsSaving(true);
+    try {
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      if (token) {
+        await fetch(`${BACKEND}/api/auth/update-profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ skills: updatedSkills }),
+        });
+      }
+      if (isBrowser) {
+        const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
+        localStorage.setItem("chores_user", JSON.stringify({ ...existing, skills: updatedSkills }));
+      }
+      setSkillsSaved(true);
+      setTimeout(()=>setSkillsSaved(false), 1500);
+    } catch(e) { console.error("Save skills error:", e); }
+    setSkillsSaving(false);
+  }, []);
+  const togSkillAndSave = useCallback((id) => {
+    setSelSkills(s => {
+      const updated = s.includes(id) ? s.filter(x=>x!==id) : [...s,id];
+      saveSkillsToBackend(updated);
+      return updated;
+    });
+  }, [saveSkillsToBackend]);
+  const addCustomSkillAndSave = useCallback(() => {
+    const trimmed = newCustomSkill.trim();
+    if (!trimmed) return;
+    const skillId = `custom:${trimmed}`;
+    setSelSkills(s => {
+      if (s.includes(skillId)) return s;
+      const updated = [...s, skillId];
+      saveSkillsToBackend(updated);
+      return updated;
+    });
+    setNewCustomSkill("");
+  }, [newCustomSkill, saveSkillsToBackend]);
+  const removeSkillAndSave = useCallback((id) => {
+    setSelSkills(s => {
+      const updated = s.filter(x=>x!==id);
+      saveSkillsToBackend(updated);
+      return updated;
+    });
+  }, [saveSkillsToBackend]);
   const togSkill = (id) => setSelSkills(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const [reviewFilter, setReviewFilter] = useState("all");
   const [myReviews, setMyReviews] = useState([]);
@@ -1280,17 +1329,35 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
                   try {
                     // Upload new photo if selected
                     if (newPhotoFile) {
-                      if (newPhotoFile.size > 5 * 1024 * 1024) { alert("Photo must be under 5MB."); return; }
-                      const base64 = await new Promise(resolve => {
+                      if (newPhotoFile.size > 15 * 1024 * 1024) { alert("Photo must be under 15MB."); return; }
+                      // Compress image client-side: resize to max 600px and convert to JPEG
+                      const base64 = await new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.onload = () => {
+                          const maxDim = 600;
+                          let w = img.width, h = img.height;
+                          if (w > maxDim || h > maxDim) {
+                            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                            else { w = Math.round(w * maxDim / h); h = maxDim; }
+                          }
+                          const canvas = document.createElement("canvas");
+                          canvas.width = w; canvas.height = h;
+                          const ctx = canvas.getContext("2d");
+                          ctx.drawImage(img, 0, 0, w, h);
+                          resolve(canvas.toDataURL("image/jpeg", 0.85));
+                        };
+                        img.onerror = () => reject(new Error("Could not load image"));
                         const r = new FileReader();
-                        r.onload = e => resolve(e.target.result);
+                        r.onload = e => { img.src = e.target.result; };
                         r.readAsDataURL(newPhotoFile);
                       });
                       const uploadRes = await fetch(`${BACKEND}/api/auth/upload-avatar`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                        body: JSON.stringify({ base64, mimeType: newPhotoFile.type }),
+                        body: JSON.stringify({ base64, mimeType: "image/jpeg" }),
                       }).then(r => r.json());
+                      console.log("📸 Avatar upload response:", uploadRes);
+                      if (uploadRes.error) { alert("Photo upload failed: " + uploadRes.error); return; }
                       if (uploadRes.avatarUrl) {
                         setProfile(p => ({ ...p, photo: uploadRes.avatarUrl }));
                         setNewPhotoFile(null);
@@ -2207,8 +2274,8 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
     );
   }
 
-  // ── BADGES & SKILLS SUB-PAGE ──
-  if (subPage==="badgesSkills") {
+  // ── BADGES SUB-PAGE ──
+  if (subPage==="badgesOnly" || subPage==="badgesSkills") {
     const completedJobs = badgeStats?.jobsCompleted ?? escrowData.filter(t=>t.status==="released").length;
     const totalEarned = badgeStats?.totalEarned ?? escrowData.filter(t=>t.status==="released").reduce((s,t)=>s+t.workerGets,0);
     const categoriesDone = badgeStats?.categoriesDone ?? [...new Set(escrowData.filter(t=>t.status==="released").map(t=>t.category).filter(Boolean))].length;
@@ -2251,6 +2318,61 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
       { id:"marathon",    label:"Marathon",          desc:"Complete 50 jobs total",                   earned:completedJobs>=50,                          progress:Math.min(completedJobs,50),     goal:50 },
       { id:"community",   label:"Community Hero",    desc:"Complete 10+ jobs in your neighborhood",   earned:completedJobs>=10,                          progress:Math.min(completedJobs,10),     goal:10 },
     ];
+    const earnedCount = BADGES.filter(b=>b.earned).length;
+    return (
+      <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+          <div className="tap" onClick={()=>setSubPage(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Badges</div>
+        </div>
+
+        {/* Summary */}
+        <div style={{ background:G.white, borderRadius:18, padding:18, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16, textAlign:"center" }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:800, color:G.greenMid }}>{earnedCount}</div>
+          <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>of {BADGES.length} badges earned</div>
+          <div style={{ height:6, background:G.sand, borderRadius:3, marginTop:12, overflow:"hidden" }}>
+            <div style={{ width:`${(earnedCount/BADGES.length)*100}%`, height:"100%", background:`linear-gradient(90deg,${G.green},${G.greenLight})`, borderRadius:3 }} />
+          </div>
+        </div>
+
+        {/* Earned badges */}
+        {BADGES.filter(b=>b.earned).length > 0 && <>
+          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Earned</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+            {BADGES.filter(b=>b.earned).map(b=>(
+              <div key={b.id} style={{ background:G.white, borderRadius:16, padding:14, boxShadow:"0 2px 10px rgba(0,0,0,.06)", textAlign:"center" }}>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><BadgeIcon id={b.id} size={30} /></div>
+                <div style={{ fontWeight:700, fontSize:13 }}>{b.label}</div>
+                <div style={{ fontSize:11, color:G.muted, marginTop:2, lineHeight:1.4 }}>{b.desc}</div>
+                <div style={{ fontSize:10, color:G.greenMid, fontWeight:700, marginTop:6 }}>✓ Earned</div>
+              </div>
+            ))}
+          </div>
+        </>}
+
+        {/* Locked badges */}
+        <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>In Progress</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {BADGES.filter(b=>!b.earned).map(b=>(
+            <div key={b.id} style={{ background:G.white, borderRadius:16, padding:14, boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ width:48, height:48, borderRadius:14, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><BadgeIcon id={b.id} size={24} dim /></div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:13, color:G.text }}>{b.label}</div>
+                <div style={{ fontSize:11, color:G.muted, marginTop:1 }}>{b.desc}</div>
+                <div style={{ height:5, background:G.sand, borderRadius:3, marginTop:8, overflow:"hidden" }}>
+                  <div style={{ width:`${(b.progress/b.goal)*100}%`, height:"100%", background:G.greenLight, borderRadius:3, transition:"width .4s" }} />
+                </div>
+                <div style={{ fontSize:10, color:G.muted, marginTop:3 }}>{b.progress} / {b.goal}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── SKILLS SUB-PAGE ──
+  if (subPage==="skillsOnly") {
     const SKILL_CATS = [
       { id:"lawn",        label:"Lawn Care" },
       { id:"cleaning",    label:"Cleaning" },
@@ -2263,88 +2385,62 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
       { id:"windows",     label:"Window Washing" },
       { id:"cooking",     label:"Cooking" },
     ];
-    const earnedCount = BADGES.filter(b=>b.earned).length;
+    const presetIds = SKILL_CATS.map(s=>s.id);
+    const customSkills = selSkills.filter(s => s.startsWith("custom:"));
+    const activePresets = selSkills.filter(s => presetIds.includes(s));
+    const allActive = [...activePresets.map(id => { const cat = SKILL_CATS.find(c=>c.id===id); return { id, label: cat?.label || id }; }), ...customSkills.map(s => ({ id: s, label: s.replace("custom:","") }))];
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
         <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
           <div className="tap" onClick={()=>setSubPage(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Badges & Skills</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Skills</div>
+          {skillsSaved && <div className="fade" style={{ fontSize:12, fontWeight:700, color:G.greenMid, display:"flex", alignItems:"center", gap:4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Saved
+          </div>}
         </div>
 
-        {/* Tab toggle */}
-        <div style={{ display:"flex", background:G.sand, borderRadius:12, padding:3, marginBottom:16 }}>
-          {[{id:"badges",label:"Badges"},{id:"skills",label:"Skills"}].map(t=>(
-            <div key={t.id} className="tap" onClick={()=>setBadgeTab(t.id)} style={{ flex:1, padding:"10px 0", textAlign:"center", borderRadius:10, fontSize:13, fontWeight:700, background:badgeTab===t.id?G.white:"transparent", color:badgeTab===t.id?G.green:G.muted, boxShadow:badgeTab===t.id?"0 2px 8px rgba(0,0,0,.08)":"none", transition:"all .2s" }}>{t.label}</div>
-          ))}
-        </div>
-
-        {badgeTab==="badges" && <>
-          {/* Summary */}
-          <div style={{ background:G.white, borderRadius:18, padding:18, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16, textAlign:"center" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:800, color:G.greenMid }}>{earnedCount}</div>
-            <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>of {BADGES.length} badges earned</div>
-            <div style={{ height:6, background:G.sand, borderRadius:3, marginTop:12, overflow:"hidden" }}>
-              <div style={{ width:`${(earnedCount/BADGES.length)*100}%`, height:"100%", background:`linear-gradient(90deg,${G.green},${G.greenLight})`, borderRadius:3 }} />
-            </div>
-          </div>
-
-          {/* Earned badges */}
-          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Earned</div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-            {BADGES.filter(b=>b.earned).map(b=>(
-              <div key={b.id} style={{ background:G.white, borderRadius:16, padding:14, boxShadow:"0 2px 10px rgba(0,0,0,.06)", textAlign:"center" }}>
-                <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><BadgeIcon id={b.id} size={30} /></div>
-                <div style={{ fontWeight:700, fontSize:13 }}>{b.label}</div>
-                <div style={{ fontSize:11, color:G.muted, marginTop:2, lineHeight:1.4 }}>{b.desc}</div>
-                <div style={{ fontSize:10, color:G.greenMid, fontWeight:700, marginTop:6 }}>✓ Earned</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Locked badges */}
-          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>In Progress</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {BADGES.filter(b=>!b.earned).map(b=>(
-              <div key={b.id} style={{ background:G.white, borderRadius:16, padding:14, boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
-                <div style={{ width:48, height:48, borderRadius:14, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><BadgeIcon id={b.id} size={24} dim /></div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:13, color:G.text }}>{b.label}</div>
-                  <div style={{ fontSize:11, color:G.muted, marginTop:1 }}>{b.desc}</div>
-                  <div style={{ height:5, background:G.sand, borderRadius:3, marginTop:8, overflow:"hidden" }}>
-                    <div style={{ width:`${(b.progress/b.goal)*100}%`, height:"100%", background:G.greenLight, borderRadius:3, transition:"width .4s" }} />
-                  </div>
-                  <div style={{ fontSize:10, color:G.muted, marginTop:3 }}>{b.progress} / {b.goal}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>}
-
-        {badgeTab==="skills" && <>
-          {/* Active skills */}
-          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Your Skills</div>
+        {/* Active skills */}
+        <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Your Skills</div>
+        {allActive.length === 0 ? (
+          <div style={{ background:G.white, borderRadius:16, padding:"20px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", textAlign:"center", color:G.muted, fontSize:13, marginBottom:20 }}>No skills added yet — select from below or add your own</div>
+        ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
-            {SKILL_CATS.filter(s=>selSkills.includes(s.id)).map(s=>(
+            {allActive.map(s=>(
               <div key={s.id} style={{ background:G.white, borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:700, fontSize:14 }}>{s.label}</div>
-                  <div style={{ fontSize:12, color:G.greenMid, marginTop:2 }}>Active skill</div>
+                  <div style={{ fontSize:12, color:G.greenMid, marginTop:2 }}>{s.id.startsWith("custom:") ? "Custom skill" : "Active skill"}</div>
                 </div>
-                <div className="tap" onClick={()=>togSkill(s.id)} style={{ padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, background:G.redLight, color:G.red }}>Remove</div>
+                <div className="tap" onClick={()=>removeSkillAndSave(s.id)} style={{ padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, background:G.redLight, color:G.red }}>Remove</div>
               </div>
             ))}
           </div>
+        )}
 
-          {/* Available skills */}
-          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Add Skills</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-            {SKILL_CATS.filter(s=>!selSkills.includes(s.id)).map(s=>(
-              <div key={s.id} className="tap" onClick={()=>togSkill(s.id)} style={{ padding:"8px 16px", borderRadius:12, fontSize:13, fontWeight:600, background:G.white, color:G.text, border:`1.5px solid ${G.border}`, boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>+ {s.label}</div>
-            ))}
+        {/* Available preset skills */}
+        <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Add Skills</div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:20 }}>
+          {SKILL_CATS.filter(s=>!selSkills.includes(s.id)).map(s=>(
+            <div key={s.id} className="tap" onClick={()=>togSkillAndSave(s.id)} style={{ padding:"8px 16px", borderRadius:12, fontSize:13, fontWeight:600, background:G.white, color:G.text, border:`1.5px solid ${G.border}`, boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>+ {s.label}</div>
+          ))}
+        </div>
+
+        {/* Add custom "Other" skill */}
+        <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Other</div>
+        <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:13, color:G.muted, marginBottom:10 }}>Have a skill not listed above? Add it here.</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input
+              value={newCustomSkill}
+              onChange={e=>setNewCustomSkill(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") addCustomSkillAndSave(); }}
+              placeholder="e.g. Tile installation, Piano lessons..."
+              style={{ flex:1, padding:"11px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:13, background:G.cream, boxSizing:"border-box", outline:"none" }}
+            />
+            <Btn onClick={addCustomSkillAndSave} disabled={!newCustomSkill.trim() || skillsSaving} style={{ padding:"10px 18px", borderRadius:12, fontSize:13, flexShrink:0 }}>Add</Btn>
           </div>
-
-
-        </>}
+        </div>
       </div>
     );
   }
@@ -2754,9 +2850,8 @@ function SettingsScreen({ role, escrowData, reviewedJobIds=[], onConfirmSide, on
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-            {[{icon:"🏆",label:"Badges & Skills",sub:"Track your achievements",last:true}].map(r=>(
-              <SettingRow key={r.label} icon={r.icon} label={r.label} sub={r.sub} last={r.last} onClick={r.label==="Badges & Skills"?()=>setSubPage("badgesSkills"):()=>{}} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
-            ))}
+            <SettingRow icon="🏆" label="Badges" sub="Track your achievements" onClick={()=>setSubPage("badgesOnly")} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
+            <SettingRow icon="🛠️" label="Skills" sub="Manage your skill set" last onClick={()=>setSubPage("skillsOnly")} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
           </div>
         </div>
       )}
@@ -4498,14 +4593,14 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Reviews and completed jobs loaded live from backend
 const MY_REVIEWS = [];
-const COMPLETED_JOBS = escrowData
+const COMPLETED_JOBS = (typeof escrowData !== "undefined" ? escrowData : [])
   .filter(t => t.status === "released")
   .map(t => ({
     title: t.job,
-    person: role === "poster" ? t.worker : t.poster,
-    personId: role === "poster" ? t.workerId : t.posterId,
+    person: (typeof role !== "undefined" ? role : "worker") === "poster" ? t.worker : t.poster,
+    personId: (typeof role !== "undefined" ? role : "worker") === "poster" ? t.workerId : t.posterId,
     jobId: t.jobId,
-    reviewed: reviewedJobIds.includes(t.jobId),
+    reviewed: (typeof reviewedJobIds !== "undefined" ? reviewedJobIds : []).includes(t.jobId),
   }));
 
 const REVIEW_TAGS = ["punctual","thorough","friendly","reliable","skilled","hardworking","communicative","careful","kind","efficient","detail-oriented","professional"];
