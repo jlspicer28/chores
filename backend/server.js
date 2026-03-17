@@ -613,11 +613,22 @@ app.post("/api/charge", requireAuth, async (req, res) => {
     const feeCents = Math.round(workerCents * 0.08);
     const amountCents = workerCents + feeCents; // poster pays job.pay * 1.08
 
-    // Fetch worker's Connect ID
+    // Fetch worker's Connect ID and verify they can receive payouts
     const { data: worker } = await supabase
       .from("users").select("stripe_connect_id").eq("id", workerId).single();
 
-    // Create PaymentIntent with manual capture (holds funds without charging yet)
+    if (!worker?.stripe_connect_id) {
+      return res.json({ error: "This worker hasn't set up their payout account yet and cannot be hired." });
+    }
+
+    // Verify their Connect account is fully enabled before charging the poster
+    const workerAccount = await stripe.accounts.retrieve(worker.stripe_connect_id);
+    if (!workerAccount.payouts_enabled) {
+      return res.json({ error: "This worker's payout account isn't fully set up yet. They need to complete Stripe onboarding before they can be hired." });
+    }
+
+    // Create PaymentIntent with manual capture + transfer_data so Stripe handles
+    // the split at capture time (no separate transfer needed, no platform balance dependency)
     const intent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "usd",
@@ -625,11 +636,15 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       customer: stripeCustomerId,
       confirm: true,
       capture_method: "manual",
+      transfer_data: {
+        destination: worker.stripe_connect_id,
+        amount: workerCents, // worker gets job.pay, platform keeps the 8% fee
+      },
       metadata: {
         jobId,
         workerId,
         posterId: req.user.id,
-        workerConnectId: worker?.stripe_connect_id || "",
+        workerConnectId: worker.stripe_connect_id,
         workerAmountCents: workerCents.toString(),
       },
       return_url: process.env.FRONTEND_URL || "https://choresnearme.com",
@@ -772,20 +787,8 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
   // If both confirmed, release funds
   if (updated.poster_confirmed && updated.worker_confirmed) {
     try {
+      // Capture triggers the automatic transfer to worker via transfer_data set at charge time
       await stripe.paymentIntents.capture(escrow.stripe_intent_id);
-
-      // Transfer to worker if they have a Connect account
-      const { data: worker } = await supabase
-        .from("users").select("stripe_connect_id").eq("id", escrow.worker_id).single();
-
-      if (worker?.stripe_connect_id) {
-        await stripe.transfers.create({
-          amount: Math.round(escrow.worker_gets * 100),
-          currency: "usd",
-          destination: worker.stripe_connect_id,
-          transfer_group: escrow.stripe_intent_id,
-        });
-      }
 
       // Update escrow + job status
       await supabase.from("escrow").update({
