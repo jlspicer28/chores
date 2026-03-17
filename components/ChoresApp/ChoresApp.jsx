@@ -438,14 +438,13 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
               <Btn onClick={()=>setConfirmAction(null)} variant="ghost" style={{ flex:1, padding:11, fontSize:13 }}>Cancel</Btn>
               <Btn onClick={async ()=>{
                 setProcessing(true);
+                const token = isBrowser ? localStorage.getItem("chores_token") : null;
                 if (confirmAction==="confirm") {
-                  if (txn.stripeIntentId) {
-                    try { await fetch(`${BACKEND}/api/release`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ intentId:txn.stripeIntentId }) }); } catch(e) {}
-                  }
                   onConfirmSide(txn.id, role);
                 } else {
-                  if (txn.stripeIntentId) {
-                    try { await fetch(`${BACKEND}/api/refund`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ intentId:txn.stripeIntentId, reason:"fraudulent" }) }); } catch(e) {}
+                  // Call dispute backend endpoint
+                  if (token) {
+                    try { await fetch(`${BACKEND}/api/escrow/${txn.id}/dispute`, { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`}, body:JSON.stringify({ reason:"Disputed by "+role }) }); } catch(e) {}
                   }
                   onDispute(txn.id);
                 }
@@ -935,6 +934,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
   });
   const [tab, setTab] = useState("profile");
   const [subPage, setSubPage] = useState(null);
+  const [exportData, setExportData] = useState(null);
 
   const [badgeStats, setBadgeStats] = React.useState(null);
   React.useEffect(() => {
@@ -1303,14 +1303,14 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Verification</div>
           {[
             { label:"Identity Verified", sub:"Government ID confirmed", status:"Verified" },
-            { label:"Background Check", sub:"Optional — builds trust with posters", action:"Start" },
-            { label:"CPR Certification", sub:"Upload your certificate", action:"Upload" },
+            { label:"Background Check", sub:"Optional — builds trust with posters", soon:true },
+            { label:"CPR Certification", sub:"Upload your certificate", soon:true },
           ].map((v,i,a)=>(
             <div key={v.label} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:i<a.length-1?`1px solid ${G.border}`:"none" }}>
               <div style={{ flex:1 }}><div style={{ fontWeight:600, fontSize:14 }}>{v.label}</div><div style={{ fontSize:12, color:G.muted, marginTop:1 }}>{v.sub}</div></div>
               {v.status
                 ? <div style={{ background:G.greenPale, borderRadius:8, padding:"4px 10px", fontSize:11, fontWeight:700, color:G.green }}>{v.status}</div>
-                : <div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>{v.action} →</div>
+                : <Tag color={G.muted} bg={G.sand}>Soon</Tag>
               }
             </div>
           ))}
@@ -1798,11 +1798,23 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         </div>
       );
     };
-    const handleSave = () => {
+    const handleSave = async () => {
       setPwError("");
       if (!pwFields.current) { setPwError("Enter your current password"); return; }
       if (pwFields.newPw.length<8) { setPwError("New password must be at least 8 characters"); return; }
       if (pwFields.newPw!==pwFields.confirm) { setPwError("Passwords do not match"); return; }
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      if (token) {
+        try {
+          const res = await fetch(`${BACKEND}/api/auth/change-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+            body: JSON.stringify({ currentPassword: pwFields.current, newPassword: pwFields.newPw }),
+          });
+          const data = await res.json();
+          if (data.error) { setPwError(data.error); return; }
+        } catch(e) { setPwError("Network error — please try again."); return; }
+      }
       setPwSaved(true);
       setTimeout(()=>{ setPwSaved(false); setPwFields({current:"",newPw:"",confirm:""}); setSubPage(null); },1400);
     };
@@ -2209,7 +2221,17 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       { id:"monthly", label:"Monthly", desc:"1st of each month" },
     ];
     const days = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
-    const handlePayoutSave = () => {
+    const handlePayoutSave = async () => {
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      if (token) {
+        try {
+          await fetch(`${BACKEND}/api/user/payout-schedule`, {
+            method:"POST",
+            headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+            body:JSON.stringify({ frequency:payoutFreq, day:payoutDay }),
+          });
+        } catch(e) {}
+      }
       setPayoutSaved(true);
       setTimeout(()=>{ setPayoutSaved(false); setSubPage(null); },1400);
     };
@@ -2458,9 +2480,29 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       { icon:"📍", label:"Location History", desc:"Search areas and service zones", size:"~4 KB" },
     ];
     const totalSize = "~93 KB";
-    const handleRequest = () => {
+    const handleRequest = async () => {
       setDownloadStep(1);
-      setTimeout(()=>setDownloadStep(2), 3000);
+      const token = isBrowser ? localStorage.getItem("chores_token") : null;
+      if (token) {
+        try {
+          const res = await fetch(`${BACKEND}/api/auth/export-data`, { headers: { "Authorization": `Bearer ${token}` } });
+          const data = await res.json();
+          if (!data.error) setExportData(data);
+        } catch(e) {}
+      }
+      setTimeout(()=>setDownloadStep(2), 2000);
+    };
+    const handleDownload = () => {
+      if (!exportData) return;
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chores_data_${(profile.first||"user").toLowerCase()}_${(profile.last||"export").toLowerCase()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     };
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -2483,13 +2525,13 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 </div>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:14 }}>chores_data_jordan_davis.zip</div>
-                  <div style={{ fontSize:12, color:G.muted }}>{totalSize} · JSON + CSV format</div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>chores_data_{(profile.first||"user").toLowerCase()}_{(profile.last||"export").toLowerCase()}.json</div>
+                  <div style={{ fontSize:12, color:G.muted }}>JSON format</div>
                 </div>
               </div>
             </div>
 
-            <Btn onClick={()=>{ setDownloadStep(1); setTimeout(()=>setDownloadStep(2), 3000); }} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14, marginBottom:10 }}>
+            <Btn onClick={handleDownload} disabled={!exportData} style={{ width:"100%", padding:14, borderRadius:14, fontSize:14, marginBottom:10 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:"middle", marginRight:6 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download Archive
             </Btn>
@@ -2874,8 +2916,8 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
             <SettingRow icon="📍" label="Service Zip Code" sub={profile.zip||"Not set"} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} onClick={()=>setSubPage("changeZip")} />
             <SettingRow icon="🔑" label="Change Password" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("changePassword")} />
             <SettingRow icon="📱" label="Two-Factor Authentication" sub={toggles.twoFactor?"Enabled":"Disabled"} right={<Toggle on={toggles.twoFactor} onChange={()=>tog("twoFactor")} />} />
-            <SettingRow icon="🔗" label="Linked Accounts" sub="Google, Apple" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>alert("Social login coming soon — Google, Apple, and Facebook sign-in will be available in the next update.")} />
-            <SettingRow icon="🌐" label="Language" sub="English" right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} last />
+            <SettingRow icon="🔗" label="Linked Accounts" sub="Google, Apple" right={<Tag color={G.muted} bg={G.sand}>Soon</Tag>} />
+            <SettingRow icon="🌐" label="Language" sub="English" right={<Tag color={G.muted} bg={G.sand}>Soon</Tag>} last />
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             <Btn variant="outline" style={{ width:"100%", borderRadius:16 }} onClick={()=>{
@@ -2886,7 +2928,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
               }
               window.location.reload();
             }}>Sign Out</Btn>
-            <Btn variant="danger" style={{ width:"100%", borderRadius:16, opacity:.6 }}>Delete Account</Btn>
+            <Btn variant="danger" style={{ width:"100%", borderRadius:16, opacity:.6 }} onClick={()=>setSubPage("deleteData")}>Delete Account</Btn>
           </div>
 
         </div>
@@ -5081,6 +5123,17 @@ function LoginScreen({ onComplete, onBack, darkMode, prefillEmail="" }) {
 
         {error && <div style={{ marginTop:12, padding:"10px 14px", borderRadius:10, background:G.redLight, color:G.red, fontSize:13, fontWeight:600 }}>{error}</div>}
 
+        <div className="tap" onClick={async ()=>{
+          if (!email) { setError("Enter your email address first"); return; }
+          setError(""); setLoading(true);
+          try {
+            const res = await fetch(`${BACKEND}/api/auth/forgot-password`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ email }) });
+            const data = await res.json();
+            if (data.error) { setError(data.error); } else { setError(""); alert("Password reset link sent to " + email + ". Check your inbox."); }
+          } catch(e) { setError("Network error — please try again."); }
+          setLoading(false);
+        }} style={{ textAlign:"right", marginTop:10, fontSize:13, color:G.greenMid, fontWeight:600 }}>Forgot password?</div>
+
         <button className="btn" onClick={handleLogin} disabled={loading||!email||!password}
           style={{ width:"100%", padding:"17px", borderRadius:16, background:(email&&password&&!loading)?G.green:"#ccc", color:"#fff", fontSize:15, fontWeight:700, marginTop:24, opacity:(email&&password&&!loading)?1:.5 }}>
           {loading ? "Signing in…" : "Sign In"}
@@ -5887,7 +5940,13 @@ export default function ChoresApp() {
       return updated;
     }));
   };
-  const handleDispute = (id) => { setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"}); };
+  const handleDispute = async (id) => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (token) {
+      try { await fetch(`${BACKEND}/api/escrow/${id}/dispute`, { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`}, body:JSON.stringify({ reason:"Disputed by user" }) }); } catch(e) {}
+    }
+    setEscrowData(d=>d.map(t=>t.id===id?{...t,status:"disputed",disputedAt:"Just now"}:t)); setToast({icon:"⚠️",title:"Dispute opened",body:"Review within 24 hours"});
+  };
   const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); setTimeout(fetchEscrow, 1500); };
 
   if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole)setShowRoleModal(true);}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;

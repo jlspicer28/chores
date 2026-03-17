@@ -1024,6 +1024,184 @@ app.post("/api/user/default-role", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DISPUTE — Freeze escrow and flag for admin review
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/escrow/:id/dispute", requireAuth, async (req, res) => {
+  const { reason } = req.body;
+  const { data: escrow } = await supabase
+    .from("escrow").select("*").eq("id", req.params.id).single();
+
+  if (!escrow) return res.json({ error: "Escrow not found" });
+
+  const isPoster = escrow.poster_id === req.user.id;
+  const isWorker = escrow.worker_id === req.user.id;
+  if (!isPoster && !isWorker) return res.json({ error: "Not authorized" });
+  if (escrow.status !== "held") return res.json({ error: "Can only dispute held escrow" });
+
+  // Update escrow status to disputed
+  await supabase.from("escrow").update({
+    status: "disputed",
+    dispute_reason: reason || null,
+    dispute_opened_by: req.user.id,
+    dispute_opened_at: new Date().toISOString(),
+  }).eq("id", req.params.id);
+
+  // Update job status
+  await supabase.from("jobs").update({ status: "disputed" }).eq("id", escrow.job_id);
+
+  // Get job title for notifications
+  const { data: disputedJob } = await supabase.from("jobs").select("title").eq("id", escrow.job_id).maybeSingle();
+  const jobTitle = disputedJob?.title || "the job";
+
+  // Notify both parties
+  const otherUserId = isPoster ? escrow.worker_id : escrow.poster_id;
+  const { data: opener } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+  const openerName = opener ? `${opener.first_name} ${opener.last_name}`.trim() : "The other party";
+
+  await notify(otherUserId, {
+    type: "disputed", category: "alert", icon: "⚠️",
+    title: "Dispute opened",
+    body: `${openerName} opened a dispute on "${jobTitle}" · Under review`,
+    jobId: escrow.job_id, relatedUserId: req.user.id,
+  });
+  await notify(req.user.id, {
+    type: "disputed", category: "alert", icon: "⚠️",
+    title: "Dispute submitted",
+    body: `Your dispute on "${jobTitle}" is under review · We'll respond within 24 hours`,
+    jobId: escrow.job_id,
+  });
+
+  // Email support team about the dispute
+  await sendSupportEmail(`[Dispute] ${jobTitle}`, `Dispute opened by ${openerName} (${req.user.id})\nEscrow ID: ${req.params.id}\nJob: ${jobTitle}\nAmount: $${escrow.amount}\nReason: ${reason || "Not specified"}`);
+
+  res.json({ success: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHANGE PASSWORD
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.json({ error: "Both current and new password are required" });
+  if (newPassword.length < 8) return res.json({ error: "New password must be at least 8 characters" });
+
+  try {
+    // Verify current password by attempting a sign-in
+    const { data: profile } = await supabase.from("users").select("email").eq("id", req.user.id).single();
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: profile.email,
+      password: currentPassword,
+    });
+    if (signInError) return res.json({ error: "Current password is incorrect" });
+
+    // Update password via admin API
+    const { error: updateError } = await supabase.auth.admin.updateUserById(req.user.id, {
+      password: newPassword,
+    });
+    if (updateError) return res.json({ error: updateError.message });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORGOT PASSWORD (sends Supabase reset email)
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.json({ error: "Email is required" });
+
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${process.env.FRONTEND_URL || "https://choresnearme.com"}/?reset=true`,
+    });
+    if (error) return res.json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPORT DATA — Package all user data as JSON
+// ─────────────────────────────────────────────────────────────────────────────
+app.get("/api/auth/export-data", requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  try {
+    const [profileRes, jobsRes, messagesRes, reviewsRes, escrowRes, notifsRes] = await Promise.all([
+      supabase.from("users").select("*").eq("id", uid).single(),
+      supabase.from("jobs").select("*").or(`poster_id.eq.${uid},worker_id.eq.${uid}`).order("created_at", { ascending: false }),
+      supabase.from("messages").select("*").or(`sender_id.eq.${uid},recipient_id.eq.${uid}`).order("created_at", { ascending: false }).limit(500),
+      supabase.from("reviews").select("*").or(`reviewer_id.eq.${uid},reviewee_id.eq.${uid}`).order("created_at", { ascending: false }),
+      supabase.from("escrow").select("*").or(`poster_id.eq.${uid},worker_id.eq.${uid}`).order("created_at", { ascending: false }),
+      supabase.from("notifications").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(200),
+    ]);
+
+    // Strip sensitive fields
+    const profile = profileRes.data || {};
+    delete profile.stripe_customer_id;
+    delete profile.stripe_connect_id;
+
+    res.json({
+      exportedAt: new Date().toISOString(),
+      profile,
+      jobs: jobsRes.data || [],
+      messages: (messagesRes.data || []).map(m => ({ ...m, body: m.sender_id === uid ? m.body : "[received message]" })),
+      reviews: reviewsRes.data || [],
+      escrow: escrowRes.data || [],
+      notifications: notifsRes.data || [],
+    });
+  } catch (err) {
+    console.error("Export data error:", err);
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYOUT SCHEDULE — Save worker payout preferences
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/user/payout-schedule", requireAuth, async (req, res) => {
+  const { frequency, day } = req.body;
+  if (!["daily", "weekly", "biweekly", "monthly"].includes(frequency)) return res.json({ error: "Invalid frequency" });
+  const { error } = await supabase.from("users").update({
+    payout_frequency: frequency,
+    payout_day: day || null,
+  }).eq("id", req.user.id);
+  if (error) return res.json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.get("/api/user/payout-schedule", requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from("users")
+    .select("payout_frequency, payout_day")
+    .eq("id", req.user.id).maybeSingle();
+  if (error) return res.json({ error: error.message });
+  res.json({ frequency: data?.payout_frequency || "weekly", day: data?.payout_day || "Friday" });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER PREFERENCES — Save notification/privacy toggles to backend
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/user/preferences", requireAuth, async (req, res) => {
+  const { preferences } = req.body;
+  if (!preferences || typeof preferences !== "object") return res.json({ error: "Invalid preferences" });
+  const { error } = await supabase.from("users").update({ preferences }).eq("id", req.user.id);
+  if (error) return res.json({ error: error.message });
+  res.json({ success: true });
+});
+
+app.get("/api/user/preferences", requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from("users")
+    .select("preferences")
+    .eq("id", req.user.id).maybeSingle();
+  if (error) return res.json({ error: error.message });
+  res.json({ preferences: data?.preferences || null });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BANK ACCOUNT — Save and load worker bank details
 app.post("/api/bank-details", requireAuth, async (req, res) => {
   const { holder, bankName, accountType, routing, accountLast4 } = req.body;
