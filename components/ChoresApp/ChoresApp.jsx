@@ -1193,6 +1193,20 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
   const [payoutDay, setPayoutDay] = useState("Monday");
   const [payoutSaved, setPayoutSaved] = useState(false);
 
+  // Load saved payout schedule from backend when subpage opens
+  React.useEffect(() => {
+    if (subPage !== "payoutSchedule") return;
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/user/payout-schedule`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.frequency) setPayoutFreq(data.frequency);
+        if (data.day) setPayoutDay(data.day);
+      })
+      .catch(() => {});
+  }, [subPage]);
+
   const settingsUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   // Worker view: only transactions where I am the worker
   const myWorkerTxns = escrowData.filter(t => String(t.workerId) === String(settingsUserId));
@@ -2225,12 +2239,15 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       const token = isBrowser ? localStorage.getItem("chores_token") : null;
       if (token) {
         try {
-          await fetch(`${BACKEND}/api/user/payout-schedule`, {
+          const res = await fetch(`${BACKEND}/api/user/payout-schedule`, {
             method:"POST",
             headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
             body:JSON.stringify({ frequency:payoutFreq, day:payoutDay }),
           });
-        } catch(e) {}
+          const data = await res.json();
+          if (data.error) { alert("Failed to save: " + data.error); return; }
+          if (data.stripeWarning) console.log("⚠️ Payout schedule:", data.stripeWarning);
+        } catch(e) { alert("Network error — please try again."); return; }
       }
       setPayoutSaved(true);
       setTimeout(()=>{ setPayoutSaved(false); setSubPage(null); },1400);
@@ -2280,7 +2297,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
               <div style={{ fontWeight:700, fontSize:14, color:G.text }}>
                 {payoutFreq==="daily"?"Every business day":payoutFreq==="monthly"?"1st of each month":`Every ${payoutFreq==="biweekly"?"other ":""}${payoutDay}`}
               </div>
-              <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>Earnings sent to Chase •••• 7890</div>
+              <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>{bank.name && bank.last4 ? `Earnings sent to ${bank.name} •••• ${bank.last4}` : "Set up bank account to receive payouts"}</div>
             </div>
           </div>
         </div>

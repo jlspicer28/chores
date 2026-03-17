@@ -1166,20 +1166,89 @@ app.get("/api/auth/export-data", requireAuth, async (req, res) => {
 app.post("/api/user/payout-schedule", requireAuth, async (req, res) => {
   const { frequency, day } = req.body;
   if (!["daily", "weekly", "biweekly", "monthly"].includes(frequency)) return res.json({ error: "Invalid frequency" });
-  const { error } = await supabase.from("users").update({
-    payout_frequency: frequency,
-    payout_day: day || null,
-  }).eq("id", req.user.id);
-  if (error) return res.json({ error: error.message });
-  res.json({ success: true });
+
+  // Map day name to Stripe's expected values
+  const dayMap = { Monday: "monday", Tuesday: "tuesday", Wednesday: "wednesday", Thursday: "thursday", Friday: "friday" };
+
+  try {
+    // Get user's Stripe Connect account
+    const { data: user } = await supabase.from("users")
+      .select("stripe_connect_id")
+      .eq("id", req.user.id).single();
+
+    if (user?.stripe_connect_id) {
+      // Build Stripe payout schedule settings
+      const scheduleParams = {};
+      if (frequency === "daily") {
+        scheduleParams.interval = "daily";
+      } else if (frequency === "weekly") {
+        scheduleParams.interval = "weekly";
+        scheduleParams.weekly_anchor = dayMap[day] || "friday";
+      } else if (frequency === "biweekly") {
+        // Stripe doesn't have biweekly — use weekly as closest match
+        scheduleParams.interval = "weekly";
+        scheduleParams.weekly_anchor = dayMap[day] || "friday";
+      } else if (frequency === "monthly") {
+        scheduleParams.interval = "monthly";
+        scheduleParams.monthly_anchor = 1;
+      }
+
+      await stripe.accounts.update(user.stripe_connect_id, {
+        settings: {
+          payouts: {
+            schedule: scheduleParams,
+          },
+        },
+      });
+    }
+
+    // Save to our DB too
+    const { error } = await supabase.from("users").update({
+      payout_frequency: frequency,
+      payout_day: day || null,
+    }).eq("id", req.user.id);
+    if (error) return res.json({ error: error.message });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Payout schedule error:", err.message);
+    // If Stripe fails (e.g. no Connect account yet), still save locally
+    const { error } = await supabase.from("users").update({
+      payout_frequency: frequency,
+      payout_day: day || null,
+    }).eq("id", req.user.id);
+    if (error) return res.json({ error: error.message });
+    res.json({ success: true, stripeWarning: "Saved locally — Stripe payout schedule will sync once your payout account is set up." });
+  }
 });
 
 app.get("/api/user/payout-schedule", requireAuth, async (req, res) => {
   const { data, error } = await supabase.from("users")
-    .select("payout_frequency, payout_day")
+    .select("payout_frequency, payout_day, stripe_connect_id")
     .eq("id", req.user.id).maybeSingle();
   if (error) return res.json({ error: error.message });
-  res.json({ frequency: data?.payout_frequency || "weekly", day: data?.payout_day || "Friday" });
+
+  let stripeSchedule = null;
+  // Fetch live schedule from Stripe if Connect account exists
+  if (data?.stripe_connect_id) {
+    try {
+      const account = await stripe.accounts.retrieve(data.stripe_connect_id);
+      const sched = account.settings?.payouts?.schedule;
+      if (sched) {
+        stripeSchedule = {
+          interval: sched.interval,
+          weeklyAnchor: sched.weekly_anchor || null,
+          monthlyAnchor: sched.monthly_anchor || null,
+        };
+      }
+    } catch (e) { /* non-fatal */ }
+  }
+
+  res.json({
+    frequency: data?.payout_frequency || "weekly",
+    day: data?.payout_day || "Friday",
+    stripeSchedule,
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
