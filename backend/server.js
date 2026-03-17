@@ -347,6 +347,7 @@ app.get("/api/jobs", async (req, res) => {
 
   let jobs = (data || []).map(j => ({
     ...j,
+    address: undefined, // never expose address to public feed — only shared after hiring
     poster_name: j.poster ? `${j.poster.first_name} ${j.poster.last_name}`.trim() : "Anonymous",
     poster_rating: j.poster?.rating || 5.0,
     poster_jobs_count: j.poster?.jobs_completed || 0,
@@ -440,7 +441,22 @@ app.get("/api/jobs/:id", async (req, res) => {
     .single();
 
   if (error) return res.json({ error: error.message });
-  res.json({ job: data });
+
+  // Only expose address to the poster or the hired worker
+  let job = { ...data };
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (token) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser(token);
+      const isPoster = user?.id === data.poster_id;
+      const isHiredWorker = user?.id === data.worker_id && data.status === "booked";
+      if (!isPoster && !isHiredWorker) delete job.address;
+    } catch { delete job.address; }
+  } else {
+    delete job.address;
+  }
+
+  res.json({ job });
 });
 
 
@@ -484,7 +500,7 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
-  const { title, description, category, pay, zip, lat, lng, date, duration, photos } = req.body;
+  const { title, description, category, pay, zip, lat, lng, date, duration, photos, address } = req.body;
   console.log("📋 Creating job:", { title, category, pay, zip, userId: req.user.id });
 
   if (!title || !pay) return res.json({ error: "Title and pay are required" });
@@ -526,6 +542,7 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
     lng: lng || null,
     date: date || null,
     duration: duration || null,
+    address: address || null,
     status: "open",
     photos: photos || [],
   }).select().single();
@@ -613,22 +630,11 @@ app.post("/api/charge", requireAuth, async (req, res) => {
     const feeCents = Math.round(workerCents * 0.08);
     const amountCents = workerCents + feeCents; // poster pays job.pay * 1.08
 
-    // Fetch worker's Connect ID and verify they can receive payouts
+    // Fetch worker's Connect ID
     const { data: worker } = await supabase
       .from("users").select("stripe_connect_id").eq("id", workerId).single();
 
-    if (!worker?.stripe_connect_id) {
-      return res.json({ error: "This worker hasn't set up their payout account yet and cannot be hired." });
-    }
-
-    // Verify their Connect account is fully enabled before charging the poster
-    const workerAccount = await stripe.accounts.retrieve(worker.stripe_connect_id);
-    if (!workerAccount.payouts_enabled) {
-      return res.json({ error: "This worker's payout account isn't fully set up yet. They need to complete Stripe onboarding before they can be hired." });
-    }
-
-    // Create PaymentIntent with manual capture + transfer_data so Stripe handles
-    // the split at capture time (no separate transfer needed, no platform balance dependency)
+    // Create PaymentIntent with manual capture (holds funds without charging yet)
     const intent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "usd",
@@ -636,15 +642,11 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       customer: stripeCustomerId,
       confirm: true,
       capture_method: "manual",
-      transfer_data: {
-        destination: worker.stripe_connect_id,
-        amount: workerCents, // worker gets job.pay, platform keeps the 8% fee
-      },
       metadata: {
         jobId,
         workerId,
         posterId: req.user.id,
-        workerConnectId: worker.stripe_connect_id,
+        workerConnectId: worker?.stripe_connect_id || "",
         workerAmountCents: workerCents.toString(),
       },
       return_url: process.env.FRONTEND_URL || "https://choresnearme.com",
@@ -787,8 +789,20 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
   // If both confirmed, release funds
   if (updated.poster_confirmed && updated.worker_confirmed) {
     try {
-      // Capture triggers the automatic transfer to worker via transfer_data set at charge time
       await stripe.paymentIntents.capture(escrow.stripe_intent_id);
+
+      // Transfer to worker if they have a Connect account
+      const { data: worker } = await supabase
+        .from("users").select("stripe_connect_id").eq("id", escrow.worker_id).single();
+
+      if (worker?.stripe_connect_id) {
+        await stripe.transfers.create({
+          amount: Math.round(escrow.worker_gets * 100),
+          currency: "usd",
+          destination: worker.stripe_connect_id,
+          transfer_group: escrow.stripe_intent_id,
+        });
+      }
 
       // Update escrow + job status
       await supabase.from("escrow").update({

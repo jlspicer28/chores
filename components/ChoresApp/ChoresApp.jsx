@@ -4930,9 +4930,16 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             <div style={{ fontSize:14, color:G.text, lineHeight:1.6 }}>{job.desc}</div>
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
-            <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Date</div>
+            <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Date & Time</div>
             <div style={{ fontSize:14, fontWeight:600, color:G.text }}>{job.date}</div>
           </div>
+          {job.address && (
+            <div style={{ background:G.greenPale, borderRadius:18, padding:16, marginTop:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", border:`1.5px solid ${G.greenLight}` }}>
+              <div style={{ fontSize:11, fontWeight:700, color:G.greenMid, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>📍 Job Address</div>
+              <div style={{ fontSize:15, fontWeight:700, color:G.text }}>{job.address}</div>
+              <div style={{ fontSize:12, color:G.muted, marginTop:4 }}>Shared because you are the hired worker</div>
+            </div>
+          )}
         </div>
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
           {role==="poster" && job.posterId === currentUserId
@@ -5812,7 +5819,7 @@ export default function ChoresApp() {
 
   const [showPostJob, setShowPostJob] = useState(false);
   const [lastJobPost, setLastJobPost] = useState(0);
-  const [postForm, setPostForm] = useState({title:"",category:"",pay:"",date:"",notes:"",photos:[]});
+  const [postForm, setPostForm] = useState({title:"",category:"",pay:"",date:"",time:"",address:"",notes:"",photos:[]});
   const postPhotoRef = React.useRef();
   const [formPosted, setFormPosted] = useState(false);
   const [escrowData, setEscrowData] = useState(() => {
@@ -6102,7 +6109,54 @@ export default function ChoresApp() {
                     {CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
                   <input value={postForm.pay} onChange={e=>setPostForm(p=>({...p,pay:e.target.value}))} placeholder="Pay (e.g. $40)" style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }} />
-                  <input value={postForm.date} onChange={e=>setPostForm(p=>({...p,date:e.target.value}))} placeholder="Date / schedule (e.g. Sat Mar 15)" style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }} />
+                  {/* Date + Time row */}
+                  <div style={{ display:"flex", gap:10 }}>
+                    <div style={{ flex:1, position:"relative" }}>
+                      <input
+                        type="date"
+                        value={postForm.date}
+                        min={new Date().toISOString().slice(0,10)}
+                        onChange={e=>setPostForm(p=>({...p,date:e.target.value}))}
+                        style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, width:"100%", boxSizing:"border-box", colorScheme:"light" }}
+                      />
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <input
+                        type="time"
+                        value={postForm.time}
+                        onChange={e=>setPostForm(p=>({...p,time:e.target.value}))}
+                        style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, width:"100%", boxSizing:"border-box", colorScheme:"light" }}
+                      />
+                    </div>
+                  </div>
+                  {/* Show computed day of week once a date is picked */}
+                  {(postForm.date || postForm.time) && (() => {
+                    let preview = "";
+                    if (postForm.date) {
+                      const d = new Date(postForm.date + "T12:00:00");
+                      const month = d.toLocaleDateString("en-US", { month:"long" });
+                      const dayNum = d.getDate();
+                      const suffix = ["th","st","nd","rd"][dayNum % 10 > 3 || Math.floor(dayNum/10)===1 ? 0 : dayNum % 10];
+                      const weekday = d.toLocaleDateString("en-US", { weekday:"long" });
+                      preview += `${weekday}, ${month} ${dayNum}${suffix}`;
+                    }
+                    if (postForm.time) {
+                      const [h, m] = postForm.time.split(":");
+                      const hr = parseInt(h), ampm = hr >= 12 ? "am" : "am";
+                      const ampmStr = hr >= 12 ? "pm" : "am";
+                      const displayHr = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+                      preview += (preview ? " at " : "") + `${displayHr}:${m}${ampmStr}`;
+                    }
+                    return <div style={{ fontSize:13, color:G.greenMid, fontWeight:600, marginTop:-4, paddingLeft:2 }}>📅 {preview}</div>;
+                  })()}
+                  {/* Full address — shown to worker only after they are hired */}
+                  <input
+                    value={postForm.address}
+                    onChange={e=>setPostForm(p=>({...p,address:e.target.value}))}
+                    placeholder="Full address (e.g. 123 Main St, Columbus, OH)"
+                    style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }}
+                  />
+                  <div style={{ fontSize:11, color:G.muted, marginTop:-6, paddingLeft:2 }}>🔒 Address is only shared with the hired worker</div>
                   <textarea value={postForm.notes} onChange={e=>setPostForm(p=>({...p,notes:e.target.value}))} placeholder="Details, requirements, tools provided..." rows={3} style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, resize:"none", background:G.white }} />
 
                   {/* Photo upload */}
@@ -6142,11 +6196,39 @@ export default function ChoresApp() {
 
                   <Btn onClick={async (e)=>{
                     if (!postForm.title || !postForm.category || !postForm.pay) { alert("Please fill in title, category, and pay."); return; }
+                    if (!postForm.date) { alert("Please select a date for the job."); return; }
+                    if (!postForm.time) { alert("Please select a time for the job."); return; }
+                    if (!postForm.address.trim()) { alert("Please enter the job address. It will only be shared with the hired worker."); return; }
                     const btn = e?.currentTarget;
                     if (btn) { btn.disabled = true; btn.textContent = "Posting..."; }
                     try {
                       const token = isBrowser ? localStorage.getItem("chores_token") : null;
                       if (!token) { alert("You must be logged in to post a job."); if(btn){btn.disabled=false;btn.textContent="Post Job →";} return; }
+                      // Geocode the full address for accurate map pin placement
+                      let jobLat = null, jobLng = null;
+                      try {
+                        const encodedAddr = encodeURIComponent(postForm.address);
+                        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodedAddr}&format=json&limit=1&countrycodes=us`);
+                        const geoData = await geoRes.json();
+                        if (geoData && geoData[0]) {
+                          jobLat = parseFloat(geoData[0].lat);
+                          jobLng = parseFloat(geoData[0].lon);
+                        }
+                      } catch(geoErr) { console.warn("Geocode failed, posting without coords", geoErr); }
+
+                      // Format a human-readable date+time with day of week
+                      const dateObj = new Date(postForm.date + "T12:00:00");
+                      const month = dateObj.toLocaleDateString("en-US", { month:"long" });
+                      const dayNum = dateObj.getDate();
+                      const suffix = ["th","st","nd","rd"][dayNum % 10 > 3 || Math.floor(dayNum/10)===1 ? 0 : dayNum % 10];
+                      const weekday = dateObj.toLocaleDateString("en-US", { weekday:"long" });
+                      const [h, m] = postForm.time.split(":");
+                      const hr = parseInt(h);
+                      const ampm = hr >= 12 ? "pm" : "am";
+                      const displayHr = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+                      const displayDate = `${weekday}, ${month} ${dayNum}${suffix}`;
+                      const displayTime = `${displayHr}:${m}${ampm}`;
+
                       const res = await fetch(`${BACKEND}/api/jobs/create`, {
                         method:"POST",
                         headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
@@ -6154,9 +6236,12 @@ export default function ChoresApp() {
                           title: postForm.title,
                           category: postForm.category,
                           pay: parseFloat(postForm.pay.replace(/[^0-9.]/g,"")),
-                          date: postForm.date,
+                          date: `${displayDate} at ${displayTime}`,
+                          address: postForm.address.trim(),
                           description: postForm.notes,
                           zip: userZip,
+                          lat: jobLat,
+                          lng: jobLng,
                           photos: postForm.photos || [],
                         })
                       });
@@ -6168,7 +6253,7 @@ export default function ChoresApp() {
                         return;
                       }
                       setFormPosted(true);
-                      setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",notes:"",photos:[]}); setLastJobPost(Date.now()); setView("myjobs"); }, 2200);
+                      setTimeout(()=>{ setShowPostJob(false); setFormPosted(false); setPostForm({title:"",category:"",pay:"",date:"",time:"",address:"",notes:"",photos:[]}); setLastJobPost(Date.now()); setView("myjobs"); }, 2200);
                     } catch(e) {
                       console.error("Post job error:", e);
                       alert("Network error — could not post job. Check your connection.");
