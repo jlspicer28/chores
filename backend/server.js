@@ -1749,6 +1749,22 @@ app.post("/api/notifications/read", requireAuth, async (req, res) => {
 // ── Notification helper ────────────────────────────────────────────────────
 async function notify(userId, { type, category, icon, title, body, jobId=null, relatedUserId=null }) {
   if (!userId) return;
+
+  // Check user's notification preferences before sending
+  const { data: userData } = await supabase.from("users").select("preferences").eq("id", userId).maybeSingle();
+  const prefs = userData?.preferences || {};
+
+  // Master push toggle — if off, suppress everything
+  if (prefs.push === false) return;
+
+  // Per-type checks
+  if (type === "applied"    && prefs.nApplicant === false) return;
+  if (type === "complete"   && prefs.nComplete  === false) return;
+  if (type === "rating"     && prefs.nRate      === false) return;
+  if ((type === "cancelled" || type === "disputed") && prefs.nCancel === false) return;
+  if (category === "payment" && type === "payment" && prefs.nPayment === false) return;
+  if (category === "payment" && type !== "payment" && prefs.nReceipts === false) return;
+
   const { error } = await supabase.from("notifications").insert({
     user_id: userId,
     type, category, icon, title, body,

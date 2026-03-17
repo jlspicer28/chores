@@ -996,7 +996,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
   },[tab, subPage]);
   const [selectedTxn, setSelectedTxn] = useState(null);
   const [toggles, setToggles] = useState(() => {
-    const defaults = { push:true, sound:true, vibrate:true, darkMode:false, exactLoc:false, analytics:true, marketing:false, twoFactor:true, instantPayout:false,
+    const defaults = { push:true, sound:true, darkMode:false, exactLoc:false, analytics:true, marketing:false, twoFactor:true, instantPayout:false,
       nJobs:true, nAppUpdates:true, nDayReminder:true, nHourReminder:true, nPayment:true, nCancel:true, nApplicant:true, nComplete:true, nReceipts:true, nRate:true, profileVisible:true };
     try {
       const saved = isBrowser ? localStorage.getItem("chores_toggles") : null;
@@ -1007,8 +1007,31 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
     const n={...t,[k]:!t[k]}; 
     if(onTogglesChange) onTogglesChange(n); 
     try { if(isBrowser) localStorage.setItem("chores_toggles", JSON.stringify(n)); } catch {}
+    // Persist to backend so server can check before sending notifications
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (token) fetch(`${BACKEND}/api/user/preferences`, {
+      method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+      body: JSON.stringify({ preferences: n }),
+    }).catch(()=>{});
     return n; 
   });
+  // Load preferences from backend on mount so they stay in sync across devices
+  React.useEffect(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/user/preferences`, { headers:{"Authorization":`Bearer ${token}`} })
+      .then(r=>r.json())
+      .then(data => {
+        if (data.preferences && typeof data.preferences === "object") {
+          setToggles(t => {
+            const merged = {...t, ...data.preferences};
+            try { if(isBrowser) localStorage.setItem("chores_toggles", JSON.stringify(merged)); } catch {}
+            return merged;
+          });
+        }
+      }).catch(()=>{});
+  }, []);
+
   const [deleteStep, setDeleteStep] = useState(0);
   const [zipInput, setZipInput] = useState("");
   const [zipCity, setZipCity] = useState(null);
@@ -1666,16 +1689,16 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
   // ── COMMUNITY GUIDELINES ──
   if (subPage==="guidelines") {
     const rules = [
-      { icon:"🤝", title:"Be Respectful", body:"Treat every person on Chores with the same respect you'd want for yourself. Harassment, hate speech, discrimination based on race, gender, religion, sexuality, disability, or background will result in immediate account removal. This includes in-app messages, reviews, and job descriptions." },
-      { icon:"✅", title:"Be Honest", body:"Post accurate job descriptions, including realistic pay, time estimates, and what's required. Workers should only apply for jobs they genuinely intend to complete and are capable of doing. Fake profiles, inflated ratings, or misleading information violate our trust principles." },
-      { icon:"🔒", title:"Keep Payments On-Platform", body:"All payment arrangements must go through Chores escrow. Soliciting or accepting payment outside the app to avoid platform fees is a violation that can result in permanent bans for both parties. Our escrow system exists to protect everyone." },
-      { icon:"📍", title:"Show Up", body:"When you accept a job or hire a worker, you're making a commitment. Repeated no-shows, last-minute cancellations, or ghosting without communication harm the community and your reputation. Strikes are issued for verified no-shows." },
-      { icon:"⭐", title:"Leave Honest Reviews", body:"Reviews help the community make good decisions. Leave reviews that honestly reflect your experience. Reviewing in bad faith, trading positive reviews with friends, or threatening negative reviews to extort users are all violations." },
-      { icon:"📸", title:"Appropriate Content Only", body:"Profile photos must be clear, appropriate images of yourself — no logos, cartoon characters, or inappropriate imagery. Job photos should be relevant to the task. Explicit, violent, or offensive content is not permitted anywhere on the platform." },
-      { icon:"🔐", title:"Protect Privacy", body:"Do not share another user's personal information — phone numbers, addresses, or photos — outside the platform without their explicit consent. Do not attempt to contact users through channels other than Chores messaging for job-related matters." },
-      { icon:"🚨", title:"Report, Don't Retaliate", body:"If someone violates these guidelines, report them through the app rather than retaliating. Our team reviews every report. False reports made to harm others are themselves a violation. We investigate all reports fairly and confidentially." },
-      { icon:"⚖️", title:"No Illegal Activity", body:"Chores may not be used to arrange, facilitate, or fund any illegal activity. This includes unlicensed contractor work requiring permits, jobs involving controlled substances, and any activity prohibited by local, state, or federal law." },
-      { icon:"👶", title:"No Minors", body:"Users must be 18 or older. If you believe a minor is using the platform, report it immediately. Jobs involving the care of children must be performed with the knowledge and consent of the child's parent or legal guardian." },
+      { icon:"", title:"Be Respectful", body:"Treat every person on Chores with the same respect you'd want for yourself. Harassment, hate speech, discrimination based on race, gender, religion, sexuality, disability, or background will result in immediate account removal. This includes in-app messages, reviews, and job descriptions." },
+      { icon:"", title:"Be Honest", body:"Post accurate job descriptions, including realistic pay, time estimates, and what's required. Workers should only apply for jobs they genuinely intend to complete and are capable of doing. Fake profiles, inflated ratings, or misleading information violate our trust principles." },
+      { icon:"", title:"Keep Payments On-Platform", body:"All payment arrangements must go through Chores escrow. Soliciting or accepting payment outside the app to avoid platform fees is a violation that can result in permanent bans for both parties. Our escrow system exists to protect everyone." },
+      { icon:"", title:"Show Up", body:"When you accept a job or hire a worker, you're making a commitment. Repeated no-shows, last-minute cancellations, or ghosting without communication harm the community and your reputation. Strikes are issued for verified no-shows." },
+      { icon:"", title:"Leave Honest Reviews", body:"Reviews help the community make good decisions. Leave reviews that honestly reflect your experience. Reviewing in bad faith, trading positive reviews with friends, or threatening negative reviews to extort users are all violations." },
+      { icon:"", title:"Appropriate Content Only", body:"Profile photos must be clear, appropriate images of yourself — no logos, cartoon characters, or inappropriate imagery. Job photos should be relevant to the task. Explicit, violent, or offensive content is not permitted anywhere on the platform." },
+      { icon:"", title:"Protect Privacy", body:"Do not share another user's personal information — phone numbers, addresses, or photos — outside the platform without their explicit consent. Do not attempt to contact users through channels other than Chores messaging for job-related matters." },
+      { icon:"", title:"Report, Don't Retaliate", body:"If someone violates these guidelines, report them through the app rather than retaliating. Our team reviews every report. False reports made to harm others are themselves a violation. We investigate all reports fairly and confidentially." },
+      { icon:"", title:"No Illegal Activity", body:"Chores may not be used to arrange, facilitate, or fund any illegal activity. This includes unlicensed contractor work requiring permits, jobs involving controlled substances, and any activity prohibited by local, state, or federal law." },
+      { icon:"", title:"Working Age Requirement", body:"Users must be at least 16 years old with a valid government-issued ID or driver's license to participate as a worker on Chores. Users under 18 must have parental or guardian consent. If you believe someone is under 16 or misrepresenting their age, report it immediately." },
     ];
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -1691,7 +1714,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           {rules.map((r,i)=>(
             <div key={i} style={{ borderBottom:i<rules.length-1?`1px solid ${G.border}`:"none" }}>
               <div className="tap" onClick={()=>setOpenRule(openRule===i?null:i)} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px" }}>
-                <span style={{ fontSize:20, flexShrink:0 }}>{r.icon}</span>
+                {r.icon && <span style={{ fontSize:20, flexShrink:0 }}>{r.icon}</span>}
                 <div style={{ fontSize:14, fontWeight:700, color:G.text, flex:1 }}>{r.title}</div>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform:openRule===i?"rotate(180deg)":"rotate(0)", transition:"transform .2s", flexShrink:0 }}><polyline points="6 9 12 15 18 9"/></svg>
               </div>
@@ -3116,8 +3139,8 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, padding:"14px 0 6px" }}>General</div>
             <SettingRow icon="🌙" label="Dark Mode" sub={darkMode?"On":"Off"} right={<Toggle on={darkMode} onChange={()=>onDarkMode&&onDarkMode(d=>!d)} />} />
-            <SettingRow icon="📱" label="Push Notifications" sub={toggles.push?"Enabled":"All notifications silenced"} right={<Toggle on={toggles.push} onChange={()=>tog("push")} />} />
-            <SettingRow icon="📳" label="Vibrate" sub={toggles.vibrate?"On":"Off"} right={<Toggle on={toggles.vibrate} onChange={()=>tog("vibrate")} />} last />
+            <SettingRow icon="📱" label="Push Notifications" sub={toggles.push?"Enabled":"All notifications silenced"} right={<Toggle on={toggles.push} onChange={()=>tog("push")} />} last />
+
           </div>
           {!toggles.push&&(
             <div style={{ background:"#FFF7ED", borderRadius:14, padding:14, marginBottom:14, border:"1px solid rgba(244,162,97,.2)", display:"flex", gap:10, alignItems:"center" }}>
@@ -4771,6 +4794,54 @@ function ReviewModal({ target, targetId, jobTitle, jobId, onSubmit, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // MAP SCREEN (full tab)
 // ═══════════════════════════════════════════════════════════════════════════
+
+function AddressAutocomplete({ value, onChange, style }) {
+  const [suggestions, setSuggestions] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const timer = React.useRef(null);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    onChange(val);
+    clearTimeout(timer.current);
+    if (val.length < 4) { setSuggestions([]); return; }
+    setLoading(true);
+    timer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&addressdetails=1&limit=5&countrycodes=us`);
+        const data = await res.json();
+        setSuggestions(data.map(d => d.display_name));
+      } catch { setSuggestions([]); }
+      setLoading(false);
+    }, 400);
+  };
+
+  return (
+    <div style={{ position:"relative" }}>
+      <input
+        value={value}
+        onChange={handleChange}
+        onBlur={()=>setTimeout(()=>setSuggestions([]),200)}
+        placeholder="Full address (e.g. 123 Main St, Columbus, OH)"
+        style={{ ...style, padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }}
+      />
+      {loading && (
+        <div style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", fontSize:11, color:G.muted }}>Searching…</div>
+      )}
+      {suggestions.length > 0 && (
+        <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:0, background:G.white, borderRadius:12, border:`1.5px solid ${G.border}`, boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:200, overflow:"hidden" }}>
+          {suggestions.map((s,i)=>(
+            <div key={i} className="tap" onMouseDown={()=>{ onChange(s); setSuggestions([]); }}
+              style={{ padding:"11px 14px", fontSize:13, color:G.text, borderBottom:i<suggestions.length-1?`1px solid ${G.border}`:"none", lineHeight:1.4 }}>
+              📍 {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist, userZip, darkMode }) {
   const currentUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   const [selectedPin, setSelectedPin] = useState(null);
@@ -6149,12 +6220,10 @@ export default function ChoresApp() {
                     }
                     return <div style={{ fontSize:13, color:G.greenMid, fontWeight:600, marginTop:-4, paddingLeft:2 }}>📅 {preview}</div>;
                   })()}
-                  {/* Full address — shown to worker only after they are hired */}
-                  <input
+                  {/* Full address with autocomplete — shown to worker only after they are hired */}
+                  <AddressAutocomplete
                     value={postForm.address}
-                    onChange={e=>setPostForm(p=>({...p,address:e.target.value}))}
-                    placeholder="Full address (e.g. 123 Main St, Columbus, OH)"
-                    style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, background:G.white, boxSizing:"border-box", width:"100%" }}
+                    onChange={val=>setPostForm(p=>({...p,address:val}))}
                   />
                   <div style={{ fontSize:11, color:G.muted, marginTop:-6, paddingLeft:2 }}>🔒 Address is only shared with the hired worker</div>
                   <textarea value={postForm.notes} onChange={e=>setPostForm(p=>({...p,notes:e.target.value}))} placeholder="Details, requirements, tools provided..." rows={3} style={{ padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, resize:"none", background:G.white }} />
