@@ -69,6 +69,14 @@ async function requireAuth(req, res, next) {
   next();
 }
 
+function requireAdmin(req, res, next) {
+  const adminEmail = process.env.ADMIN_EMAIL || "jlspicer28@icloud.com";
+  if (req.user.email.toLowerCase() !== adminEmail.toLowerCase()) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,6 +216,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
       ...data,
       firstName: data.first_name || "",
       lastName: data.last_name || "",
+      is_admin: (data.email || "").toLowerCase() === "jlspicer28@icloud.com",
     }
   });
 });
@@ -2078,6 +2087,80 @@ ${description}`);
 });
 
 
+
+// ADMIN STATS
+// ─────────────────────────────────────────────────────────────────────────────
+app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: jobs } = await supabase.from("jobs").select("id, title, pay, zip, status, created_at").order("created_at", { ascending: false });
+    const { data: users } = await supabase.from("users").select("id, first_name, last_name, role, email, created_at").order("created_at", { ascending: false });
+    const { data: escrows } = await supabase.from("escrow").select("id, amount, fee, status, created_at, released_at").order("created_at", { ascending: false });
+
+    const jobsArr = jobs || [];
+    const usersArr = users || [];
+    const escrowArr = escrows || [];
+
+    const totalJobs = jobsArr.length;
+    const openJobs = jobsArr.filter(j => j.status === "open").length;
+    const completedJobs = jobsArr.filter(j => j.status === "completed").length;
+    const totalWorkers = usersArr.filter(u => u.role === "worker").length;
+    const totalPosters = usersArr.filter(u => u.role === "poster").length;
+    const newUsersWeek = usersArr.filter(u => u.created_at && u.created_at >= weekAgo).length;
+    const releasedEscrow = escrowArr.filter(e => e.status === "released");
+    const completedToday = releasedEscrow.filter(e => e.released_at && e.released_at >= todayStr).length;
+    const totalRevenue = releasedEscrow.reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
+    const todayRevenue = releasedEscrow.filter(e => e.released_at && e.released_at >= todayStr).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
+    const avgFee = releasedEscrow.length ? totalRevenue / releasedEscrow.length : 0;
+    const openDisputes = escrowArr.filter(e => e.status === "disputed").length;
+
+    const zipCount = {};
+    jobsArr.forEach(j => { if (j.zip) zipCount[j.zip] = (zipCount[j.zip] || 0) + 1; });
+    const topZips = Object.entries(zipCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([zip, count]) => ({ zip, jobs: count }));
+
+    const activity = [];
+    jobsArr.slice(0, 8).forEach(j => {
+      const ts = j.created_at ? new Date(j.created_at).getTime() : 0;
+      if (j.status === "completed") activity.push({ icon: "✅", text: `Job completed · ${j.title || "Job"} · $${j.pay || 0}`, ts });
+      else if (j.status === "open") activity.push({ icon: "📋", text: `Job posted · ${j.title || "Job"} · $${j.pay || 0}`, ts });
+    });
+    usersArr.slice(0, 6).forEach(u => {
+      const ts = u.created_at ? new Date(u.created_at).getTime() : 0;
+      activity.push({ icon: u.role === "poster" ? "🏠" : "👤", text: `New ${u.role || "user"} signup · ${((u.first_name || "") + " " + (u.last_name || "")).trim()}`, ts });
+    });
+    escrowArr.slice(0, 6).forEach(e => {
+      const ts = e.created_at ? new Date(e.created_at).getTime() : 0;
+      if (e.status === "released") activity.push({ icon: "💸", text: `Payment released · $${e.amount || 0}`, ts });
+      else if (e.status === "disputed") activity.push({ icon: "⚖️", text: `Dispute opened · $${e.amount || 0}`, ts });
+    });
+    activity.sort((a, b) => b.ts - a.ts);
+
+    const relTime = (ts) => {
+      if (!ts) return "—";
+      const diff = (Date.now() - ts) / 1000;
+      if (diff < 60) return `${Math.floor(diff)}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}hr ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    };
+
+    res.json({
+      totalJobs, openJobs, completedJobs, completedToday,
+      totalWorkers, totalPosters, newUsersWeek,
+      totalRevenue: +totalRevenue.toFixed(2),
+      todayRevenue: +todayRevenue.toFixed(2),
+      avgFee: +avgFee.toFixed(2),
+      openDisputes, topZips,
+      recentActivity: activity.slice(0, 15).map(a => ({ icon: a.icon, text: a.text, time: relTime(a.ts) })),
+    });
+  } catch (err) {
+    console.error("Admin stats error:", err);
+    res.json({ error: err.message });
+  }
+});
 
 // WEBHOOKS
 // ─────────────────────────────────────────────────────────────────────────────
