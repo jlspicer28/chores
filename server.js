@@ -1847,25 +1847,24 @@ app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
   const todayStr = todayStart.toISOString();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const safe = (result) => (result.status === "fulfilled" ? result.value : { data: null, count: null, error: null });
+  const q = async (fn) => { try { return await fn(); } catch { return { data: null, count: null }; } };
 
   try {
-    const results = await Promise.allSettled([
-      supabase.from("jobs").select("*", { count: "exact", head: true }),
-      supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "open"),
-      supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "completed"),
-      supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "worker"),
-      supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "poster"),
-      supabase.from("users").select("*", { count: "exact", head: true }).gte("created_at", weekAgo),
-      supabase.from("escrow").select("fee").eq("status", "released"),
-      supabase.from("escrow").select("fee").eq("status", "released").gte("released_at", todayStr),
-      supabase.from("escrow").select("*", { count: "exact", head: true }).eq("status", "disputed"),
-      supabase.from("jobs").select("id, title, pay, zip, status, category, created_at").order("created_at", { ascending: false }).limit(30),
-      supabase.from("users").select("id, first_name, last_name, role, created_at").order("created_at", { ascending: false }).limit(10),
-      supabase.from("escrow").select("id, amount, status, created_at, released_at, job:jobs(title)").order("created_at", { ascending: false }).limit(15),
+    const [r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = await Promise.all([
+      q(() => supabase.from("jobs").select("*", { count: "exact", head: true })),
+      q(() => supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "open")),
+      q(() => supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "completed")),
+      q(() => supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "worker")),
+      q(() => supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "poster")),
+      q(() => supabase.from("users").select("*", { count: "exact", head: true }).gte("created_at", weekAgo)),
+      q(() => supabase.from("escrow").select("fee").eq("status", "released")),
+      q(() => supabase.from("escrow").select("fee, released_at").eq("status", "released")),
+      q(() => supabase.from("escrow").select("*", { count: "exact", head: true }).eq("status", "disputed")),
+      q(() => supabase.from("jobs").select("id, title, pay, zip, status, created_at").order("created_at", { ascending: false }).limit(30)),
+      q(() => supabase.from("users").select("id, first_name, last_name, role, created_at").order("created_at", { ascending: false }).limit(10)),
+      q(() => supabase.from("escrow").select("id, amount, status, created_at, released_at, job_id").order("created_at", { ascending: false }).limit(15)),
     ]);
 
-    const [r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = results.map(safe);
     const totalJobs = r0.count;
     const openJobs = r1.count;
     const completedJobs = r2.count;
@@ -1873,7 +1872,7 @@ app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
     const totalPosters = r4.count;
     const newUsersWeek = r5.count;
     const releasedEscrow = r6.data;
-    const releasedToday = r7.data;
+    const releasedToday = (r7.data || []).filter(e => e.released_at && e.released_at >= todayStr);
     const openDisputes = r8.count;
     const recentJobs = r9.data;
     const recentUsers = r10.data;
@@ -1905,11 +1904,11 @@ app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
     });
     (recentEscrowActivity || []).forEach(e => {
       if (e.status === "released") {
-        activity.push({ icon: "💸", text: `Payment released · ${e.job?.title || "Job"} · $${e.amount}`, ts: new Date(e.released_at || e.created_at).getTime() });
+        activity.push({ icon: "💸", text: `Payment released · $${e.amount}`, ts: new Date(e.released_at || e.created_at).getTime() });
       } else if (e.status === "disputed") {
-        activity.push({ icon: "⚖️", text: `Dispute opened · ${e.job?.title || "Job"} · $${e.amount}`, ts: new Date(e.created_at).getTime() });
+        activity.push({ icon: "⚖️", text: `Dispute opened · $${e.amount}`, ts: new Date(e.created_at).getTime() });
       } else if (e.status === "held") {
-        activity.push({ icon: "🔒", text: `Escrow funded · ${e.job?.title || "Job"} · $${e.amount}`, ts: new Date(e.created_at).getTime() });
+        activity.push({ icon: "🔒", text: `Escrow funded · $${e.amount}`, ts: new Date(e.created_at).getTime() });
       }
     });
     activity.sort((a, b) => b.ts - a.ts);
