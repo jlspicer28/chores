@@ -60,8 +60,8 @@ async function requireAuth(req, res, next) {
 
 // ── Admin middleware — restricts routes to the ADMIN_EMAIL account ────────────
 function requireAdmin(req, res, next) {
-  const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail || req.user.email !== adminEmail) {
+  const adminEmail = process.env.ADMIN_EMAIL || "jlspicer28@icloud.com";
+  if (req.user.email.toLowerCase() !== adminEmail.toLowerCase()) {
     return res.status(403).json({ error: "Forbidden" });
   }
   next();

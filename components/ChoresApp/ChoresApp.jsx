@@ -3184,7 +3184,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
             <SettingRow icon="⭐" label="Rate the App" sub="Leave a review" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>window.open("https://apps.apple.com","_blank")} />
             <SettingRow icon="📜" label="Terms of Service" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("terms")} />
             <SettingRow icon="🛡️" label="Community Guidelines" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("guidelines")} />
-            {storedUser?.is_admin && <SettingRow icon="⚙️" label="Admin Dashboard" sub="Platform analytics" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>onAdmin&&onAdmin()} last />}
+            {storedUser?.email === "jlspicer28@icloud.com" && <SettingRow icon="⚙️" label="Admin Dashboard" sub="Platform analytics" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>onAdmin&&onAdmin()} last />}
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", textAlign:"center" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:800, color:G.green }}>Chores<span style={{ color:G.greenLight }}>.</span></div>
@@ -6116,7 +6116,7 @@ export default function ChoresApp() {
   if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole)setShowRoleModal(true);}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
   if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole&&r!=="guest")setShowRoleModal(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
 
-  if (appView==="admin" && currentUserData?.is_admin) return (
+  if (appView==="admin" && currentUserData?.email === "jlspicer28@icloud.com") return (
     <div style={{ maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)" }}>
       <style>{CSS}</style>
       <div className="tap" onClick={()=>setAppView("user")} style={{ background:"rgba(255,255,255,.07)", padding:"10px 20px", fontSize:13, color:"rgba(255,255,255,.6)", fontFamily:"'Outfit',sans-serif" }}>← Back to App</div>
