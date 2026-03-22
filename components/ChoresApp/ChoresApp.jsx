@@ -4010,16 +4010,17 @@ function AdminDashboard() {
   const [stats, setStats] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [lastUpdated, setLastUpdated] = React.useState(null);
+  const [fetchError, setFetchError] = React.useState(null);
 
   const fetchStats = React.useCallback(() => {
     const token = isBrowser ? localStorage.getItem("chores_token") : null;
-    if (!token) return;
+    if (!token) { setFetchError("No auth token found"); setLoading(false); return; }
     fetch(`${BACKEND}/api/admin/stats`, { headers: { "Authorization": `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
-        if (!data.error) { setStats(data); setLastUpdated(new Date()); }
+        if (data.error) { setFetchError(data.error); } else { setStats(data); setLastUpdated(new Date()); setFetchError(null); }
       })
-      .catch(() => {})
+      .catch(e => setFetchError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -4052,8 +4053,8 @@ function AdminDashboard() {
       <div style={{ padding:16 }}>
         {loading ? (
           <div style={{ textAlign:"center", padding:"48px 0", color:"rgba(255,255,255,.4)", fontSize:14 }}>Loading stats…</div>
-        ) : !stats ? (
-          <div style={{ textAlign:"center", padding:"48px 0", color:"rgba(255,100,100,.6)", fontSize:14 }}>Failed to load stats.</div>
+        ) : fetchError ? (
+          <div style={{ textAlign:"center", padding:"48px 16px", color:"rgba(255,100,100,.6)", fontSize:13 }}>Error: {fetchError}</div>
         ) : (
           <div className="fade">
             {/* Stat cards */}
@@ -4930,10 +4931,14 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
       }))); })
       .catch(e=>console.error("Map jobs error:", e));
   }, [userZip, maxDist]);
-  const mapRef = React.useRef(null);       // DOM node
-  const leafletRef = React.useRef(null);   // Leaflet map instance
-  const markersRef = React.useRef([]);     // current marker objects
-  const tileLayerRef = React.useRef(null); // tile layer for dark mode swap
+  const mapRef = React.useRef(null);           // DOM node
+  const leafletRef = React.useRef(null);       // Leaflet map instance
+  const markersRef = React.useRef([]);         // current marker objects
+  const tileLayerRef = React.useRef(null);     // tile layer for dark mode swap
+  const userCoordsRef = React.useRef(userCoords); // always-current coords for bootMap
+
+  // Keep ref in sync so bootMap can read latest coords after async Leaflet load
+  React.useEffect(() => { userCoordsRef.current = userCoords; }, [userCoords]);
 
   // Center on user's exact coords when available (granted location)
   React.useEffect(() => {
@@ -4984,6 +4989,9 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 
       tileLayerRef.current = L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
       leafletRef.current = map;
+      // If coords arrived before Leaflet finished loading, pan now
+      const c = userCoordsRef.current;
+      if (c) map.setView([c.lat, c.lng], 15);
     };
 
     if (window.L) {
