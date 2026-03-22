@@ -4842,7 +4842,7 @@ function AddressAutocomplete({ value, onChange, style }) {
   );
 }
 
-function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist, userZip, darkMode }) {
+function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDist, userZip, userCoords, darkMode }) {
   const currentUserId = (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user"))?.id : null; } catch { return null; } })();
   const [selectedPin, setSelectedPin] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -4873,9 +4873,16 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
   const markersRef = React.useRef([]);     // current marker objects
   const tileLayerRef = React.useRef(null); // tile layer for dark mode swap
 
-  // Geocode zip → center
+  // Center on user's exact coords when available (granted location)
   React.useEffect(() => {
-    if (!userZip) return;
+    if (!userCoords) return;
+    setMapCenter(userCoords);
+    if (leafletRef.current) leafletRef.current.setView([userCoords.lat, userCoords.lng], leafletRef.current.getZoom(), { animate: true });
+  }, [userCoords]);
+
+  // Geocode zip → center only when exact coords are not available (denied/unavailable)
+  React.useEffect(() => {
+    if (userCoords || !userZip) return;
     fetch(`https://nominatim.openstreetmap.org/search?postalcode=${userZip}&country=US&format=json&limit=1`)
       .then(r => r.json())
       .then(data => {
@@ -4886,7 +4893,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
         }
       })
       .catch(() => {});
-  }, [userZip]);
+  }, [userZip, userCoords]);
 
   // Boot Leaflet once
   React.useEffect(() => {
@@ -6143,7 +6150,7 @@ export default function ChoresApp() {
       <div ref={contentRef} style={{ flex:1, overflowY:"auto", paddingBottom:88 }}>
         {view==="home"&&<DiscoveryScreen role={role} onPostJob={()=>setShowPostJob(true)} onFundEscrow={(job)=>setEscrowModal(job)} onCheckout={(job)=>setCheckoutModal(job)} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} userZip={userZip} maxDist={maxDist} setMaxDist={setMaxDist} profileVisible={appToggles.profileVisible} refreshSignal={lastJobPost} onApplicationSent={fetchInbox} onViewProfile={(id)=>setViewingProfileId(id)} escrowData={escrowData} />}
         {view==="myjobs"&&<MyJobsScreen onPostJob={()=>setShowPostJob(true)} onCheckout={(job)=>setCheckoutModal(job)} refreshSignal={lastJobPost} />}
-        {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} darkMode={darkMode} />}
+        {view==="map"&&<MapScreen role={role} isGuest={isGuest} onGuestAction={()=>setGuestPrompt(true)} onCheckout={(job)=>setCheckoutModal(job)} maxDist={maxDist} setMaxDist={setMaxDist} userZip={userZip} userCoords={userCoords} darkMode={darkMode} />}
         {view==="notifications"&&<NotificationsScreen role={role} onNavigate={setView} />}
         {view==="messages"&&(
           <MessagesTab
