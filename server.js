@@ -1841,79 +1841,55 @@ ${description}`);
 // ADMIN — Real-time platform stats (owner only)
 // ─────────────────────────────────────────────────────────────────────────────
 app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
-  const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const todayStr = todayStart.toISOString();
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-  const q = async (fn) => { try { return await fn(); } catch { return { data: null, count: null }; } };
-
   try {
-    const [r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = await Promise.all([
-      q(() => supabase.from("jobs").select("*", { count: "exact", head: true })),
-      q(() => supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "open")),
-      q(() => supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "completed")),
-      q(() => supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "worker")),
-      q(() => supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "poster")),
-      q(() => supabase.from("users").select("*", { count: "exact", head: true }).gte("created_at", weekAgo)),
-      q(() => supabase.from("escrow").select("fee").eq("status", "released")),
-      q(() => supabase.from("escrow").select("fee, released_at").eq("status", "released")),
-      q(() => supabase.from("escrow").select("*", { count: "exact", head: true }).eq("status", "disputed")),
-      q(() => supabase.from("jobs").select("id, title, pay, zip, status, created_at").order("created_at", { ascending: false }).limit(30)),
-      q(() => supabase.from("users").select("id, first_name, last_name, role, created_at").order("created_at", { ascending: false }).limit(10)),
-      q(() => supabase.from("escrow").select("id, amount, status, created_at, released_at, job_id").order("created_at", { ascending: false }).limit(15)),
-    ]);
+    const now = new Date();
+    const todayStr = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const totalJobs = r0.count;
-    const openJobs = r1.count;
-    const completedJobs = r2.count;
-    const totalWorkers = r3.count;
-    const totalPosters = r4.count;
-    const newUsersWeek = r5.count;
-    const releasedEscrow = r6.data;
-    const releasedToday = (r7.data || []).filter(e => e.released_at && e.released_at >= todayStr);
-    const openDisputes = r8.count;
-    const recentJobs = r9.data;
-    const recentUsers = r10.data;
-    const recentEscrowActivity = r11.data;
+    const { data: jobs } = await supabase.from("jobs").select("id, title, pay, zip, status, created_at").order("created_at", { ascending: false });
+    const { data: users } = await supabase.from("users").select("id, first_name, last_name, role, email, created_at").order("created_at", { ascending: false });
+    const { data: escrows } = await supabase.from("escrow").select("id, amount, fee, status, created_at, released_at").order("created_at", { ascending: false });
 
-    // Revenue
-    const totalRevenue = (releasedEscrow || []).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
-    const todayRevenue = (releasedToday || []).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
-    const avgFee = releasedEscrow?.length ? totalRevenue / releasedEscrow.length : 0;
-    const completedToday = releasedToday?.length || 0;
+    const jobsArr = jobs || [];
+    const usersArr = users || [];
+    const escrowArr = escrows || [];
 
-    // Top zips
+    const totalJobs = jobsArr.length;
+    const openJobs = jobsArr.filter(j => j.status === "open").length;
+    const completedJobs = jobsArr.filter(j => j.status === "completed").length;
+    const totalWorkers = usersArr.filter(u => u.role === "worker").length;
+    const totalPosters = usersArr.filter(u => u.role === "poster").length;
+    const newUsersWeek = usersArr.filter(u => u.created_at && u.created_at >= weekAgo).length;
+    const releasedEscrow = escrowArr.filter(e => e.status === "released");
+    const completedToday = releasedEscrow.filter(e => e.released_at && e.released_at >= todayStr).length;
+    const totalRevenue = releasedEscrow.reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
+    const todayRevenue = releasedEscrow.filter(e => e.released_at && e.released_at >= todayStr).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
+    const avgFee = releasedEscrow.length ? totalRevenue / releasedEscrow.length : 0;
+    const openDisputes = escrowArr.filter(e => e.status === "disputed").length;
+
     const zipCount = {};
-    (recentJobs || []).forEach(j => { if (j.zip) zipCount[j.zip] = (zipCount[j.zip] || 0) + 1; });
-    const topZips = Object.entries(zipCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([zip, jobs]) => ({ zip, jobs }));
+    jobsArr.forEach(j => { if (j.zip) zipCount[j.zip] = (zipCount[j.zip] || 0) + 1; });
+    const topZips = Object.entries(zipCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([zip, count]) => ({ zip, jobs: count }));
 
-    // Build activity feed from multiple sources
     const activity = [];
-    (recentJobs || []).slice(0, 8).forEach(j => {
-      if (j.status === "completed") {
-        activity.push({ icon: "✅", text: `Job completed · ${j.title} · $${j.pay}`, ts: new Date(j.created_at).getTime() });
-      } else if (j.status === "open") {
-        activity.push({ icon: "📋", text: `Job posted · ${j.title} · $${j.pay}`, ts: new Date(j.created_at).getTime() });
-      }
+    jobsArr.slice(0, 8).forEach(j => {
+      const ts = j.created_at ? new Date(j.created_at).getTime() : 0;
+      if (j.status === "completed") activity.push({ icon: "✅", text: `Job completed · ${j.title || "Job"} · $${j.pay || 0}`, ts });
+      else if (j.status === "open") activity.push({ icon: "📋", text: `Job posted · ${j.title || "Job"} · $${j.pay || 0}`, ts });
     });
-    (recentUsers || []).forEach(u => {
-      const icon = u.role === "poster" ? "🏠" : "👤";
-      activity.push({ icon, text: `New ${u.role} signup · ${u.first_name} ${u.last_name}`.trim(), ts: new Date(u.created_at).getTime() });
+    usersArr.slice(0, 6).forEach(u => {
+      const ts = u.created_at ? new Date(u.created_at).getTime() : 0;
+      activity.push({ icon: u.role === "poster" ? "🏠" : "👤", text: `New ${u.role || "user"} signup · ${(u.first_name || "") + " " + (u.last_name || "")}`.trim(), ts });
     });
-    (recentEscrowActivity || []).forEach(e => {
-      if (e.status === "released") {
-        activity.push({ icon: "💸", text: `Payment released · $${e.amount}`, ts: new Date(e.released_at || e.created_at).getTime() });
-      } else if (e.status === "disputed") {
-        activity.push({ icon: "⚖️", text: `Dispute opened · $${e.amount}`, ts: new Date(e.created_at).getTime() });
-      } else if (e.status === "held") {
-        activity.push({ icon: "🔒", text: `Escrow funded · $${e.amount}`, ts: new Date(e.created_at).getTime() });
-      }
+    escrowArr.slice(0, 6).forEach(e => {
+      const ts = e.created_at ? new Date(e.created_at).getTime() : 0;
+      if (e.status === "released") activity.push({ icon: "💸", text: `Payment released · $${e.amount || 0}`, ts });
+      else if (e.status === "disputed") activity.push({ icon: "⚖️", text: `Dispute opened · $${e.amount || 0}`, ts });
     });
     activity.sort((a, b) => b.ts - a.ts);
 
     const relTime = (ts) => {
+      if (!ts) return "—";
       const diff = (Date.now() - ts) / 1000;
       if (diff < 60) return `${Math.floor(diff)}s ago`;
       if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
@@ -1922,18 +1898,12 @@ app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
     };
 
     res.json({
-      totalJobs: totalJobs || 0,
-      openJobs: openJobs || 0,
-      completedJobs: completedJobs || 0,
-      completedToday,
-      totalWorkers: totalWorkers || 0,
-      totalPosters: totalPosters || 0,
-      newUsersWeek: newUsersWeek || 0,
+      totalJobs, openJobs, completedJobs, completedToday,
+      totalWorkers, totalPosters, newUsersWeek,
       totalRevenue: +totalRevenue.toFixed(2),
       todayRevenue: +todayRevenue.toFixed(2),
       avgFee: +avgFee.toFixed(2),
-      openDisputes: openDisputes || 0,
-      topZips,
+      openDisputes, topZips,
       recentActivity: activity.slice(0, 15).map(a => ({ icon: a.icon, text: a.text, time: relTime(a.ts) })),
     });
   } catch (err) {
