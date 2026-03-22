@@ -1847,21 +1847,10 @@ app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
   const todayStr = todayStart.toISOString();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+  const safe = (result) => (result.status === "fulfilled" ? result.value : { data: null, count: null, error: null });
+
   try {
-    const [
-      { count: totalJobs },
-      { count: openJobs },
-      { count: completedJobs },
-      { count: totalWorkers },
-      { count: totalPosters },
-      { count: newUsersWeek },
-      { data: releasedEscrow },
-      { data: releasedToday },
-      { count: openDisputes },
-      { data: recentJobs },
-      { data: recentUsers },
-      { data: recentEscrowActivity },
-    ] = await Promise.all([
+    const results = await Promise.allSettled([
       supabase.from("jobs").select("*", { count: "exact", head: true }),
       supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "open"),
       supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "completed"),
@@ -1875,6 +1864,20 @@ app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
       supabase.from("users").select("id, first_name, last_name, role, created_at").order("created_at", { ascending: false }).limit(10),
       supabase.from("escrow").select("id, amount, status, created_at, released_at, job:jobs(title)").order("created_at", { ascending: false }).limit(15),
     ]);
+
+    const [r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = results.map(safe);
+    const totalJobs = r0.count;
+    const openJobs = r1.count;
+    const completedJobs = r2.count;
+    const totalWorkers = r3.count;
+    const totalPosters = r4.count;
+    const newUsersWeek = r5.count;
+    const releasedEscrow = r6.data;
+    const releasedToday = r7.data;
+    const openDisputes = r8.count;
+    const recentJobs = r9.data;
+    const recentUsers = r10.data;
+    const recentEscrowActivity = r11.data;
 
     // Revenue
     const totalRevenue = (releasedEscrow || []).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
