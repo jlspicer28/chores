@@ -141,21 +141,6 @@ const JOBS = [];
 const NOTIFS_WORKER = [];
 const NOTIFS_POSTER = [];
 
-const ADMIN_STATS = {
-  totalJobs:1247, activeJobs:84, completedToday:23, totalWorkers:892, activeWorkers:341, newThisWeek:47,
-  totalPosters:634, activePosters:218, revenue:12840, revenueToday:486, avgFee:8.2,
-  disputes:7, openDisputes:3, resolvedToday:4, strikes:12, suspensions:2,
-  topZips:[{zip:"60647",jobs:312,workers:107},{zip:"60614",jobs:248,workers:91},{zip:"60657",jobs:195,workers:78},{zip:"60622",jobs:176,workers:64}],
-  recentActivity:[
-    {type:"job",icon:"✅",text:"Job completed · Mow Lawn · $35",time:"2m ago"},
-    {type:"signup",icon:"👤",text:"New worker signup · Jordan D. · 60647",time:"5m ago"},
-    {type:"dispute",icon:"⚖️",text:"Dispute opened · Window Washing · 60614",time:"12m ago"},
-    {type:"payment",icon:"💸",text:"Payout released · $46.00 · worker #1204",time:"18m ago"},
-    {type:"strike",icon:"⚠️",text:"Strike issued · Poster #887 · no-show",time:"34m ago"},
-    {type:"job",icon:"📋",text:"New job posted · Babysitting · 60657",time:"41m ago"},
-    {type:"signup",icon:"🏠",text:"New poster signup · Sunrise Café",time:"1hr ago"},
-  ],
-};
 
 // Escrow loaded live from backend — no mock data
 const INITIAL_ESCROW = [];
@@ -3199,7 +3184,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
             <SettingRow icon="⭐" label="Rate the App" sub="Leave a review" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>window.open("https://apps.apple.com","_blank")} />
             <SettingRow icon="📜" label="Terms of Service" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("terms")} />
             <SettingRow icon="🛡️" label="Community Guidelines" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("guidelines")} />
-            <SettingRow icon="⚙️" label="Admin Dashboard" sub="Developer tools" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>onAdmin&&onAdmin()} last />
+            {storedUser?.is_admin && <SettingRow icon="⚙️" label="Admin Dashboard" sub="Platform analytics" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>onAdmin&&onAdmin()} last />}
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", textAlign:"center" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:800, color:G.green }}>Chores<span style={{ color:G.greenLight }}>.</span></div>
@@ -4022,37 +4007,114 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
 
 // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
 function AdminDashboard() {
+  const [stats, setStats] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [lastUpdated, setLastUpdated] = React.useState(null);
+
+  const fetchStats = React.useCallback(() => {
+    const token = isBrowser ? localStorage.getItem("chores_token") : null;
+    if (!token) return;
+    fetch(`${BACKEND}/api/admin/stats`, { headers: { "Authorization": `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.error) { setStats(data); setLastUpdated(new Date()); }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => {
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);
+    return () => clearInterval(interval);
+  }, [fetchStats]);
+
+  const now = lastUpdated ? lastUpdated.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) : "—";
+
   return (
     <div className="fade" style={{ background:"#0F1923", minHeight:"100vh", fontFamily:"'Outfit',sans-serif" }}>
       <div style={{ background:"linear-gradient(135deg,#0F1923 0%,#1B4332 100%)", padding:"14px 20px 20px", borderBottom:"1px solid rgba(255,255,255,.08)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:32, height:32, borderRadius:10, background:G.green, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>⚙️</div>
-          <div><div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:"#fff" }}>Chores Admin</div><div style={{ fontSize:11, color:"rgba(255,255,255,.5)" }}>Dashboard · Zip 60647</div></div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:32, height:32, borderRadius:10, background:G.green, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>⚙️</div>
+            <div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:"#fff" }}>Chores Admin</div>
+              <div style={{ fontSize:11, color:"rgba(255,255,255,.5)" }}>Live Dashboard</div>
+            </div>
+          </div>
+          <div style={{ fontSize:10, color:"rgba(255,255,255,.3)", textAlign:"right" }}>
+            <div style={{ color:"rgba(82,183,136,.8)", fontWeight:600, fontSize:11 }}>● LIVE</div>
+            <div>Updated {now}</div>
+          </div>
         </div>
       </div>
+
       <div style={{ padding:16 }}>
-        <div className="fade">
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-            {[{label:"Total Jobs",value:ADMIN_STATS.totalJobs.toLocaleString(),sub:`${ADMIN_STATS.activeJobs} active`,icon:"📋",color:G.greenLight},{label:"Workers",value:ADMIN_STATS.totalWorkers.toLocaleString(),sub:`${ADMIN_STATS.activeWorkers} active`,icon:"💼",color:"#63B3ED"},{label:"Posters",value:ADMIN_STATS.totalPosters.toLocaleString(),sub:`${ADMIN_STATS.activePosters} active`,icon:"🏠",color:G.gold},{label:"Revenue",value:`$${ADMIN_STATS.revenue.toLocaleString()}`,sub:`$${ADMIN_STATS.revenueToday} today`,icon:"💰",color:"#9F7AEA"}].map(s=>(
-              <div key={s.label} className="stat-card" style={{ background:"rgba(255,255,255,.06)", borderRadius:16, padding:14, border:"1px solid rgba(255,255,255,.08)" }}>
-                <div style={{ fontSize:22, marginBottom:8 }}>{s.icon}</div>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:s.color }}>{s.value}</div>
-                <div style={{ fontSize:12, color:"rgba(255,255,255,.7)", marginTop:2, fontWeight:600 }}>{s.label}</div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,.4)", marginTop:2 }}>{s.sub}</div>
+        {loading ? (
+          <div style={{ textAlign:"center", padding:"48px 0", color:"rgba(255,255,255,.4)", fontSize:14 }}>Loading stats…</div>
+        ) : !stats ? (
+          <div style={{ textAlign:"center", padding:"48px 0", color:"rgba(255,100,100,.6)", fontSize:14 }}>Failed to load stats.</div>
+        ) : (
+          <div className="fade">
+            {/* Stat cards */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+              {[
+                { label:"Total Jobs", value:(stats.totalJobs||0).toLocaleString(), sub:`${stats.openJobs||0} open · ${stats.completedJobs||0} done`, icon:"📋", color:"#74C69D" },
+                { label:"Completed Today", value:(stats.completedToday||0).toLocaleString(), sub:`${stats.newUsersWeek||0} new users this week`, icon:"✅", color:"#9F7AEA" },
+                { label:"Workers", value:(stats.totalWorkers||0).toLocaleString(), sub:`${stats.totalPosters||0} posters`, icon:"💼", color:"#63B3ED" },
+                { label:"Revenue", value:`$${(stats.totalRevenue||0).toLocaleString()}`, sub:`$${(stats.todayRevenue||0).toFixed(2)} today`, icon:"💰", color:"#F4A261" },
+              ].map(s => (
+                <div key={s.label} className="stat-card" style={{ background:"rgba(255,255,255,.06)", borderRadius:16, padding:14, border:"1px solid rgba(255,255,255,.08)" }}>
+                  <div style={{ fontSize:22, marginBottom:8 }}>{s.icon}</div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:s.color }}>{s.value}</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,.7)", marginTop:2, fontWeight:600 }}>{s.label}</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,.4)", marginTop:2 }}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Secondary stats row */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+              {[
+                { label:"Open Disputes", value:stats.openDisputes||0, color:"#FC8181" },
+                { label:"Avg Fee", value:`$${(stats.avgFee||0).toFixed(2)}`, color:"rgba(255,255,255,.7)" },
+                { label:"New/Week", value:stats.newUsersWeek||0, color:"rgba(255,255,255,.7)" },
+              ].map(s => (
+                <div key={s.label} style={{ background:"rgba(255,255,255,.04)", borderRadius:12, padding:"10px 12px", border:"1px solid rgba(255,255,255,.06)", textAlign:"center" }}>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:s.color }}>{s.value}</div>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Top zips */}
+            {stats.topZips?.length > 0 && (
+              <div style={{ background:"rgba(255,255,255,.06)", borderRadius:16, padding:16, border:"1px solid rgba(255,255,255,.08)", marginBottom:12 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,255,255,.5)", textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Top Zip Codes</div>
+                {stats.topZips.map((z, i) => (
+                  <div key={z.zip} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:i < stats.topZips.length-1 ? "1px solid rgba(255,255,255,.05)" : "none" }}>
+                    <div style={{ fontSize:13, color:"rgba(255,255,255,.8)", fontWeight:600 }}>{z.zip}</div>
+                    <div style={{ fontSize:12, color:"rgba(255,255,255,.4)" }}>{z.jobs} job{z.jobs!==1?"s":""}</div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+
+            {/* Live activity feed */}
+            <div style={{ background:"rgba(255,255,255,.06)", borderRadius:16, padding:16, border:"1px solid rgba(255,255,255,.08)" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,255,255,.5)", textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Live Activity</div>
+              {(stats.recentActivity||[]).length === 0 ? (
+                <div style={{ fontSize:13, color:"rgba(255,255,255,.3)", textAlign:"center", padding:"16px 0" }}>No activity yet.</div>
+              ) : (stats.recentActivity||[]).map((a, i) => (
+                <div key={i} style={{ display:"flex", gap:10, alignItems:"center", padding:"9px 0", borderBottom:i < (stats.recentActivity.length-1) ? "1px solid rgba(255,255,255,.06)" : "none" }}>
+                  <div style={{ width:28, height:28, borderRadius:8, background:"rgba(255,255,255,.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>{a.icon}</div>
+                  <div style={{ flex:1, fontSize:13, color:"rgba(255,255,255,.85)" }}>{a.text}</div>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,.3)", flexShrink:0 }}>{a.time}</div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ background:"rgba(255,255,255,.06)", borderRadius:16, padding:16, border:"1px solid rgba(255,255,255,.08)" }}>
-            <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,255,255,.5)", textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Live Activity</div>
-            {ADMIN_STATS.recentActivity.map((a,i)=>(
-              <div key={i} style={{ display:"flex", gap:10, alignItems:"center", padding:"9px 0", borderBottom:i<6?"1px solid rgba(255,255,255,.06)":"none" }}>
-                <div style={{ width:28, height:28, borderRadius:8, background:"rgba(255,255,255,.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>{a.icon}</div>
-                <div style={{ flex:1, fontSize:13, color:"rgba(255,255,255,.85)" }}>{a.text}</div>
-                <div style={{ fontSize:10, color:"rgba(255,255,255,.3)", flexShrink:0 }}>{a.time}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -6054,10 +6116,9 @@ export default function ChoresApp() {
   if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole)setShowRoleModal(true);}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
   if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole&&r!=="guest")setShowRoleModal(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
 
-  if (appView==="admin") return (
+  if (appView==="admin" && currentUserData?.is_admin) return (
     <div style={{ maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)" }}>
       <style>{CSS}</style>
-
       <div className="tap" onClick={()=>setAppView("user")} style={{ background:"rgba(255,255,255,.07)", padding:"10px 20px", fontSize:13, color:"rgba(255,255,255,.6)", fontFamily:"'Outfit',sans-serif" }}>← Back to App</div>
       <AdminDashboard />
     </div>

@@ -58,6 +58,15 @@ async function requireAuth(req, res, next) {
   next();
 }
 
+// ── Admin middleware — restricts routes to the ADMIN_EMAIL account ────────────
+function requireAdmin(req, res, next) {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail || req.user.email !== adminEmail) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,6 +171,7 @@ app.post("/api/auth/login", async (req, res) => {
         role: profile?.role || "worker",
         rating: profile?.rating || 5.0,
         jobsCompleted: profile?.jobs_completed || 0,
+        is_admin: (profile?.email || email).toLowerCase() === (process.env.ADMIN_EMAIL || "").toLowerCase(),
       },
     });
   } catch (err) {
@@ -197,6 +207,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
       ...data,
       firstName: data.first_name || "",
       lastName: data.last_name || "",
+      is_admin: (data.email || "").toLowerCase() === (process.env.ADMIN_EMAIL || "").toLowerCase(),
     }
   });
 });
@@ -1826,6 +1837,109 @@ ${description}`);
 
 // WEBHOOKS
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN — Real-time platform stats (owner only)
+// ─────────────────────────────────────────────────────────────────────────────
+app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayStr = todayStart.toISOString();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const [
+      { count: totalJobs },
+      { count: openJobs },
+      { count: completedJobs },
+      { count: totalWorkers },
+      { count: totalPosters },
+      { count: newUsersWeek },
+      { data: releasedEscrow },
+      { data: releasedToday },
+      { count: openDisputes },
+      { data: recentJobs },
+      { data: recentUsers },
+      { data: recentEscrowActivity },
+    ] = await Promise.all([
+      supabase.from("jobs").select("*", { count: "exact", head: true }),
+      supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "open"),
+      supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "completed"),
+      supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "worker"),
+      supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "poster"),
+      supabase.from("users").select("*", { count: "exact", head: true }).gte("created_at", weekAgo),
+      supabase.from("escrow").select("fee").eq("status", "released"),
+      supabase.from("escrow").select("fee").eq("status", "released").gte("released_at", todayStr),
+      supabase.from("escrow").select("*", { count: "exact", head: true }).eq("status", "disputed"),
+      supabase.from("jobs").select("id, title, pay, zip, status, category, created_at").order("created_at", { ascending: false }).limit(30),
+      supabase.from("users").select("id, first_name, last_name, role, created_at").order("created_at", { ascending: false }).limit(10),
+      supabase.from("escrow").select("id, amount, status, created_at, released_at, job:jobs(title)").order("created_at", { ascending: false }).limit(15),
+    ]);
+
+    // Revenue
+    const totalRevenue = (releasedEscrow || []).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
+    const todayRevenue = (releasedToday || []).reduce((s, e) => s + (parseFloat(e.fee) || 0), 0);
+    const avgFee = releasedEscrow?.length ? totalRevenue / releasedEscrow.length : 0;
+    const completedToday = releasedToday?.length || 0;
+
+    // Top zips
+    const zipCount = {};
+    (recentJobs || []).forEach(j => { if (j.zip) zipCount[j.zip] = (zipCount[j.zip] || 0) + 1; });
+    const topZips = Object.entries(zipCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([zip, jobs]) => ({ zip, jobs }));
+
+    // Build activity feed from multiple sources
+    const activity = [];
+    (recentJobs || []).slice(0, 8).forEach(j => {
+      if (j.status === "completed") {
+        activity.push({ icon: "✅", text: `Job completed · ${j.title} · $${j.pay}`, ts: new Date(j.created_at).getTime() });
+      } else if (j.status === "open") {
+        activity.push({ icon: "📋", text: `Job posted · ${j.title} · $${j.pay}`, ts: new Date(j.created_at).getTime() });
+      }
+    });
+    (recentUsers || []).forEach(u => {
+      const icon = u.role === "poster" ? "🏠" : "👤";
+      activity.push({ icon, text: `New ${u.role} signup · ${u.first_name} ${u.last_name}`.trim(), ts: new Date(u.created_at).getTime() });
+    });
+    (recentEscrowActivity || []).forEach(e => {
+      if (e.status === "released") {
+        activity.push({ icon: "💸", text: `Payment released · ${e.job?.title || "Job"} · $${e.amount}`, ts: new Date(e.released_at || e.created_at).getTime() });
+      } else if (e.status === "disputed") {
+        activity.push({ icon: "⚖️", text: `Dispute opened · ${e.job?.title || "Job"} · $${e.amount}`, ts: new Date(e.created_at).getTime() });
+      } else if (e.status === "held") {
+        activity.push({ icon: "🔒", text: `Escrow funded · ${e.job?.title || "Job"} · $${e.amount}`, ts: new Date(e.created_at).getTime() });
+      }
+    });
+    activity.sort((a, b) => b.ts - a.ts);
+
+    const relTime = (ts) => {
+      const diff = (Date.now() - ts) / 1000;
+      if (diff < 60) return `${Math.floor(diff)}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}hr ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    };
+
+    res.json({
+      totalJobs: totalJobs || 0,
+      openJobs: openJobs || 0,
+      completedJobs: completedJobs || 0,
+      completedToday,
+      totalWorkers: totalWorkers || 0,
+      totalPosters: totalPosters || 0,
+      newUsersWeek: newUsersWeek || 0,
+      totalRevenue: +totalRevenue.toFixed(2),
+      todayRevenue: +todayRevenue.toFixed(2),
+      avgFee: +avgFee.toFixed(2),
+      openDisputes: openDisputes || 0,
+      topZips,
+      recentActivity: activity.slice(0, 15).map(a => ({ icon: a.icon, text: a.text, time: relTime(a.ts) })),
+    });
+  } catch (err) {
+    console.error("Admin stats error:", err);
+    res.json({ error: err.message });
+  }
+});
+
 app.post("/api/webhook", async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
