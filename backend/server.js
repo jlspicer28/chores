@@ -342,10 +342,13 @@ app.get("/api/jobs", async (req, res) => {
   const { zip, maxDist = 10, category, limit = 200 } = req.query;
   const maxDistMiles = parseFloat(maxDist);
 
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
   let query = supabase
     .from("jobs")
     .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified), applications(count)`)
     .eq("status", "open")
+    .or(`date.is.null,date.gte.${today}`)
     .order("created_at", { ascending: false })
     .limit(parseInt(limit));
 
