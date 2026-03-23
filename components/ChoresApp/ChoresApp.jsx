@@ -5026,7 +5026,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
     tileLayerRef.current = window.L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(leafletRef.current);
   }, [darkMode]);
 
-  // Re-draw markers when filter/maxDist/selectedPin changes
+  // Re-draw markers when jobs/filter/maxDist/selectedPin changes
   React.useEffect(() => {
     const L = window.L;
     const map = leafletRef.current;
@@ -5040,29 +5040,36 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
       (activeCategory.length === 0 || activeCategory.includes(j.category)) && j.dist <= maxDist
     );
 
+    // Deterministic ±0.25mi privacy offset per job so pins don't show exact address
+    const hashId = (s) => String(s).split('').reduce((a,c) => (a * 31 + c.charCodeAt(0)) & 0x7fffffff, 0);
+
     filtered.forEach(job => {
       const isSel = selectedPin?.id === job.id;
+      const h = hashId(job.id);
+      const lat = job.lat + ((h % 1000) / 1000 - 0.5) * 0.0072;
+      const lng = job.lng + (((h >> 10) % 1000) / 1000 - 0.5) * 0.0095;
+
       const html = `
         <div style="
-          width:${isSel?42:36}px; height:${isSel?42:36}px;
-          background:${isSel?G.green:"#fff"};
-          border:2.5px solid ${isSel?G.greenLight:G.greenMid};
+          width:${isSel?46:38}px; height:${isSel?46:38}px;
+          background:#1B4332;
+          border:2.5px solid ${isSel?"#fff":"#52B788"};
           border-radius:50% 50% 50% 0;
           transform:rotate(-45deg);
           display:flex; align-items:center; justify-content:center;
-          box-shadow:0 3px 12px rgba(0,0,0,${isSel?.45:.22});
+          box-shadow:0 4px 14px rgba(0,0,0,${isSel?.55:.3});
           transition:all .15s;
         ">
-          <span style="transform:rotate(45deg);font-size:${isSel?12:11}px;font-weight:800;color:${isSel?"#fff":G.greenMid};font-family:'Outfit',sans-serif;">$${job.pay}</span>
+          <span style="transform:rotate(45deg);font-size:${isSel?12:11}px;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">$${job.pay}</span>
         </div>`;
 
-      const icon = L.divIcon({ html, className: "", iconSize: [isSel?42:36, isSel?42:36], iconAnchor: [isSel?21:18, isSel?42:36] });
-      const marker = L.marker([job.lat, job.lng], { icon })
+      const icon = L.divIcon({ html, className: "", iconSize: [isSel?46:38, isSel?46:38], iconAnchor: [isSel?23:19, isSel?46:38] });
+      const marker = L.marker([lat, lng], { icon })
         .addTo(map)
         .on("click", () => setSelectedPin(prev => prev?.id === job.id ? null : job));
       markersRef.current.push(marker);
     });
-  }, [activeCategory, maxDist, selectedPin]);
+  }, [activeCategory, maxDist, selectedPin, liveJobs]);
 
   // Job detail subpage
   if (selectedJob) {
@@ -5194,22 +5201,48 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 
         {/* Selected pin detail */}
         {selectedPin&&(
-          <div className="slide-up" style={{ position:"absolute", bottom:0, left:0, right:0, background:G.white, borderRadius:"20px 20px 0 0", padding:20, boxShadow:"0 -8px 32px rgba(0,0,0,.15)", zIndex:30 }}>
+          <div className="slide-up" style={{ position:"absolute", bottom:0, left:0, right:0, background:G.white, borderRadius:"20px 20px 0 0", padding:20, boxShadow:"0 -8px 32px rgba(0,0,0,.15)", zIndex:30, maxHeight:"72%", overflowY:"auto" }}>
             <div style={{ width:36, height:4, borderRadius:2, background:G.border, margin:"0 auto 14px" }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:16 }}>{selectedPin.title}</div>
-                <div style={{ fontSize:12, color:G.muted, marginTop:3 }}>{selectedPin.poster} · {selectedPin.loc} · {selectedPin.dist}mi</div>
+            {/* Header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+              <div style={{ flex:1, paddingRight:12 }}>
+                <div style={{ fontWeight:700, fontSize:17, color:G.text, lineHeight:1.3 }}>{selectedPin.title}</div>
+                <div style={{ fontSize:12, color:G.muted, marginTop:4 }}>{selectedPin.verified?"✅ ":""}{selectedPin.poster} · {selectedPin.dist}mi away</div>
               </div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.greenMid }}>${selectedPin.pay}</div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:800, color:G.greenMid, lineHeight:1 }}>${selectedPin.pay}</div>
+                <div style={{ fontSize:10, color:G.muted, marginTop:2 }}>worker earns</div>
+              </div>
             </div>
-            <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>{selectedPin.tags.map(t=><Tag key={t}>{t}</Tag>)}</div>
-            <div style={{ display:"flex", gap:8, marginTop:14 }}>
+            {/* Tags row */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+              {selectedPin.category&&<Tag bg={G.greenPale} color={G.greenMid}>{selectedPin.category}</Tag>}
+              {selectedPin.tags.filter(t=>t).map(t=><Tag key={t}>{t}</Tag>)}
+            </div>
+            {/* Meta row */}
+            <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:selectedPin.desc?12:0 }}>
+              {selectedPin.date&&<div style={{ display:"flex", alignItems:"center", gap:5, fontSize:13, color:G.text }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span style={{ fontWeight:600 }}>{selectedPin.date}</span>
+              </div>}
+              {selectedPin.duration&&<div style={{ display:"flex", alignItems:"center", gap:5, fontSize:13, color:G.text }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span>{selectedPin.duration}</span>
+              </div>}
+              <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:13, color:G.muted }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+                <span>{selectedPin.loc}</span>
+              </div>
+            </div>
+            {/* Description */}
+            {selectedPin.desc&&<div style={{ fontSize:13, color:G.text, lineHeight:1.65, padding:"12px 14px", background:G.cream, borderRadius:12, marginBottom:14 }}>{selectedPin.desc}</div>}
+            {/* Actions */}
+            <div style={{ display:"flex", gap:8, marginTop:4 }}>
               {role==="poster" && selectedPin.posterId === currentUserId
                 ? <Btn onClick={()=>{onCheckout(selectedPin);setSelectedPin(null);}} style={{ flex:2, fontSize:13 }}>Hire & Pay</Btn>
-                : <Btn onClick={()=>{if(isGuest){onGuestAction();return;} setSelectedJob(selectedPin); setSelectedPin(null);}} style={{ flex:2, fontSize:13 }}>{applied.includes(selectedPin.id)?"✓ Applied":"Apply Now"}</Btn>
+                : <Btn onClick={()=>{if(isGuest){onGuestAction();return;} setSelectedJob(selectedPin); setSelectedPin(null);}} style={{ flex:2, fontSize:13 }}>{applied.includes(selectedPin.id)?"✓ Applied":"View & Apply →"}</Btn>
               }
-              <Btn onClick={()=>setSelectedPin(null)} variant="ghost" style={{ padding:"12px 14px", fontSize:12 }}>Dismiss</Btn>
+              <Btn onClick={()=>setSelectedPin(null)} variant="ghost" style={{ padding:"12px 14px", fontSize:12 }}>✕</Btn>
             </div>
           </div>
         )}
