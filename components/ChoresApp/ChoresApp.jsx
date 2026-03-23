@@ -1309,14 +1309,22 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
               const active=selSkills.includes(c.id);
               return <div key={c.id} className="tap" onClick={()=>togSkill(c.id)} style={{ padding:"8px 14px", borderRadius:12, fontSize:12, fontWeight:600, background:active?G.greenPale:G.sand, color:active?G.green:G.muted, border:`1.5px solid ${active?G.green:G.border}`, transition:"all .15s" }}>{active?"✓ ":""}{c.label}</div>;
             })}
+            {selSkills.filter(s=>s.startsWith("custom:")).map(s=>{
+              const label=s.replace("custom:","");
+              return <div key={s} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:12, fontSize:12, fontWeight:600, background:G.greenPale, color:G.green, border:`1.5px solid ${G.green}` }}>✓ {label}<span className="tap" onClick={()=>setSelSkills(sk=>sk.filter(x=>x!==s))} style={{ marginLeft:2, cursor:"pointer", fontSize:16, lineHeight:1, fontWeight:400 }}>×</span></div>;
+            })}
           </div>
           {selSkills.includes("other") && (
-            <input
-              value={customSkill}
-              onChange={e=>setCustomSkill(e.target.value)}
-              placeholder="Describe your skill (e.g. Tile installation, Piano lessons...)"
-              style={{ width:"100%", marginTop:10, padding:"11px 14px", borderRadius:12, border:`1.5px solid ${G.greenLight}`, fontSize:13, background:G.cream, boxSizing:"border-box", outline:"none" }}
-            />
+            <div style={{ display:"flex", gap:8, marginTop:10 }}>
+              <input
+                value={customSkill}
+                onChange={e=>setCustomSkill(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter" && customSkill.trim()){ const id=`custom:${customSkill.trim()}`; setSelSkills(s=>s.includes(id)?s:[...s,id]); setCustomSkill(""); }}}
+                placeholder="Describe your skill (e.g. Tile installation, Piano lessons...)"
+                style={{ flex:1, padding:"11px 14px", borderRadius:12, border:`1.5px solid ${G.greenLight}`, fontSize:13, background:G.cream, outline:"none" }}
+              />
+              <div className="tap" onClick={()=>{ const t=customSkill.trim(); if(!t) return; const id=`custom:${t}`; setSelSkills(s=>s.includes(id)?s:[...s,id]); setCustomSkill(""); }} style={{ padding:"11px 16px", borderRadius:12, background:G.green, color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0 }}>Add</div>
+            </div>
           )}
         </div>
 
