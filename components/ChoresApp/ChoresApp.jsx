@@ -2837,7 +2837,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
 
       {/* Tab nav */}
       <div style={{ position:"relative", marginBottom:18 }}>
-        <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none" }}>
+        <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:2, paddingRight:52, scrollbarWidth:"none" }}>
           {tabs.map(t=>{
             const isPending = t.id==="payments" && role==="worker" && escrowData.filter(x=>x.status==="held"&&!x.workerConfirmed&&String(x.workerId)===String(settingsUserId)).length>0;
             return (
@@ -3373,9 +3373,17 @@ function NotificationsScreen({ role, onNavigate }) {
 
   return (
     <div ref={notifRef} className="fade" style={{ padding:"16px 20px" }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: G.muted, textTransform: "uppercase", letterSpacing: .8 }}>Inbox</div>
         {unreadCount>0&&<div className="tap" onClick={()=>markRead(null)} style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Mark all read</div>}
+      </div>
+
+      <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:10, scrollbarWidth:"none" }}>
+        {cats.map(c=>(
+          <div key={c} className="tap" onClick={()=>setFilter(c)} style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:700, whiteSpace:"nowrap", flexShrink:0, background:filter===c?G.green:"transparent", color:filter===c?"#fff":G.muted, border:`1.5px solid ${filter===c?G.green:G.border}`, transition:"all .18s", textTransform:"capitalize" }}>
+            {c==="all"?"All":c}
+          </div>
+        ))}
       </div>
 
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -5043,13 +5051,20 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
     );
 
     // Deterministic ±0.25mi privacy offset per job so pins don't show exact address
+    // If the poster has "Show Exact Location" enabled, use their real coordinates
     const hashId = (s) => String(s).split('').reduce((a,c) => (a * 31 + c.charCodeAt(0)) & 0x7fffffff, 0);
 
     filtered.forEach(job => {
       const isSel = selectedPin?.id === job.id;
-      const h = hashId(job.id);
-      const lat = job.lat + ((h % 1000) / 1000 - 0.5) * 0.0072;
-      const lng = job.lng + (((h >> 10) % 1000) / 1000 - 0.5) * 0.0095;
+      let lat, lng;
+      if (job.poster_exact_loc) {
+        lat = job.lat;
+        lng = job.lng;
+      } else {
+        const h = hashId(job.id);
+        lat = job.lat + ((h % 1000) / 1000 - 0.5) * 0.0072;
+        lng = job.lng + (((h >> 10) % 1000) / 1000 - 0.5) * 0.0095;
+      }
 
       const html = `
         <div style="
@@ -5652,16 +5667,38 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
     fetchMyJobs();
   }, [fetchMyJobs, refreshSignal]);
 
-  const statusColor = { open: G.greenMid, booked: G.blue, completed: G.muted, cancelled: G.red };
-  const statusBg = { open: G.greenPale, booked: "#EBF8FF", completed: G.sand, cancelled: "#FFF0F0" };
-  const statusLabel = { open: "Open", booked: "Booked", completed: "Completed", cancelled: "Cancelled" };
-  const counts = myJobs.reduce((acc, j) => { acc[j.status] = (acc[j.status] || 0) + 1; return acc; }, {});
-  const filtered = filter === "all" ? myJobs : myJobs.filter(j => j.status === filter);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const isExpired = (j) => j.status === "open" && j.date_iso && j.date_iso < todayIso;
+  const statusColor = { open: G.greenMid, booked: G.blue, completed: G.muted, cancelled: G.red, expired: G.red };
+  const statusBg = { open: G.greenPale, booked: "#EBF8FF", completed: G.sand, cancelled: "#FFF0F0", expired: "#FFF0F0" };
+  const statusLabel = { open: "Open", booked: "Booked", completed: "Completed", cancelled: "Cancelled", expired: "Expired" };
+  const counts = myJobs.reduce((acc, j) => {
+    const s = isExpired(j) ? "expired" : j.status;
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
+  const filtered = filter === "all" ? myJobs
+    : filter === "expired" ? myJobs.filter(j => isExpired(j))
+    : myJobs.filter(j => !isExpired(j) && j.status === filter);
 
   return (
     <div style={{ padding: "20px 20px 100px" }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 800, fontSize: 24, color: G.text }}>My Jobs</div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 800, fontSize: 24, color: G.text, marginBottom: 12 }}>My Jobs</div>
+        <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none" }}>
+          {[
+            { k:"all", label:"All" },
+            { k:"open", label:"Open" },
+            { k:"booked", label:"Booked" },
+            { k:"completed", label:"Completed" },
+            { k:"expired", label:"Expired" },
+            { k:"cancelled", label:"Cancelled" },
+          ].map(f=>(
+            <div key={f.k} className="tap" onClick={()=>setFilter(f.k)} style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:700, whiteSpace:"nowrap", flexShrink:0, background:filter===f.k?G.green:"transparent", color:filter===f.k?"#fff":G.muted, border:`1.5px solid ${filter===f.k?G.green:G.border}`, transition:"all .18s" }}>
+              {f.label}{f.k!=="all"&&counts[f.k]>0?` (${counts[f.k]})`:f.k==="all"&&myJobs.length>0?` (${myJobs.length})`:""}
+            </div>
+          ))}
+        </div>
       </div>
       {loading ? (
         <div style={{ textAlign:"center", padding:"60px 20px", color:G.muted }}>
@@ -5685,18 +5722,20 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
           {filtered.map(job => {
-            const canEdit = job.status === "open";
+            const expired = isExpired(job);
+            const displayStatus = expired ? "expired" : job.status;
+            const canEdit = job.status === "open" && !expired;
             return (
-              <div key={job.id} style={{ background:G.white, borderRadius:18, padding:"16px 16px 14px", boxShadow:"0 2px 12px rgba(0,0,0,.07)", border:`2px solid ${job.status==="open"?G.greenLight:G.border}`, position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"absolute", top:0, left:0, background:G.green, color:"#fff", fontSize:9, fontWeight:800, padding:"3px 12px 3px 10px", borderRadius:"16px 0 10px 0", letterSpacing:.5 }}>MY JOB</div>
+              <div key={job.id} style={{ background:G.white, borderRadius:18, padding:"16px 16px 14px", boxShadow:"0 2px 12px rgba(0,0,0,.07)", border:`2px solid ${expired?"#FECACA":job.status==="open"?G.greenLight:G.border}`, position:"relative", overflow:"hidden", opacity:expired?.85:1 }}>
+                <div style={{ position:"absolute", top:0, left:0, background:expired?G.red:G.green, color:"#fff", fontSize:9, fontWeight:800, padding:"3px 12px 3px 10px", borderRadius:"16px 0 10px 0", letterSpacing:.5 }}>{expired?"EXPIRED":"MY JOB"}</div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginTop:16 }}>
                   <div style={{ flex:1, paddingRight:8 }}>
                     <div style={{ fontWeight:700, fontSize:16, color:G.text, lineHeight:1.3 }}>{job.title}</div>
                     <div style={{ fontSize:12, color:G.muted, marginTop:3 }}>{job.category||"Uncategorized"} · {job.zip}{job.date?` · ${job.date}`:""}</div>
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.greenMid }}>${job.pay}</div>
-                    <div style={{ background:statusBg[job.status]||G.sand, color:statusColor[job.status]||G.muted, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:6, marginTop:3, display:"inline-block" }}>{statusLabel[job.status]||job.status}</div>
+                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:expired?G.muted:G.greenMid }}>${job.pay}</div>
+                    <div style={{ background:statusBg[displayStatus]||G.sand, color:statusColor[displayStatus]||G.muted, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:6, marginTop:3, display:"inline-block" }}>{statusLabel[displayStatus]||displayStatus}</div>
                   </div>
                 </div>
                 {job.description ? <div style={{ fontSize:13, color:G.muted, marginTop:8, lineHeight:1.5 }}>{job.description.slice(0,100)}{job.description.length>100?"…":""}</div> : null}
@@ -5804,11 +5843,13 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
   );
 }
 
-function PublicProfileScreen({ userId, onBack }) {
+function PublicProfileScreen({ userId, onBack, token=null }) {
   const [user, setUser] = React.useState(null);
   const [publicReviews, setPublicReviews] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
+  const [requestSent, setRequestSent] = React.useState(false);
+  const [requesting, setRequesting] = React.useState(false);
 
   React.useEffect(() => {
     if (!userId) return;
@@ -5839,6 +5880,17 @@ function PublicProfileScreen({ userId, onBack }) {
           </div>
         ) : error ? (
           <div style={{ color:"rgba(255,255,255,.7)", textAlign:"center", padding:"20px 0" }}>{error}</div>
+        ) : user?.isPrivate ? (
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+            {user.avatarUrl
+              ? <img src={user.avatarUrl} alt="Profile" style={{ width:88, height:88, borderRadius:"50%", objectFit:"cover", border:"3px solid rgba(255,255,255,.3)" }} />
+              : <div style={{ width:88, height:88, borderRadius:"50%", background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, fontWeight:800, color:"#fff", border:"3px solid rgba(255,255,255,.3)" }}>🔒</div>
+            }
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:"#fff" }}>{user.firstName} {user.lastName}</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.65)", marginTop:4 }}>Private Profile</div>
+            </div>
+          </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
             {user.avatarUrl
@@ -5870,7 +5922,39 @@ function PublicProfileScreen({ userId, onBack }) {
         )}
       </div>
 
-      {!loading && !error && user && (
+      {/* Private profile body */}
+      {!loading && !error && user?.isPrivate && (
+        <div style={{ padding:"24px 20px", display:"flex", flexDirection:"column", alignItems:"center", gap:16, textAlign:"center" }}>
+          <div style={{ background:G.white, borderRadius:20, padding:"28px 24px", width:"100%", maxWidth:340, boxShadow:"0 2px 14px rgba(0,0,0,.07)" }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>🔒</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:G.text, marginBottom:8 }}>This profile is private</div>
+            <div style={{ fontSize:14, color:G.muted, lineHeight:1.6, marginBottom:20 }}>This user has set their profile to private. Send them a request to view their full profile and connect.</div>
+            {requestSent ? (
+              <div style={{ background:G.greenPale, borderRadius:12, padding:"12px 16px", color:G.green, fontWeight:700, fontSize:14 }}>Request sent!</div>
+            ) : (
+              <button
+                disabled={!token || requesting}
+                onClick={async () => {
+                  if (!token) return;
+                  setRequesting(true);
+                  await fetch(`${BACKEND}/api/messages/send`, {
+                    method:"POST",
+                    headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+                    body: JSON.stringify({ recipientId: userId, body: "Hi! I'd like to view your profile on Chores." }),
+                  }).catch(()=>{});
+                  setRequesting(false);
+                  setRequestSent(true);
+                }}
+                style={{ width:"100%", padding:"13px 0", background: token ? G.green : G.border, color: token ? "#fff" : G.muted, fontWeight:700, fontSize:15, borderRadius:14, border:"none", cursor: token ? "pointer" : "default" }}
+              >
+                {!token ? "Sign in to send request" : requesting ? "Sending…" : "Request to View"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && user && !user.isPrivate && (
         <div style={{ padding:"0 16px", marginTop:-16 }}>
           {/* Verification badge */}
           {user.identityVerified && (
@@ -6320,7 +6404,7 @@ export default function ChoresApp() {
       {reviewModal&&<ReviewModal target={reviewModal.person} targetId={reviewModal.personId} jobTitle={reviewModal.job} jobId={reviewModal.jobId} onSubmit={()=>setToast({icon:"⭐",title:"Review submitted!",body:"Thanks for your feedback"})} onClose={()=>setReviewModal(null)} />}
       {viewingProfileId&&(
         <div style={{ position:"fixed", inset:0, zIndex:300, background:G.cream, overflowY:"auto" }}>
-          <PublicProfileScreen userId={viewingProfileId} onBack={()=>setViewingProfileId(null)} />
+          <PublicProfileScreen userId={viewingProfileId} onBack={()=>setViewingProfileId(null)} token={isBrowser?localStorage.getItem("chores_token"):null} />
         </div>
       )}
 
@@ -6521,6 +6605,7 @@ export default function ChoresApp() {
                           category: postForm.category,
                           pay: parseFloat(postForm.pay.replace(/[^0-9.]/g,"")),
                           date: `${displayDate} at ${displayTime}`,
+                          date_iso: postForm.date,
                           address: postForm.address.trim(),
                           description: postForm.notes,
                           zip: userZip,

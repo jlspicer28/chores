@@ -348,7 +348,7 @@ app.get("/api/jobs", async (req, res) => {
     .from("jobs")
     .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified, preferences), applications(count)`)
     .eq("status", "open")
-    .or(`date.is.null,date.gte.${today}`)
+    .or(`date_iso.is.null,date_iso.gte.${today}`)
     .order("created_at", { ascending: false })
     .limit(parseInt(limit));
 
@@ -490,7 +490,7 @@ app.get("/api/jobs/:id", async (req, res) => {
 
 // Edit a job (poster only, only if status is still "open")
 app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
-  const { title, description, category, pay, zip, lat, lng, date, duration, photos } = req.body;
+  const { title, description, category, pay, zip, lat, lng, date, date_iso, duration, photos } = req.body;
   console.log("✏️ Editing job:", req.params.id, "by user:", req.user.id, "updates:", { title, category, pay, date });
 
   const { data: job } = await supabase
@@ -511,6 +511,7 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   if (lat !== undefined) updates.lat = lat;
   if (lng !== undefined) updates.lng = lng;
   if (date !== undefined) updates.date = date;
+  if (date_iso !== undefined) updates.date_iso = date_iso;
   if (duration !== undefined) updates.duration = duration;
   if (photos !== undefined) updates.photos = photos;
 
@@ -528,7 +529,7 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
-  const { title, description, category, pay, zip, lat, lng, date, duration, photos, address } = req.body;
+  const { title, description, category, pay, zip, lat, lng, date, date_iso, duration, photos, address } = req.body;
   console.log("📋 Creating job:", { title, category, pay, zip, userId: req.user.id });
 
   if (!title || !pay) return res.json({ error: "Title and pay are required" });
@@ -569,6 +570,7 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
     lat: lat || null,
     lng: lng || null,
     date: date || null,
+    date_iso: date_iso || null,
     duration: duration || null,
     address: address || null,
     status: "open",
