@@ -346,7 +346,7 @@ app.get("/api/jobs", async (req, res) => {
 
   let query = supabase
     .from("jobs")
-    .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified), applications(count)`)
+    .select(`*, poster:users!poster_id(id, first_name, last_name, rating, jobs_completed, created_at, identity_verified, preferences), applications(count)`)
     .eq("status", "open")
     .or(`date.is.null,date.gte.${today}`)
     .order("created_at", { ascending: false })
@@ -365,6 +365,7 @@ app.get("/api/jobs", async (req, res) => {
     poster_jobs_count: j.poster?.jobs_completed || 0,
     poster_since: j.poster?.created_at ? new Date(j.poster.created_at).toLocaleDateString("en-US", { month:"short", year:"numeric" }) : "",
     poster_verified: j.poster?.identity_verified || false,
+    poster_exact_loc: j.poster?.preferences?.exactLoc === true,
     applicant_count: j.applications?.[0]?.count || 0,
   }));
 
@@ -424,10 +425,25 @@ app.get("/api/users/:id/profile", async (req, res) => {
   const { id } = req.params;
   const { data, error } = await supabase
     .from("users")
-    .select("id, first_name, last_name, avatar_url, bio, skills, rating, jobs_completed, created_at, zip, identity_verified")
+    .select("id, first_name, last_name, avatar_url, bio, skills, rating, jobs_completed, created_at, zip, identity_verified, preferences")
     .eq("id", id)
     .maybeSingle();
   if (error || !data) return res.json({ error: "User not found" });
+
+  // If profile visibility is toggled off, return minimal private profile info
+  const prefs = data.preferences || {};
+  if (prefs.profileVisible === false) {
+    return res.json({
+      user: {
+        id: data.id,
+        firstName: data.first_name || "",
+        lastName: data.last_name || "",
+        avatarUrl: data.avatar_url || null,
+        isPrivate: true,
+      }
+    });
+  }
+
   res.json({
     user: {
       id: data.id,
