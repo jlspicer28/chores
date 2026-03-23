@@ -1942,7 +1942,7 @@ app.get("/api/messages/inbox", requireAuth, async (req, res) => {
   // Fetch all messages involving this user (sent or received)
   const { data, error } = await supabase
     .from("messages")
-    .select("*, job:jobs(id,title), sender:users!sender_id(id,first_name,last_name), recipient:users!recipient_id(id,first_name,last_name)")
+    .select("*, job:jobs(id,title), sender:users!sender_id(id,first_name,last_name,avatar_url), recipient:users!recipient_id(id,first_name,last_name,avatar_url)")
     .or(`sender_id.eq.${uid},recipient_id.eq.${uid}`)
     .order("created_at", { ascending: false });
 
@@ -1959,6 +1959,7 @@ app.get("/api/messages/inbox", requireAuth, async (req, res) => {
         id: key,
         other_user_id: otherId,
         from: otherUser ? `${otherUser.first_name || ""} ${otherUser.last_name || ""}`.trim() || "User" : "User",
+        other_avatar: otherUser?.avatar_url || null,
         job: m.job?.title || "",
         job_id: m.job_id || null,
         preview: m.preview || m.body?.slice(0, 80) || "",
@@ -1981,7 +1982,7 @@ app.get("/api/messages/thread/:otherUserId", requireAuth, async (req, res) => {
 
   let query = supabase
     .from("messages")
-    .select("*, sender:users!sender_id(id,first_name,last_name)")
+    .select("*, sender:users!sender_id(id,first_name,last_name,avatar_url)")
     .or(`and(sender_id.eq.${uid},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${uid})`)
     .order("created_at", { ascending: true });
 
@@ -2000,6 +2001,7 @@ app.get("/api/messages/thread/:otherUserId", requireAuth, async (req, res) => {
     id: m.id,
     from_me: m.sender_id === uid,
     sender_name: m.sender ? `${m.sender.first_name || ""} ${m.sender.last_name || ""}`.trim() : "User",
+    sender_avatar: m.sender?.avatar_url || null,
     text: m.body || m.preview || "",
     time: timeAgo(m.created_at),
     created_at: m.created_at,

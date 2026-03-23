@@ -153,10 +153,12 @@ const ESCROW_STATUS = {
 };
 
 // ─── SMALL HELPERS ───────────────────────────────────────────────────────────
-const Avatar = ({ name="?", size=40, bg=G.greenMid }) => (
-  <div style={{ width:size, height:size, borderRadius:"50%", background:bg, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:size*.35, flexShrink:0, fontFamily:"'Outfit',sans-serif" }}>
-    {name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
-  </div>
+const Avatar = ({ name="?", size=40, bg=G.greenMid, src=null }) => (
+  src
+    ? <img src={src} alt={name} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0, border:`1.5px solid ${G.border}` }} onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}} />
+    : <div style={{ width:size, height:size, borderRadius:"50%", background:bg, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:size*.35, flexShrink:0, fontFamily:"'Outfit',sans-serif" }}>
+        {name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+      </div>
 );
 const Tag = ({ children, color=G.greenMid, bg=G.greenPale }) => (
   <span style={{ background:bg, color, fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:20 }}>{children}</span>
@@ -5534,7 +5536,7 @@ function MessagesTab({ inboxMessages, fetchInbox, chatOpen, setChatOpen, role })
           </div>
         ) : inboxMessages.map(m => (
           <div key={m.id} className="tap" onClick={() => { setChatOpen(m); }} style={{ background: G.white, borderRadius: 16, padding: 16, marginBottom: 10, boxShadow: "0 2px 8px rgba(0,0,0,.06)", display: "flex", gap: 12, alignItems: "center", borderLeft: `3px solid ${m.unread ? G.green : "transparent"}` }}>
-            <Avatar name={m.from} />
+            <Avatar name={m.from} src={m.other_avatar} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
                 <span style={{ fontWeight: m.unread ? 700 : 500, fontSize: 14 }}>{m.from}</span>
@@ -5556,7 +5558,7 @@ function MessagesTab({ inboxMessages, fetchInbox, chatOpen, setChatOpen, role })
       {/* Header */}
       <div style={{ padding: "14px 20px", background: G.white, borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <div className="tap" onClick={() => { setChatOpen(null); setThread([]); clearInterval(pollRef.current); }} style={{ fontSize: 20, lineHeight: 1 }}>←</div>
-        <Avatar name={chatOpen.from} size={36} />
+        <Avatar name={chatOpen.from} size={36} src={chatOpen.other_avatar} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>{chatOpen.from}</div>
           {chatOpen.job && <div style={{ fontSize: 11, color: G.greenMid }}>📋 {chatOpen.job}</div>}
@@ -5574,7 +5576,8 @@ function MessagesTab({ inboxMessages, fetchInbox, chatOpen, setChatOpen, role })
           return (
             <React.Fragment key={msg.id}>
               {showTime && <div style={{ textAlign: "center", fontSize: 10, color: G.muted, margin: "4px 0" }}>{msg.time}</div>}
-              <div style={{ display: "flex", justifyContent: msg.from_me ? "flex-end" : "flex-start" }}>
+              <div style={{ display: "flex", justifyContent: msg.from_me ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8 }}>
+                {!msg.from_me && <Avatar name={chatOpen.from} size={26} src={msg.sender_avatar || chatOpen.other_avatar} />}
                 <div style={{ padding: "10px 14px", fontSize: 14, maxWidth: "75%", lineHeight: 1.4, ...(msg.from_me ? { background: G.green, color: "#fff", borderRadius: "18px 18px 4px 18px" } : { background: "#fff", color: G.text, borderRadius: "18px 18px 18px 4px", boxShadow: "0 2px 8px rgba(0,0,0,.08)" }) }}>
                   {msg.type === "application" && !msg.from_me && <div style={{ fontSize: 10, opacity: .7, marginBottom: 4 }}>📋 Application</div>}
                   {msg.text}
