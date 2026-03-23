@@ -5223,6 +5223,83 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
 // ═══════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════
+function ResetPasswordScreen({ accessToken, onComplete, darkMode }) {
+  if (darkMode) { Object.assign(G, DARK); } else { Object.assign(G, LIGHT); }
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const handleReset = async () => {
+    if (newPw.length < 8) { setError("Password must be at least 8 characters"); return; }
+    if (newPw !== confirmPw) { setError("Passwords do not match"); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch(`${BACKEND}/api/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken, newPassword: newPw }),
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); setLoading(false); return; }
+      setDone(true);
+      setTimeout(() => onComplete(), 2000);
+    } catch(e) {
+      setError("Network error — please try again.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="chores-app" style={{ fontFamily:"'Outfit',sans-serif", background:G.cream, minHeight:"100vh", maxWidth:430, margin:"0 auto", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", color:G.text }}>
+      <style>{CSS}</style>
+      <div style={{ flex:1, padding:"60px 32px", display:"flex", flexDirection:"column" }}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:800, color:G.text, lineHeight:1.2, marginBottom:8 }}>Set new password</div>
+        <div style={{ fontSize:14, color:G.muted, marginBottom:32 }}>Choose a strong password for your account</div>
+        {done ? (
+          <div style={{ textAlign:"center", padding:"30px 0" }}>
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.green, marginTop:16 }}>Password updated!</div>
+            <div style={{ fontSize:14, color:G.muted, marginTop:8 }}>Redirecting you to sign in…</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div style={{ position:"relative" }}>
+                <input value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="New password (min 8 characters)" type={showNew?"text":"password"}
+                  style={{ width:"100%", padding:"16px 44px 16px 16px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:15, background:G.white, color:G.text, outline:"none", boxSizing:"border-box" }}
+                  onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
+                />
+                <div className="tap" onClick={()=>setShowNew(!showNew)} style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </div>
+              </div>
+              <div style={{ position:"relative" }}>
+                <input value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} placeholder="Confirm new password" type={showConfirm?"text":"password"}
+                  style={{ width:"100%", padding:"16px 44px 16px 16px", borderRadius:14, border:`1.5px solid ${G.border}`, fontSize:15, background:G.white, color:G.text, outline:"none", boxSizing:"border-box" }}
+                  onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border}
+                  onKeyDown={e=>e.key==="Enter"&&handleReset()}
+                />
+                <div className="tap" onClick={()=>setShowConfirm(!showConfirm)} style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={G.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </div>
+              </div>
+            </div>
+            {error && <div style={{ marginTop:12, padding:"10px 14px", borderRadius:10, background:"#fef2f2", color:"#dc2626", fontSize:13, fontWeight:600 }}>{error}</div>}
+            <button className="btn" onClick={handleReset} disabled={loading||!newPw||!confirmPw}
+              style={{ width:"100%", padding:"17px", borderRadius:16, background:(newPw&&confirmPw&&!loading)?G.green:"#ccc", color:"#fff", fontSize:15, fontWeight:700, marginTop:24, opacity:(newPw&&confirmPw&&!loading)?1:.5 }}>
+              {loading ? "Updating…" : "Set New Password"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onComplete, onBack, darkMode, prefillEmail="" }) {
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
@@ -5864,6 +5941,23 @@ export default function ChoresApp() {
   });
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(storedUser);
+  const [resetToken, setResetToken] = useState(null);
+
+  // Handle Supabase password recovery link — detect #access_token + type=recovery in hash
+  React.useEffect(() => {
+    if (!isBrowser) return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    const params = new URLSearchParams(hash.slice(1));
+    if (params.get("type") === "recovery") {
+      const token = params.get("access_token");
+      if (token) {
+        setResetToken(token);
+        setAppView("resetPassword");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  }, []);
 
   // Handle Stripe Connect return — re-check status and show success
   React.useEffect(() => {
@@ -6129,6 +6223,7 @@ export default function ChoresApp() {
   };
   const handleFund = (newTxn) => { setEscrowData(d=>[{...newTxn,posterConfirmed:false,workerConfirmed:false},...d]); setToast({icon:"🔒",title:"Escrow funded!",body:`$${newTxn.amount.toFixed(2)} held securely`}); setTimeout(fetchEscrow, 1500); };
 
+  if (appView==="resetPassword") return <ResetPasswordScreen accessToken={resetToken} onComplete={()=>{ setResetToken(null); setAppView("login"); }} darkMode={darkMode} />;
   if (appView==="login") return <LoginScreen onComplete={(r)=>{setRole(r);setAppView("user");const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole)setShowRoleModal(true);}} onBack={()=>setAppView("onboarding")} darkMode={darkMode} prefillEmail={loginPrefillEmail} />;
   if (appView==="onboarding") return <OnboardingFlow onComplete={(r)=>{setRole(r==="guest"?"worker":r);setAppView("user");if(r==="guest")setIsGuest(true);const hasDefaultRole=localStorage.getItem("chores_default_role");if(!hasDefaultRole&&r!=="guest")setShowRoleModal(true);}} onShowLogin={(email)=>{setLoginPrefillEmail(email||"");setAppView("login");}} darkMode={darkMode} />;
 

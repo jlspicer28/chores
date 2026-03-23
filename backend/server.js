@@ -1142,8 +1142,26 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
   try {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.FRONTEND_URL || "https://choresnearme.com"}/?reset=true`,
+      redirectTo: `${process.env.FRONTEND_URL || "https://app.choresnearme.com"}/?reset=true`,
     });
+    if (error) return res.json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESET PASSWORD — Apply new password using recovery access token
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { accessToken, newPassword } = req.body;
+  if (!accessToken || !newPassword) return res.json({ error: "Missing fields" });
+  if (newPassword.length < 8) return res.json({ error: "Password must be at least 8 characters" });
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+    if (userError || !user) return res.json({ error: "Invalid or expired reset link" });
+    const { error } = await supabase.auth.admin.updateUserById(user.id, { password: newPassword });
     if (error) return res.json({ error: error.message });
     res.json({ success: true });
   } catch (err) {
