@@ -5785,7 +5785,7 @@ function PublicProfileScreen({ userId, onBack }) {
               <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                 {user.skills.map(s => (
                   <div key={s} style={{ padding:"6px 12px", borderRadius:10, fontSize:12, fontWeight:600, background:G.greenPale, color:G.green, border:`1.5px solid ${G.greenLight}` }}>
-                    ✓ {CATEGORY_LABELS[s] || s}
+                    ✓ {CATEGORY_LABELS[s] || s.replace("custom:","")}
                   </div>
                 ))}
               </div>
