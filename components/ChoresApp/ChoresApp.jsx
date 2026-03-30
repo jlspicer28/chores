@@ -180,7 +180,7 @@ const Toggle = ({ on, onChange }) => (
 function Toast({ notif, onDismiss }) {
   useEffect(() => { const t = setTimeout(onDismiss, 4000); return () => clearTimeout(t); }, []);
   return (
-    <div className="notif-in tap" onClick={onDismiss} style={{ position:"fixed", top:44, left:"50%", transform:"translateX(-50%)", width:"calc(100% - 32px)", maxWidth:398, background:G.white, borderRadius:18, padding:"12px 16px", boxShadow:"0 8px 32px rgba(0,0,0,.18)", zIndex:999, display:"flex", gap:12, alignItems:"center", border:`1px solid ${G.border}` }}>
+    <div className="notif-in tap" onClick={onDismiss} style={{ position:"absolute", top:44, left:"50%", transform:"translateX(-50%)", width:"calc(100% - 32px)", maxWidth:398, background:G.white, borderRadius:18, padding:"12px 16px", boxShadow:"0 8px 32px rgba(0,0,0,.18)", zIndex:999, display:"flex", gap:12, alignItems:"center", border:`1px solid ${G.border}` }}>
       <div style={{ width:36, height:36, borderRadius:12, background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{notif.icon}</div>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontWeight:700, fontSize:13, color:G.text }}>{notif.title}</div>
@@ -218,7 +218,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
   }, []);
 
   if (step === 2) return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
+    <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
       <div className="fade" style={{ background:G.white, borderRadius:24, padding:"32px 24px", width:"100%", maxWidth:400, textAlign:"center" }}>
         <div className="check-pop" style={{ width:68, height:68, borderRadius:"50%", background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, margin:"0 auto 16px" }}>🔒</div>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.green }}>Escrow Created!</div>
@@ -236,7 +236,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
   );
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
+    <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
       <div className="slide-up" style={{ background:G.cream, borderRadius:"24px 24px 0 0", padding:"24px 20px 36px", width:"100%", maxWidth:430, margin:"0 auto", maxHeight:"92vh", overflowY:"auto" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
           <div>
@@ -330,7 +330,7 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
   const otherLabel = role==="poster" ? "Worker" : "Poster";
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
+    <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
       <div className="slide-up" style={{ background:G.cream, borderRadius:"24px 24px 0 0", padding:"24px 20px 36px", width:"100%", maxWidth:430, margin:"0 auto", maxHeight:"85vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, borderRadius:2, background:G.border, margin:"0 auto 18px" }} />
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
@@ -588,7 +588,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
   // Step 4 — Processing
   if (step === 4) {
     return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
+      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
         <div className="fade" style={{ background:G.white, borderRadius:24, padding:"48px 32px", width:"100%", maxWidth:400, textAlign:"center" }}>
           <div className="pulse" style={{ width:64, height:64, borderRadius:"50%", background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, margin:"0 auto 20px" }}>💳</div>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, color:G.text }}>Processing Payment...</div>
@@ -603,7 +603,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
 
   // Step 5 — Success
   if (step === 5) return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
+    <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
       <div className="fade" style={{ background:G.white, borderRadius:24, padding:"32px 24px", width:"100%", maxWidth:400, textAlign:"center" }}>
         <div className="check-pop" style={{ width:72, height:72, borderRadius:"50%", background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, margin:"0 auto 16px" }}>✅</div>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.green }}>Payment Authorized!</div>
@@ -625,7 +625,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
   );
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
+    <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:200 }}>
       <div className="slide-up" style={{ background:G.cream, borderRadius:"24px 24px 0 0", padding:"24px 20px 36px", width:"100%", maxWidth:430, margin:"0 auto", maxHeight:"94vh", overflowY:"auto" }}>
         {/* Header */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
@@ -1349,7 +1349,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         </div>
 
         {/* Fixed save bar */}
-        <div style={{ position:"fixed", bottom:60, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px", background:"rgba(255,255,255,.92)", backdropFilter:"blur(12px)", zIndex:40, boxSizing:"border-box" }}>
+        <div style={{ position:"sticky", bottom:60, width:"100%", padding:"12px 20px", background:"rgba(255,255,255,.92)", backdropFilter:"blur(12px)", zIndex:40, boxSizing:"border-box" }}>
           {saved
             ? <div className="fade" style={{ textAlign:"center", padding:14, borderRadius:16, background:G.greenPale, fontWeight:700, fontSize:14, color:G.green, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -3768,7 +3768,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         </div>
 
         {/* Fixed bottom CTA */}
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
+        <div style={{ position:"sticky", bottom:0, width:"100%", padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
           {role==="poster" && job.posterId === currentUserId
             ? (() => {
                 const alreadyPaid = job.status === "booked" || job.status === "completed" ||
@@ -3813,7 +3813,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
               {(activeCategory.length>0||sortBy!=="match")&&<div style={{ position:"absolute", top:-3, right:-3, width:8, height:8, borderRadius:"50%", background:"#52B788", border:"1.5px solid #1B4332" }}/>}
             </div>
-            {showSortMenu&&<div onClick={()=>setShowSortMenu(false)} style={{ position:"fixed", inset:0, zIndex:19 }} />}
+            {showSortMenu&&<div onClick={()=>setShowSortMenu(false)} style={{ position:"absolute", inset:0, zIndex:19 }} />}
             {showSortMenu&&(
               <div className="fade" style={{ position:"absolute", top:"calc(100% + 8px)", right:0, background:G.white, borderRadius:16, padding:8, boxShadow:"0 8px 30px rgba(0,0,0,.18)", border:`1px solid ${G.border}`, zIndex:20, width:190 }}>
                 <div style={{ fontSize:10, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, padding:"4px 10px 8px" }}>Category</div>
@@ -3858,7 +3858,7 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
 
           {/* ── EDIT JOB MODAL ─────────────────────────────────────── */}
           {editJob && (
-            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setEditJob(null)}>
+            <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setEditJob(null)}>
               <div onClick={e=>e.stopPropagation()} style={{ background:G.white, borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", width:"100%", maxWidth:430, maxHeight:"85vh", overflowY:"auto" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
                   <div style={{ fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:20 }}>Edit Job</div>
@@ -4790,7 +4790,7 @@ function ReviewModal({ target, targetId, jobTitle, jobId, onSubmit, onClose }) {
   };
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={onClose}>
+    <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={onClose}>
       <div className="fade" onClick={e=>e.stopPropagation()} style={{ background:G.cream, borderRadius:"24px 24px 0 0", width:"100%", maxWidth:430, maxHeight:"92vh", overflowY:"auto", padding:"24px 20px 32px" }}>
 
         {step===2 ? (
@@ -5121,7 +5121,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             </div>
           )}
         </div>
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
+        <div style={{ position:"sticky", bottom:0, width:"100%", padding:"12px 20px 24px", background:"rgba(255,255,255,.95)", backdropFilter:"blur(12px)", borderTop:`1px solid ${G.border}`, zIndex:40, display:"flex", gap:10 }}>
           {role==="poster" && job.posterId === currentUserId
             ? <Btn onClick={()=>{onCheckout(job);setSelectedJob(null);}} style={{ flex:1, padding:16, borderRadius:16, fontSize:15 }}>💳 Hire & Pay ${job.pay}</Btn>
             : hasApplied
@@ -5130,7 +5130,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
           }
         </div>
         {applyModal&&(
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end" }}>
+          <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end" }}>
             <div className="slide-up" style={{ background:G.cream, borderRadius:"24px 24px 0 0", padding:"24px 20px 36px", width:"100%", maxWidth:430, margin:"0 auto" }}>
               {applyStep===0?(
                 <>
@@ -5191,7 +5191,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={showMapFilter?"#fff":G.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
             {activeCategory.length>0&&<div style={{ position:"absolute", top:-3, right:-3, width:8, height:8, borderRadius:"50%", background:G.greenLight, border:"1.5px solid #fff" }}/>}
           </div>
-          {showMapFilter&&<div onClick={()=>setShowMapFilter(false)} style={{ position:"fixed", inset:0, zIndex:19 }} />}
+          {showMapFilter&&<div onClick={()=>setShowMapFilter(false)} style={{ position:"absolute", inset:0, zIndex:19 }} />}
           {showMapFilter&&(
             <div className="fade" style={{ position:"absolute", top:"calc(100% + 8px)", left:0, background:G.white, borderRadius:16, padding:8, boxShadow:"0 8px 30px rgba(0,0,0,.18)", border:`1px solid ${G.border}`, zIndex:20, width:190 }}>
               <div style={{ fontSize:10, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, padding:"4px 10px 8px" }}>Category</div>
@@ -5755,7 +5755,7 @@ function MyJobsScreen({ onPostJob, onCheckout, refreshSignal }) {
         </div>
       )}
       {editJob && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setEditJob(null)}>
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.5)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setEditJob(null)}>
           <div onClick={e => e.stopPropagation()} style={{ background:G.white, borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", width:"100%", maxWidth:430, maxHeight:"85vh", overflowY:"auto" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
               <div style={{ fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:20 }}>Edit Job</div>
@@ -6356,13 +6356,13 @@ export default function ChoresApp() {
   );
 
   return (
-    <div className="chores-app" style={{ "--text":darkMode?DARK.text:LIGHT.text, "--tab-bg":darkMode?"rgba(30,30,30,.97)":"rgba(255,255,255,.95)", fontFamily:"'Outfit',sans-serif", background:darkMode?DARK.cream:LIGHT.cream, minHeight:"100vh", maxWidth:430, margin:"0 auto", position:"relative", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", transition:"background .3s", color:darkMode?DARK.text:LIGHT.text }}>
+    <div className="chores-app" style={{ "--text":darkMode?DARK.text:LIGHT.text, "--tab-bg":darkMode?"rgba(30,30,30,.97)":"rgba(255,255,255,.95)", fontFamily:"'Outfit',sans-serif", background:darkMode?DARK.cream:LIGHT.cream, minHeight:"100dvh", maxWidth:430, margin:"0 auto", position:"relative", overflow:"hidden", boxShadow:"0 0 80px rgba(0,0,0,.2)", display:"flex", flexDirection:"column", transition:"background .3s", color:darkMode?DARK.text:LIGHT.text }}>
       <style>{CSS}</style>
       {toast&&<Toast notif={toast} onDismiss={()=>setToast(null)} />}
 
       {/* Default Role Picker Modal — shown once after first login/signup */}
       {showRoleModal&&(
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:24, backdropFilter:"blur(6px)" }}>
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.6)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:24, backdropFilter:"blur(6px)" }}>
           <div style={{ background:darkMode?DARK.cream:LIGHT.cream, borderRadius:28, padding:32, maxWidth:360, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,.3)", textAlign:"center" }}>
             <div style={{ fontSize:44, marginBottom:12 }}>👋</div>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:darkMode?DARK.text:LIGHT.text, marginBottom:8 }}>How will you use Chores?</div>
@@ -6403,14 +6403,14 @@ export default function ChoresApp() {
       {checkoutModal&&<CheckoutModal job={checkoutModal} onClose={()=>setCheckoutModal(null)} onComplete={handleFund} />}
       {reviewModal&&<ReviewModal target={reviewModal.person} targetId={reviewModal.personId} jobTitle={reviewModal.job} jobId={reviewModal.jobId} onSubmit={()=>setToast({icon:"⭐",title:"Review submitted!",body:"Thanks for your feedback"})} onClose={()=>setReviewModal(null)} />}
       {viewingProfileId&&(
-        <div style={{ position:"fixed", inset:0, zIndex:300, background:G.cream, overflowY:"auto" }}>
+        <div style={{ position:"absolute", inset:0, zIndex:300, background:G.cream, overflowY:"auto" }}>
           <PublicProfileScreen userId={viewingProfileId} onBack={()=>setViewingProfileId(null)} token={isBrowser?localStorage.getItem("chores_token"):null} />
         </div>
       )}
 
       {/* Guest sign-up prompt */}
       {guestPrompt&&(
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={()=>setGuestPrompt(false)}>
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", backdropFilter:"blur(4px)" }} onClick={()=>setGuestPrompt(false)}>
           <div className="fade" onClick={e=>e.stopPropagation()} style={{ background:G.cream, borderRadius:24, width:"85%", maxWidth:360, padding:"32px 24px", textAlign:"center" }}>
             <div style={{ width:56, height:56, borderRadius:16, background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px" }}>
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={G.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -6458,7 +6458,7 @@ export default function ChoresApp() {
 
       {/* POST JOB MODAL */}
       {showPostJob&&(
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:100 }}>
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"flex-end", zIndex:100 }}>
           <div className="slide-up" style={{ background:G.cream, borderRadius:"24px 24px 0 0", padding:"24px 20px 36px", width:"100%", maxWidth:430, margin:"0 auto" }}>
             {formPosted?(
               <div style={{ textAlign:"center", padding:"24px 0" }}>
@@ -6637,7 +6637,7 @@ export default function ChoresApp() {
       )}
 
       {/* Bottom nav */}
-      <div className="tab-bar" style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, borderTop:`1px solid ${G.border}`, display:"flex", justifyContent:"space-around", padding:"10px 0 18px", zIndex:50, boxShadow:"0 -4px 24px rgba(0,0,0,.08)" }}>
+      <div className="tab-bar" style={{ position:"sticky", bottom:0, width:"100%", borderTop:`1px solid ${G.border}`, display:"flex", justifyContent:"space-around", padding:"10px 0 18px", zIndex:50, boxShadow:"0 -4px 24px rgba(0,0,0,.08)", marginTop:"auto" }}>
         {[
           { id:"home",      icon:<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label:"Home" },
           role==="poster"
