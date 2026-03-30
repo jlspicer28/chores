@@ -354,10 +354,15 @@ app.get("/api/jobs", async (req, res) => {
 
   if (category) query = query.eq("category", category);
 
+  // Only show jobs in the worker's exact zip code
+  if (zip && zip.length === 5) {
+    query = query.eq("zip", zip);
+  }
+
   const { data, error } = await query;
   if (error) return res.json({ error: error.message });
 
-  let jobs = (data || []).map(j => ({
+  const jobs = (data || []).map(j => ({
     ...j,
     address: undefined, // never expose address to public feed — only shared after hiring
     poster_name: j.poster ? `${j.poster.first_name} ${j.poster.last_name}`.trim() : "Anonymous",
@@ -367,24 +372,8 @@ app.get("/api/jobs", async (req, res) => {
     poster_verified: j.poster?.identity_verified || false,
     poster_exact_loc: j.poster?.preferences?.exactLoc === true,
     applicant_count: j.applications?.[0]?.count || 0,
+    dist: 0,
   }));
-
-  if (zip && zip.length === 5) {
-    const workerCoords = await zipToCoords(zip);
-    if (workerCoords) {
-      const jobsWithCoords = await Promise.all(jobs.map(async j => {
-        let jobLat = j.lat, jobLng = j.lng;
-        if ((!jobLat || !jobLng) && j.zip && j.zip.length === 5) {
-          const c = await zipToCoords(j.zip);
-          if (c) { jobLat = c.lat; jobLng = c.lng; }
-        }
-        if (!jobLat || !jobLng) return null;
-        const dist = haversine(workerCoords.lat, workerCoords.lng, jobLat, jobLng);
-        return dist <= maxDistMiles ? { ...j, dist: Math.round(dist * 10) / 10 } : null;
-      }));
-      jobs = jobsWithCoords.filter(Boolean);
-    }
-  }
 
   res.json({ jobs });
 });
