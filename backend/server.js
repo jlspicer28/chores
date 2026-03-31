@@ -145,7 +145,8 @@ app.post("/api/auth/register", async (req, res) => {
       success: true,
       userId,
       token: authData.session?.access_token || null,
-      user: { id: userId, email, firstName, lastName, phone, zip, role: role || "worker" },
+      refreshToken: authData.session?.refresh_token || null,
+      user: { id: userId, email, first_name: firstName, last_name: lastName, firstName, lastName, phone, zip, role: role || "worker" },
     });
   } catch (err) {
     console.error("Register error:", err.message);
@@ -171,18 +172,43 @@ app.post("/api/auth/login", async (req, res) => {
     res.json({
       success: true,
       token: data.session.access_token,
+      refreshToken: data.session.refresh_token,
       user: {
         id: data.user.id,
         email: profile?.email || email,
+        first_name: profile?.first_name || "",
+        last_name: profile?.last_name || "",
         firstName: profile?.first_name || "",
         lastName: profile?.last_name || "",
         phone: profile?.phone || "",
         zip: profile?.zip || "",
         role: profile?.role || "worker",
         rating: profile?.rating || 5.0,
+        jobs_completed: profile?.jobs_completed || 0,
         jobsCompleted: profile?.jobs_completed || 0,
+        avatar_url: profile?.avatar_url || null,
+        bio: profile?.bio || "",
+        age: profile?.age || null,
+        address: profile?.address || "",
+        skills: profile?.skills || [],
+        identity_verified: profile?.identity_verified || false,
+        default_role: profile?.default_role || null,
+        created_at: profile?.created_at || null,
       },
     });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Refresh token
+app.post("/api/auth/refresh", async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.json({ error: "No refresh token provided" });
+  try {
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data.session) return res.json({ error: error?.message || "Refresh failed" });
+    res.json({ token: data.session.access_token, refreshToken: data.session.refresh_token });
   } catch (err) {
     res.json({ error: err.message });
   }
@@ -223,8 +249,8 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
-  const { firstName, lastName, phone, zip, age, bio, skills } = req.body;
-  console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age });
+  const { firstName, lastName, phone, zip, age, bio, skills, address } = req.body;
+  console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age, address });
 
   // Only update fields explicitly provided — never wipe other fields with undefined
   const updates = {};
@@ -235,6 +261,7 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   if (age !== undefined) updates.age = age ? parseInt(age) : null;
   if (bio !== undefined) updates.bio = (bio && bio.trim()) ? bio.trim() : null;
   if (skills !== undefined) updates.skills = skills || [];
+  if (address !== undefined) updates.address = (address && address.trim()) ? address.trim() : null;
 
   if (Object.keys(updates).length === 0) return res.json({ success: true });
 
@@ -297,12 +324,25 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
     await supabase.from("notifications").delete().eq("user_id", userId);
     // Delete user's applications
     await supabase.from("applications").delete().eq("worker_id", userId);
-    // Delete user row
+    // Delete user's escrow records
+    await supabase.from("escrow").delete().or(`worker_id.eq.${userId},poster_id.eq.${userId}`);
+    // Delete user's reviews (given and received)
+    await supabase.from("reviews").delete().or(`reviewer_id.eq.${userId},reviewee_id.eq.${userId}`);
+    // Delete user's support tickets
+    await supabase.from("support_tickets").delete().eq("user_id", userId);
+    // Delete avatar from storage
+    try {
+      const { data: avatarFiles } = await supabase.storage.from("avatars").list("", { search: userId });
+      if (avatarFiles && avatarFiles.length > 0) {
+        await supabase.storage.from("avatars").remove(avatarFiles.map(f => f.name));
+      }
+    } catch(e) { /* non-fatal */ }
+    // Delete user row from users table
     await supabase.from("users").delete().eq("id", userId);
     // Delete from Supabase Auth
     const { error } = await supabase.auth.admin.deleteUser(userId);
     if (error) console.error("Auth delete error (non-fatal):", error.message);
-    console.log("✅ Account deleted:", userId);
+    console.log("✅ Account fully deleted:", userId);
     res.json({ success: true });
   } catch (err) {
     console.error("❌ Delete account error:", err);
@@ -622,6 +662,55 @@ app.post("/api/jobs/:id/cancel", requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Fund escrow (poster books a worker — funds held, not released)
+// Hire a worker for a job (poster action)
+app.post("/api/jobs/:id/hire", requireAuth, async (req, res) => {
+  const { workerId } = req.body;
+  const jobId = req.params.id;
+  if (!workerId) return res.json({ error: "workerId is required" });
+
+  try {
+    const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
+    if (!job) return res.json({ error: "Job not found" });
+    if (job.poster_id !== req.user.id) return res.json({ error: "Only the poster can hire" });
+    if (job.status === "booked") return res.json({ error: "Job is already booked" });
+
+    // Update job: assign worker + set status to booked
+    await supabase.from("jobs").update({ worker_id: workerId, status: "booked" }).eq("id", jobId);
+
+    // Update application status
+    await supabase.from("applications").update({ status: "accepted" }).eq("job_id", jobId).eq("worker_id", workerId);
+    // Reject other applications
+    await supabase.from("applications").update({ status: "declined" }).eq("job_id", jobId).neq("worker_id", workerId).eq("status", "pending");
+
+    // Notify worker
+    const { data: poster } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+    const posterName = poster ? `${poster.first_name || ""} ${poster.last_name || ""}`.trim() : "The poster";
+    await notify(workerId, {
+      type: "accepted", category: "job", icon: "🎉",
+      title: "You've been hired!",
+      body: `${posterName} hired you for "${job.title}" · $${job.pay}`,
+      jobId, relatedUserId: req.user.id,
+    });
+
+    // Send a message to the worker
+    await supabase.from("messages").insert({
+      sender_id: req.user.id,
+      recipient_id: workerId,
+      job_id: jobId,
+      type: "hire",
+      body: `${posterName} hired you for "${job.title}"! You can now coordinate details here.`,
+      preview: `You've been hired for ${job.title}!`,
+      read: false,
+      created_at: new Date().toISOString(),
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Hire error:", err);
+    res.json({ error: err.message });
+  }
+});
+
 app.post("/api/charge", requireAuth, async (req, res) => {
   const { paymentMethodId, jobId, workerId } = req.body;
 
@@ -758,6 +847,7 @@ app.get("/api/escrow", requireAuth, async (req, res) => {
     jobId: e.job_id,
     amount: parseFloat(e.amount) || 0,
     workerGets: parseFloat(e.worker_gets) || parseFloat(e.amount) || 0,
+    fee: e.fee || 0,
     status: e.status || "held",
     poster: e.poster ? `${e.poster.first_name} ${e.poster.last_name}`.trim() : "Poster",
     posterId: e.poster_id,
@@ -1218,7 +1308,9 @@ app.get("/api/auth/export-data", requireAuth, async (req, res) => {
 // PAYOUT SCHEDULE — Save worker payout preferences
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/user/payout-schedule", requireAuth, async (req, res) => {
-  const { frequency, day } = req.body;
+  // Accept both naming conventions: (frequency, day) from web and (interval, weekly_anchor) from iOS
+  const frequency = req.body.frequency || req.body.interval;
+  const day = req.body.day || req.body.weekly_anchor;
   if (!["daily", "weekly", "biweekly", "monthly"].includes(frequency)) return res.json({ error: "Invalid frequency" });
 
   // Map day name to Stripe's expected values
@@ -1298,9 +1390,14 @@ app.get("/api/user/payout-schedule", requireAuth, async (req, res) => {
     } catch (e) { /* non-fatal */ }
   }
 
+  const freq = data?.payout_frequency || "weekly";
+  const dayVal = data?.payout_day || "friday";
   res.json({
-    frequency: data?.payout_frequency || "weekly",
-    day: data?.payout_day || "Friday",
+    frequency: freq,
+    day: dayVal,
+    // iOS-compatible fields
+    interval: freq,
+    weekly_anchor: dayVal.toLowerCase(),
     stripeSchedule,
   });
 });
@@ -1897,19 +1994,38 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
       .eq("id", jobId)
       .single();
 
-    // 3. Write message to poster's inbox
+    // 3. Write messages to create a conversation thread between worker and poster
     if (job?.poster_id) {
-      const { error: msgErr } = await supabase.from("messages").insert({
+      // Worker → Poster: the application message
+      const msgData = {
         sender_id: workerId,
         recipient_id: job.poster_id,
         job_id: jobId,
-        type: "application",
-        preview: `${workerName || "Someone"} applied to your job`,
         body: message,
         read: false,
         created_at: new Date().toISOString(),
-      });
-      if (msgErr) console.warn("Message insert warning:", msgErr.message);
+      };
+      const { error: msgErr } = await supabase.from("messages").insert(msgData);
+      if (msgErr) {
+        console.warn("⚠️ Message insert warning:", msgErr.message, msgErr.details);
+      } else {
+        console.log("✅ Application message created between", workerId, "→", job.poster_id);
+      }
+
+      // Poster → Worker: auto-reply so the worker also sees the thread in their inbox
+      const { data: posterInfo } = await supabase.from("users").select("first_name,last_name").eq("id", job.poster_id).maybeSingle();
+      const posterName = posterInfo ? `${posterInfo.first_name || ""} ${posterInfo.last_name || ""}`.trim() : "The poster";
+      const autoReply = `Thanks for applying to "${job.title}"! I'll review your application and get back to you soon.`;
+      const replyData = {
+        sender_id: job.poster_id,
+        recipient_id: workerId,
+        job_id: jobId,
+        body: autoReply,
+        read: false,
+        created_at: new Date(Date.now() + 1000).toISOString(),
+      };
+      const { error: replyErr } = await supabase.from("messages").insert(replyData);
+      if (replyErr) console.warn("⚠️ Auto-reply insert warning:", replyErr.message, replyErr.details);
 
       // Notify poster: new applicant
       await notify(job.poster_id, {
@@ -1962,17 +2078,23 @@ app.get("/api/messages/inbox", requireAuth, async (req, res) => {
     const otherUser = m.sender_id === uid ? m.recipient : m.sender;
     const key = `${otherId}__${m.job_id || "nojob"}`;
     if (!convMap[key]) {
+      const otherName = otherUser ? `${otherUser.first_name || ""} ${otherUser.last_name || ""}`.trim() || "User" : "User";
+      const msgPreview = m.preview || m.body?.slice(0, 80) || "";
       convMap[key] = {
         id: key,
         other_user_id: otherId,
-        from: otherUser ? `${otherUser.first_name || ""} ${otherUser.last_name || ""}`.trim() || "User" : "User",
+        from: otherName,
+        other_user_name: otherName,
         other_avatar: otherUser?.avatar_url || null,
         job: m.job?.title || "",
         job_id: m.job_id || null,
-        preview: m.preview || m.body?.slice(0, 80) || "",
+        job_title: m.job?.title || "",
+        preview: msgPreview,
+        last_message: msgPreview,
         time: timeAgo(m.created_at),
         unread: !m.read && m.recipient_id === uid,
         latest_at: m.created_at,
+        last_at: m.created_at,
       };
     }
   }
@@ -2006,16 +2128,18 @@ app.get("/api/messages/thread/:otherUserId", requireAuth, async (req, res) => {
 
   const thread = (data || []).map(m => ({
     id: m.id,
+    sender_id: m.sender_id,
     from_me: m.sender_id === uid,
     sender_name: m.sender ? `${m.sender.first_name || ""} ${m.sender.last_name || ""}`.trim() : "User",
     sender_avatar: m.sender?.avatar_url || null,
     text: m.body || m.preview || "",
+    body: m.body || m.preview || "",
     time: timeAgo(m.created_at),
     created_at: m.created_at,
     type: m.type,
   }));
 
-  res.json({ thread });
+  res.json({ messages: thread, thread });
 });
 
 // ── Send a message ──────────────────────────────────────────────────────────
@@ -2213,12 +2337,33 @@ app.post("/api/webhook", async (req, res) => {
     }
     case "account.updated": {
       const account = event.data.object;
-      const ready = account.charges_enabled && account.payouts_enabled;
-      if (ready) {
+      // Update connect status for the user who owns this account
+      const userId = account.metadata?.userId;
+      if (userId) {
         await supabase.from("users")
           .update({ stripe_connect_id: account.id })
-          .eq("stripe_connect_id", account.id);
+          .eq("id", userId);
       }
+      break;
+    }
+    case "payment_intent.succeeded": {
+      const intent = event.data.object;
+      console.log("✅ Payment succeeded:", intent.id);
+      break;
+    }
+    case "payment_intent.payment_failed": {
+      const intent = event.data.object;
+      console.log("❌ Payment failed:", intent.id);
+      // Mark escrow as failed if it exists
+      await supabase.from("escrow")
+        .update({ status: "failed" })
+        .eq("stripe_intent_id", intent.id)
+        .eq("status", "pending");
+      break;
+    }
+    case "charge.refunded": {
+      const charge = event.data.object;
+      console.log("↩️ Charge refunded:", charge.id);
       break;
     }
     case "identity.verification_session.verified": {
@@ -2241,4 +2386,16 @@ app.post("/api/webhook", async (req, res) => {
 // START
 // ─────────────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
+
+// Ensure address column exists on users table (safe to run repeatedly)
+(async () => {
+  try {
+    await supabase.rpc("exec_sql", { sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT" });
+    console.log("✅ Ensured address column exists on users table");
+  } catch (e) {
+    // If rpc doesn't exist, try a test query — column may already exist
+    console.log("⚠️  Could not auto-migrate address column — add it manually in Supabase dashboard if needed:", e.message);
+  }
+})();
+
 app.listen(PORT, () => console.log(`✅ ChoresApp backend running on port ${PORT}`));

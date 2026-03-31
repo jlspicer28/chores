@@ -146,20 +146,24 @@ const NOTIFS_POSTER = [];
 const INITIAL_ESCROW = [];
 
 const ESCROW_STATUS = {
-  held:     { bg:"#FFF7ED", text:G.gold, icon:"🔒", label:"Held" },
+  held:     { bg:"#FFF3E0", text:"#E67E22", icon:"🔒", label:"Held" },
   released: { bg:G.greenPale, text:G.greenMid, icon:"✅", label:"Released" },
   disputed: { bg:G.redLight, text:G.red, icon:"⚠️", label:"Disputed" },
   refunded: { bg:G.blueLight, text:G.blue, icon:"↩️", label:"Refunded" },
 };
 
 // ─── SMALL HELPERS ───────────────────────────────────────────────────────────
-const Avatar = ({ name="?", size=40, bg=G.greenMid, src=null }) => (
-  src
-    ? <img src={src} alt={name} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0, border:`1.5px solid ${G.border}` }} onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}} />
-    : <div style={{ width:size, height:size, borderRadius:"50%", background:bg, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:size*.35, flexShrink:0, fontFamily:"'Outfit',sans-serif" }}>
-        {name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
-      </div>
-);
+const Avatar = ({ name="?", size=40, bg=G.greenMid, src=null }) => {
+  const initials = <div style={{ width:size, height:size, borderRadius:"50%", background:bg, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:size*.35, flexShrink:0, fontFamily:"'Outfit',sans-serif" }}>
+      {name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+    </div>;
+  return src
+    ? <span style={{ display:"inline-block", flexShrink:0 }}>
+        <img src={src} alt={name} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0, border:`1.5px solid ${G.border}` }} onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}} />
+        {React.cloneElement(initials, { style: { ...initials.props.style, display:"none" } })}
+      </span>
+    : initials;
+};
 const Tag = ({ children, color=G.greenMid, bg=G.greenPale }) => (
   <span style={{ background:bg, color, fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:20 }}>{children}</span>
 );
@@ -409,7 +413,7 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
             </div>
           ))}
         </div>
-        {txn.note&&<div style={{ background:"#FFF7ED", borderRadius:14, padding:14, marginBottom:16, border:"1px solid rgba(244,162,97,.2)" }}><div style={{ fontSize:12, color:G.gold, fontWeight:600 }}>{txn.note}</div></div>}
+        {txn.note&&<div style={{ background:"#FFF3E0", borderRadius:14, padding:14, marginBottom:16, border:"1px solid rgba(230,126,34,.2)" }}><div style={{ fontSize:12, color:G.gold, fontWeight:600 }}>{txn.note}</div></div>}
 
         {confirmAction&&(
           <div style={{ background:confirmAction==="confirm"?G.greenPale:G.redLight, borderRadius:16, padding:16, marginBottom:14, border:`1.5px solid ${confirmAction==="confirm"?G.greenLight:G.red}` }}>
@@ -840,13 +844,14 @@ function CheckoutModal({ job, onClose, onComplete }) {
 // SETTINGS SCREEN (with escrow wallet, account, payments, notifs, privacy)
 // ═══════════════════════════════════════════════════════════════════════════
 // Stable field component defined outside SettingsScreen so it never remounts on re-render
-function ProfileField({ label, value, onChange, type="text", rows, placeholder="" }) {
+function ProfileField({ label, value, onChange, type="text", rows, placeholder="", disabled=false }) {
+  const baseStyle = { width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background: disabled ? G.sand : G.white, outline:"none", boxSizing:"border-box", opacity: disabled ? 0.6 : 1, cursor: disabled ? "not-allowed" : "text" };
   return (
     <div style={{ marginBottom:14 }}>
       <label style={{ fontSize:11, fontWeight:700, color:G.muted, display:"block", marginBottom:5, textTransform:"uppercase", letterSpacing:.5 }}>{label}</label>
       {rows
-        ? <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", resize:"none", background:G.white, outline:"none", lineHeight:1.5, boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
-        : <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{ width:"100%", padding:"13px 14px", borderRadius:12, border:`1.5px solid ${G.border}`, fontSize:14, fontFamily:"'Outfit',sans-serif", background:G.white, outline:"none", boxSizing:"border-box" }} onFocus={e=>e.target.style.borderColor=G.greenLight} onBlur={e=>e.target.style.borderColor=G.border} />
+        ? <textarea value={value} onChange={disabled ? undefined : onChange} rows={rows} placeholder={placeholder} disabled={disabled} style={{ ...baseStyle, resize:"none", lineHeight:1.5 }} onFocus={e=>{ if(!disabled) e.target.style.borderColor=G.greenLight; }} onBlur={e=>e.target.style.borderColor=G.border} />
+        : <input type={type} value={value} onChange={disabled ? undefined : onChange} placeholder={placeholder} disabled={disabled} style={baseStyle} onFocus={e=>{ if(!disabled) e.target.style.borderColor=G.greenLight; }} onBlur={e=>e.target.style.borderColor=G.border} />
       }
     </div>
   );
@@ -901,7 +906,7 @@ function BankEditForm({ initialFields, onSave, onCancel, bankSaved }) {
   );
 }
 
-function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide, onDispute, onReview, onReviewJob, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin }) {
+function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide, onDispute, onReview, onReviewJob, onUpdateZip, onTogglesChange, currentUser, darkMode, onDarkMode, onAdmin, setCurrentUserData }) {
   const [liveUser, setLiveUser] = React.useState(currentUser || (() => { try { return isBrowser ? JSON.parse(localStorage.getItem("chores_user")) : null; } catch { return null; } })());
   const storedUser = liveUser;
   const fullName = storedUser ? `${storedUser.firstName||storedUser.first_name||""} ${storedUser.lastName||storedUser.last_name||""}`.trim() : "You";
@@ -910,7 +915,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
 
   // --- Hooks that /me effect depends on (must be declared first) ---
   const [downloadStep, setDownloadStep] = useState(0); // 0=none, 1=processing, 2=ready
-  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, photo: storedUser?.avatar_url || null });
+  const [profile, setProfile] = useState({ first: storedUser?.firstName||storedUser?.first_name||"", last: storedUser?.lastName||storedUser?.last_name||"", email: userEmail, phone: storedUser?.phone||"", bio:storedUser?.bio || "", age: storedUser?.age ? String(storedUser.age) : "", zip: userZipCode, address: storedUser?.address || "", photo: storedUser?.avatar_url || null });
   const [saved, setSaved] = useState(false);
   const [selSkills, setSelSkills] = useState(() => {
     try {
@@ -955,6 +960,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
             email: u.email || p.email,
             phone: u.phone || p.phone,
             zip: u.zip || p.zip,
+            address: typeof u.address === "string" ? u.address : (p.address || ""),
             bio: typeof u.bio === "string" ? u.bio : (p.bio || ""),
             age: u.age != null ? String(u.age) : p.age,
             photo: u.avatar_url || p.photo,
@@ -1230,9 +1236,10 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
   const heldCount = activeTxns.filter(t=>t.status==="held").length;
 
   const SettingRow = ({ icon, label, sub, right, last, onClick }) => (
-    <div className={onClick?"tap":""} onClick={onClick} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 0", borderBottom:last?"none":`1px solid ${G.border}` }}>
+    <div className={onClick?"tap":""} onClick={onClick} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 0", borderBottom:last?"none":`1px solid ${G.border}`, cursor: onClick ? "pointer" : "default" }}>
+      {icon && <div style={{ fontSize:20, width:32, height:32, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{icon}</div>}
       <div style={{ flex:1 }}><div style={{ fontWeight:600, fontSize:14, color:G.text }}>{label}</div>{sub&&<div style={{ fontSize:12, color:G.muted, marginTop:1 }}>{sub}</div>}</div>
-      {right}
+      {right || (onClick && <span style={{ fontSize:18, color:G.muted, fontWeight:400, flexShrink:0 }}>›</span>)}
     </div>
   );
 
@@ -1290,8 +1297,9 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         {/* Contact */}
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Contact</div>
-          <ProfileField label="Email" type="email" value={profile.email} onChange={e=>setProfile(p=>({...p,email:e.target.value}))} />
+          <ProfileField label="Email" type="email" value={profile.email} disabled />
           <ProfileField label="Phone" type="tel" value={profile.phone} onChange={e=>setProfile(p=>({...p,phone:e.target.value}))} />
+          <ProfileField label="Address" value={profile.address} onChange={e=>setProfile(p=>({...p,address:e.target.value}))} placeholder="Street address, city, state" />
           <ProfileField label="Zip Code" value={profile.zip} onChange={e=>setProfile(p=>({...p,zip:e.target.value.replace(/\D/g,"").slice(0,5)}))} />
         </div>
 
@@ -1400,7 +1408,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
                         if (typeof setCurrentUserData === "function") setCurrentUserData(u => ({ ...u, avatar_url: uploadRes.avatarUrl }));
                       }
                     }
-                    const payload = { firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio.trim(), skills: selSkills };
+                    const payload = { firstName: profile.first, lastName: profile.last, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio.trim(), skills: selSkills, address: profile.address };
                     console.log("💾 Saving profile:", JSON.stringify(payload));
                     const res = await fetch(`${BACKEND}/api/auth/update-profile`, {
                       method: "POST",
@@ -1415,7 +1423,9 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
                 try {
                   if (isBrowser) {
                     const existing = JSON.parse(localStorage.getItem("chores_user")||"{}");
-                    localStorage.setItem("chores_user", JSON.stringify({ ...existing, firstName: profile.first, lastName: profile.last, email: profile.email, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio, skills: selSkills }));
+                    const updatedUser = { ...existing, firstName: profile.first, lastName: profile.last, first_name: profile.first, last_name: profile.last, email: profile.email, phone: profile.phone, zip: profile.zip, age: profile.age, bio: profile.bio, address: profile.address, skills: selSkills, avatar_url: profile.photo || existing.avatar_url || null };
+                    localStorage.setItem("chores_user", JSON.stringify(updatedUser));
+                    if (typeof setCurrentUserData === "function") setCurrentUserData(updatedUser);
                   }
                 } catch(e) {}
                 if (onUpdateZip) onUpdateZip(profile.zip);
@@ -1661,7 +1671,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Terms of Service</div>
         </div>
         <div style={{ background:G.white, borderRadius:14, padding:"10px 16px", marginBottom:16, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-          <div style={{ fontSize:11, color:G.muted }}>Last updated: January 1, 2025 · Effective: January 1, 2025</div>
+          <div style={{ fontSize:11, color:G.muted }}>Last updated: March 30, 2026 · Effective: March 30, 2026</div>
         </div>
         <div style={{ background:G.white, borderRadius:18, boxShadow:"0 2px 10px rgba(0,0,0,.06)", overflow:"hidden", marginBottom:16 }}>
           {sections.map((s,i)=>(
@@ -1722,7 +1732,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         <div style={{ background:"#FFF3F3", borderRadius:14, padding:"12px 16px", border:"1px solid #FFCCCC", marginBottom:16 }}>
           <div style={{ fontSize:13, color:"#B91C1C", lineHeight:1.6 }}>Witnessed a violation? Use the Report button on any profile or job listing. Reports are reviewed within 24 hours.</div>
         </div>
-        <div style={{ fontSize:12, color:G.muted, textAlign:"center" }}>Last updated: January 1, 2025</div>
+        <div style={{ fontSize:12, color:G.muted, textAlign:"center" }}>Last updated: March 30, 2026</div>
       </div>
     );
   }
@@ -1737,10 +1747,10 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       { title:"5. Identity Verification", body:"If you complete identity verification, your government ID is processed by Stripe Identity and is not stored by Chores. Stripe retains this data per their privacy policy. We only receive a verification status (verified/not verified) and the name on your ID." },
       { title:"6. Data Retention", body:"We retain your account data for as long as your account is active. If you delete your account, we permanently delete your personal data within 30 days, except where retention is required by law (e.g., financial transaction records, which are kept for 7 years)." },
       { title:"7. Your Rights", body:"You have the right to: access your personal data (request via Support); correct inaccurate data (edit in your profile); delete your data (Settings → Account → Delete Account); opt out of marketing emails (Settings → Privacy); request a copy of your data (Settings → Privacy → Download My Data)." },
-      { title:"8. Security", body:"We use industry-standard encryption (TLS/HTTPS) for all data in transit. Passwords are hashed using bcrypt. Payment data is tokenized via Stripe. We conduct regular security audits. However, no system is 100% secure — report any suspected breaches to security@choresnearme.com." },
+      { title:"8. Security", body:"We use industry-standard encryption (TLS/HTTPS) for all data in transit. Passwords are hashed using bcrypt. Payment data is tokenized via Stripe. We conduct regular security audits. However, no system is 100% secure — report any suspected breaches to support@choresnearme.com." },
       { title:"9. Children's Privacy", body:"Chores is not intended for users under 18. We do not knowingly collect data from minors. If we discover a minor has created an account, we will immediately delete the account and all associated data." },
       { title:"10. Changes to This Policy", body:"We may update this Privacy Policy periodically. We will notify you via email or in-app notification before material changes take effect. Continued use of the app constitutes acceptance of the updated policy." },
-      { title:"11. Contact", body:"For privacy-related questions or to exercise your rights, contact us at privacy@choresnearme.com or through the Contact Support page in this app. We respond to all privacy requests within 30 days." },
+      { title:"11. Contact", body:"For privacy-related questions or to exercise your rights, contact us at support@choresnearme.com or through the Contact Support page in this app. We respond to all privacy requests within 30 days." },
     ];
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -1749,7 +1759,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Privacy Policy</div>
         </div>
         <div style={{ background:G.white, borderRadius:14, padding:"10px 16px", marginBottom:16, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-          <div style={{ fontSize:11, color:G.muted }}>Last updated: January 1, 2025 · We do not sell your data.</div>
+          <div style={{ fontSize:11, color:G.muted }}>Last updated: March 30, 2026 · We do not sell your data.</div>
         </div>
         <div style={{ background:G.white, borderRadius:18, boxShadow:"0 2px 10px rgba(0,0,0,.06)", overflow:"hidden", marginBottom:16 }}>
           {sections.map((s,i)=>(
@@ -1877,6 +1887,108 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
           <div style={{ fontSize:12, fontWeight:700, color:G.muted, marginBottom:8 }}>Password Tips</div>
           {["Use a mix of letters, numbers & symbols","Don't reuse passwords from other sites","Consider using a password manager"].map((t,i)=>(
+            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:i<2?6:0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop:2, flexShrink:0 }}><path d="M20 6L9 17l-5-5"/></svg>
+              <div style={{ fontSize:13, color:G.muted }}>{t}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── TWO-FACTOR AUTHENTICATION SUB-PAGE ──
+  if (subPage==="twoFactor") {
+    return (
+      <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+          <div className="tap" onClick={()=>setSubPage(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Two-Factor Authentication</div>
+        </div>
+
+        <div style={{ background:G.white, borderRadius:20, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>Two-Factor Authentication</div>
+              <div style={{ fontSize:12, color:G.muted, marginTop:2 }}>{toggles.twoFactor ? "Your account is protected" : "Add an extra layer of security"}</div>
+            </div>
+            <Toggle on={toggles.twoFactor} onChange={()=>tog("twoFactor")} />
+          </div>
+          <div style={{ height:1, background:G.border, marginBottom:16 }} />
+          <div style={{ display:"flex", alignItems:"center", gap:12, padding:14, borderRadius:14, background: toggles.twoFactor ? G.greenPale : G.sand }}>
+            <div style={{ fontSize:28 }}>{toggles.twoFactor ? "🛡️" : "⚠️"}</div>
+            <div>
+              <div style={{ fontWeight:700, fontSize:13, color: toggles.twoFactor ? G.green : G.text }}>{toggles.twoFactor ? "2FA is enabled" : "2FA is disabled"}</div>
+              <div style={{ fontSize:12, color:G.muted, marginTop:2, lineHeight:1.4 }}>{toggles.twoFactor ? "You'll receive a verification code via SMS when signing in from a new device." : "Enable 2FA to protect your account from unauthorized access."}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:16 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Verification Method</div>
+          {[
+            { icon:"📱", label:"SMS Text Message", sub:"Receive codes via text", active:true },
+            { icon:"📧", label:"Email", sub:"Receive codes via email", active:false },
+            { icon:"🔑", label:"Authenticator App", sub:"Use Google Authenticator or similar", active:false },
+          ].map((m,i,a)=>(
+            <div key={m.label} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:i<a.length-1?`1px solid ${G.border}`:"none" }}>
+              <div style={{ fontSize:20, width:36, height:36, borderRadius:10, background:m.active?G.greenPale:G.sand, display:"flex", alignItems:"center", justifyContent:"center" }}>{m.icon}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:600, fontSize:14 }}>{m.label}</div>
+                <div style={{ fontSize:12, color:G.muted, marginTop:1 }}>{m.sub}</div>
+              </div>
+              {m.active
+                ? <Tag color={G.green} bg={G.greenPale}>Active</Tag>
+                : <Tag color={G.muted} bg={G.sand}>Soon</Tag>
+              }
+            </div>
+          ))}
+        </div>
+
+        <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:G.muted, marginBottom:8 }}>Why use 2FA?</div>
+          {["Prevents unauthorized access even if your password is compromised","Protects your earnings and personal information","Required for payouts over $500"].map((t,i)=>(
+            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:i<2?6:0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop:2, flexShrink:0 }}><path d="M20 6L9 17l-5-5"/></svg>
+              <div style={{ fontSize:13, color:G.muted }}>{t}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── LINKED ACCOUNTS SUB-PAGE ──
+  if (subPage==="linkedAccounts") {
+    const PROVIDERS = [
+      { id:"google",   icon:<svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>, label:"Google", color:"#4285F4" },
+      { id:"facebook", icon:<svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>, label:"Facebook", color:"#1877F2" },
+      { id:"apple",    icon:<svg width="20" height="20" viewBox="0 0 24 24" fill="#000"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>, label:"Apple", color:"#000" },
+    ];
+    return (
+      <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+          <div className="tap" onClick={()=>setSubPage(null)} style={{ width:34, height:34, borderRadius:10, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700 }}>←</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, flex:1 }}>Linked Accounts</div>
+        </div>
+
+        <div style={{ background:G.white, borderRadius:20, padding:20, boxShadow:"0 4px 20px rgba(0,0,0,.08)", marginBottom:16 }}>
+          <div style={{ fontSize:13, color:G.muted, marginBottom:16, lineHeight:1.5 }}>Link your accounts for faster sign-in. You can use any linked account to log in to Chores.</div>
+          {PROVIDERS.map((p,i)=>(
+            <div key={p.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 0", borderBottom:i<PROVIDERS.length-1?`1px solid ${G.border}`:"none" }}>
+              <div style={{ width:40, height:40, borderRadius:12, background:G.sand, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{p.icon}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:14 }}>{p.label}</div>
+                <div style={{ fontSize:12, color:G.muted, marginTop:1 }}>Not connected</div>
+              </div>
+              <Btn variant="outline" onClick={()=>alert(`${p.label} sign-in integration coming soon!`)} style={{ padding:"8px 16px", borderRadius:10, fontSize:12 }}>Connect</Btn>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:G.muted, marginBottom:8 }}>About Linked Accounts</div>
+          {["Sign in with one tap using your existing accounts","Your password still works even with linked accounts","You can unlink accounts at any time"].map((t,i)=>(
             <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:i<2?6:0 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop:2, flexShrink:0 }}><path d="M20 6L9 17l-5-5"/></svg>
               <div style={{ fontSize:13, color:G.muted }}>{t}</div>
@@ -2115,7 +2227,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto", paddingBottom:4 }}>
           {[
             { k:"all", label:"All", color:G.text },
-            { k:"held", label:"Held", color:G.gold },
+            { k:"held", label:"Held", color:"#E67E22" },
             { k:"released", label:"Released", color:G.green },
             { k:"disputed", label:"Disputed", color:G.red },
             { k:"refunded", label:"Refunded", color:G.blue },
@@ -2134,7 +2246,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           </div>
           <div style={{ flex:1, background:G.white, borderRadius:16, padding:14, textAlign:"center", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
             <div style={{ fontSize:11, color:G.muted, fontWeight:600 }}>Currently Held</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.gold, marginTop:4 }}>${activeTxns.filter(t=>t.status==="held").reduce((s,t)=>s+(role==="worker"?t.workerGets:t.amount),0).toFixed(2)}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:"#E67E22", marginTop:4 }}>${activeTxns.filter(t=>t.status==="held").reduce((s,t)=>s+(role==="worker"?t.workerGets:t.amount),0).toFixed(2)}</div>
           </div>
         </div>
 
@@ -2236,7 +2348,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           </Btn>
         )}
 
-        <div style={{ background:"#FFF7ED", borderRadius:14, padding:14, marginTop:16, border:"1px solid rgba(244,162,97,.2)", display:"flex", gap:10, alignItems:"flex-start" }}>
+        <div style={{ background:"#FFF3E0", borderRadius:14, padding:14, marginTop:16, border:"1px solid rgba(230,126,34,.2)", display:"flex", gap:10, alignItems:"flex-start" }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={G.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:1 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <div style={{ fontSize:12, color:G.text, lineHeight:1.5 }}>Changes to your bank account may take 1–2 business days to verify. Payouts will be paused during verification.</div>
         </div>
@@ -2927,6 +3039,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
 
           {/* Quick links */}
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
+            <SettingRow icon="⭐" label="See Reviews" sub={myReviews.length>0?`${myReviews.length} review${myReviews.length===1?"":"s"}`:"View your ratings & feedback"} onClick={()=>setSubPage("reviews")} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             <SettingRow icon="🏆" label="Badges" sub="Track your achievements" onClick={()=>setSubPage("badgesOnly")} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
             <SettingRow icon="🛠️" label="Skills" sub="Manage your skill set" last onClick={()=>setSubPage("skillsOnly")} right={<span style={{ fontSize:14, color:G.muted }}>›</span>} />
           </div>
@@ -2947,11 +3060,11 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
             </div>
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:"4px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
-            <SettingRow icon="✏️" label="Edit Profile" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("editProfile")} />
+            <SettingRow icon="✏️" label="Edit Profile" right={<span style={{ color:G.muted }}>›</span>} onClick={()=>setSubPage("editProfile")} />
             <SettingRow icon="📍" label="Service Zip Code" sub={profile.zip||"Not set"} right={<div className="tap" style={{ fontSize:12, color:G.greenMid, fontWeight:700 }}>Change</div>} onClick={()=>setSubPage("changeZip")} />
-            <SettingRow icon="🔑" label="Change Password" right={<span style={{ color:G.muted }}>→</span>} onClick={()=>setSubPage("changePassword")} />
-            <SettingRow icon="📱" label="Two-Factor Authentication" sub={toggles.twoFactor?"Enabled":"Disabled"} right={<Toggle on={toggles.twoFactor} onChange={()=>tog("twoFactor")} />} />
-            <SettingRow icon="🔗" label="Linked Accounts" sub="Google, Apple" right={<Tag color={G.muted} bg={G.sand}>Soon</Tag>} />
+            <SettingRow icon="🔑" label="Change Password" sub="Update your password" right={<span style={{ color:G.muted }}>›</span>} onClick={()=>setSubPage("changePassword")} />
+            <SettingRow icon="🔐" label="Two-Factor Authentication" sub={toggles.twoFactor?"Enabled":"Disabled"} right={<span style={{ color:G.muted }}>›</span>} onClick={()=>setSubPage("twoFactor")} />
+            <SettingRow icon="🔗" label="Linked Accounts" sub="Google, Facebook, Apple" right={<span style={{ color:G.muted }}>›</span>} onClick={()=>setSubPage("linkedAccounts")} />
             <SettingRow icon="🌐" label="Language" sub="English" right={<Tag color={G.muted} bg={G.sand}>Soon</Tag>} last />
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -2998,7 +3111,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
           )}
           {/* Poster: jobs awaiting poster confirmation */}
           {role==="poster" && myPosterTxns.filter(t=>t.status==="held"&&!t.posterConfirmed).length>0&&(
-            <div style={{ background:`linear-gradient(135deg,${G.gold}CC,${G.gold})`, borderRadius:18, padding:16, marginBottom:16, color:"#fff" }}>
+            <div style={{ background:`linear-gradient(135deg,#E67E22CC,#E67E22)`, borderRadius:18, padding:16, marginBottom:16, color:"#fff" }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Confirm Job Complete</div>
               <div style={{ fontSize:13, opacity:.9, marginBottom:12 }}>Tap a job below to confirm completion and release payment to your worker.</div>
               {myPosterTxns.filter(t=>t.status==="held"&&!t.posterConfirmed).map(t=>(
@@ -3007,7 +3120,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
                     <div style={{ fontWeight:700, fontSize:13 }}>{t.job}</div>
                     <div style={{ fontSize:11, opacity:.8 }}>Worker: {t.worker} · ${t.workerGets.toFixed(2)}</div>
                   </div>
-                  <div style={{ background:"#fff", color:G.gold, fontSize:11, fontWeight:800, padding:"6px 12px", borderRadius:10 }}>Confirm →</div>
+                  <div style={{ background:"#fff", color:"#E67E22", fontSize:11, fontWeight:800, padding:"6px 12px", borderRadius:10 }}>Confirm →</div>
                 </div>
               ))}
             </div>
@@ -3016,8 +3129,8 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Escrow Wallet</div>
             <div style={{ display:"flex", gap:10 }}>
               <div className={heldCount>0?"escrow-glow":""} style={{ flex:1, background:G.white, borderRadius:18, padding:16, boxShadow:"0 4px 16px rgba(0,0,0,.07)", border:heldCount>0?`1.5px solid ${G.greenLight}`:`1px solid ${G.border}` }}>
-                {heldCount>0&&<div style={{ marginBottom:6 }}><span style={{ fontSize:10, fontWeight:700, background:"#FFF7ED", color:G.gold, padding:"2px 8px", borderRadius:8 }}>{heldCount} active</span></div>}
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:G.gold }}>${totalHeld.toFixed(2)}</div>
+                {heldCount>0&&<div style={{ marginBottom:6 }}><span style={{ fontSize:10, fontWeight:700, background:"#FFF3E0", color:"#E67E22", padding:"2px 8px", borderRadius:8 }}>{heldCount} active</span></div>}
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:800, color:"#E67E22" }}>${totalHeld.toFixed(2)}</div>
                 <div style={{ fontSize:11, color:G.muted, marginTop:2 }}>In Escrow</div>
               </div>
               <div style={{ flex:1, background:G.white, borderRadius:18, padding:16, boxShadow:"0 4px 16px rgba(0,0,0,.07)" }}>
@@ -3138,7 +3251,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
 
           </div>
           {!toggles.push&&(
-            <div style={{ background:"#FFF7ED", borderRadius:14, padding:14, marginBottom:14, border:"1px solid rgba(244,162,97,.2)", display:"flex", gap:10, alignItems:"center" }}>
+            <div style={{ background:"#FFF3E0", borderRadius:14, padding:14, marginBottom:14, border:"1px solid rgba(230,126,34,.2)", display:"flex", gap:10, alignItems:"center" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={G.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13.73 21a2 2 0 01-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0118 8"/><path d="M6.26 6.26A5.86 5.86 0 006 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 00-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               <div style={{ fontSize:12, color:G.gold, fontWeight:600 }}>Push notifications are off. You won't receive any alerts.</div>
             </div>
@@ -6453,7 +6566,7 @@ export default function ChoresApp() {
             role={role}
           />
         )}
-        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} reviewedJobIds={reviewedJobIds} onReviewJob={(j)=>setReviewModal(j)} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
+        {view==="profile"&&<SettingsScreen role={role} escrowData={escrowData} reviewedJobIds={reviewedJobIds} onReviewJob={(j)=>setReviewModal(j)} onConfirmSide={handleConfirmSide} onDispute={handleDispute} onReview={(data)=>setReviewModal(data)} onUpdateZip={setUserZip} onTogglesChange={setAppToggles} currentUser={currentUserData} setCurrentUserData={setCurrentUserData} darkMode={darkMode} onDarkMode={setDarkMode} onAdmin={()=>setAppView("admin")} />}
       </div>
 
       {/* POST JOB MODAL */}
