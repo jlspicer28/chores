@@ -1468,10 +1468,11 @@ app.post("/api/connect/onboard", requireAuth, async (req, res) => {
     }
 
     const frontendUrl = (process.env.FRONTEND_URL || "https://choresnearme.com").replace(/^http:\/\//, "https://");
+    const clientReturnUrl = req.body.returnUrl;
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: `${frontendUrl}/?connect=refresh`,
-      return_url:  `${frontendUrl}/?connect=complete`,
+      refresh_url: clientReturnUrl || `${frontendUrl}/?connect=refresh`,
+      return_url:  clientReturnUrl || `${frontendUrl}/?connect=complete`,
       type: "account_onboarding",
     });
 
