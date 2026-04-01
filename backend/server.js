@@ -465,10 +465,10 @@ app.get("/api/users/:id/profile", async (req, res) => {
     return res.json({
       user: {
         id: data.id,
-        firstName: data.first_name || "",
-        lastName: data.last_name || "",
-        avatarUrl: data.avatar_url || null,
-        isPrivate: true,
+        email: "",
+        first_name: data.first_name || "",
+        last_name: data.last_name || "",
+        avatar_url: data.avatar_url || null,
       }
     });
   }
@@ -476,16 +476,19 @@ app.get("/api/users/:id/profile", async (req, res) => {
   res.json({
     user: {
       id: data.id,
+      email: "",
+      first_name: data.first_name || "",
+      last_name: data.last_name || "",
       firstName: data.first_name || "",
       lastName: data.last_name || "",
-      avatarUrl: data.avatar_url || null,
+      avatar_url: data.avatar_url || null,
       bio: data.bio || "",
       skills: data.skills || [],
       rating: data.rating || null,
-      jobsCompleted: data.jobs_completed || 0,
-      memberSince: data.created_at,
+      jobs_completed: data.jobs_completed || 0,
+      created_at: data.created_at,
       zip: data.zip || "",
-      identityVerified: data.identity_verified || false,
+      identity_verified: data.identity_verified || false,
     }
   });
 });
