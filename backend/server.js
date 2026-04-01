@@ -1548,6 +1548,19 @@ app.get("/api/connect/status", requireAuth, async (req, res) => {
   }
 });
 
+// Stripe Express dashboard login link (for managing bank account)
+app.post("/api/connect/dashboard", requireAuth, async (req, res) => {
+  try {
+    const { data: user } = await supabase
+      .from("users").select("stripe_connect_id").eq("id", req.user.id).single();
+    if (!user?.stripe_connect_id) return res.json({ error: "No Connect account found" });
+    const loginLink = await stripe.accounts.createLoginLink(user.stripe_connect_id);
+    res.json({ url: loginLink.url });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SAVED CARDS
 // ─────────────────────────────────────────────────────────────────────────────
