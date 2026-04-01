@@ -1700,9 +1700,10 @@ app.post("/api/verify/email/send", async (req, res) => {
   console.log(`📧 Email code for ${email}: ${code}`);
 
   // Send real email via Resend if API key is configured
+  let emailStatus = "no_api_key";
   if (process.env.RESEND_API_KEY) {
     try {
-      await fetch("https://api.resend.com/emails", {
+      const resendRes = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
@@ -1723,12 +1724,16 @@ app.post("/api/verify/email/send", async (req, res) => {
           `
         })
       });
+      const resendData = await resendRes.json();
+      console.log("📧 Resend response:", JSON.stringify(resendData));
+      emailStatus = resendData.id ? "sent" : (resendData.message || "unknown_error");
     } catch (e) {
-      console.error("Resend error:", e);
+      console.error("Resend error:", e.message);
+      emailStatus = e.message;
     }
   }
 
-  res.json({ success: true, message: "Code sent" });
+  res.json({ success: true, message: "Code sent", emailStatus, hasApiKey: !!process.env.RESEND_API_KEY });
 });
 
 app.post("/api/verify/email/check", async (req, res) => {
