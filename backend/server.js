@@ -2476,6 +2476,42 @@ app.delete("/api/admin/jobs/:id", requireAuth, requireAdmin, async (req, res) =>
   res.json({ success: true });
 });
 
+app.post("/api/admin/seed-jobs", requireAuth, requireAdmin, async (req, res) => {
+  const { jobs } = req.body;
+  if (!jobs || !Array.isArray(jobs)) return res.json({ error: "jobs array required" });
+  const created = [];
+  for (const j of jobs) {
+    // Create a fake user for each job if name provided
+    let posterId = req.user.id;
+    if (j.posterName) {
+      const parts = j.posterName.split(" ");
+      const fakeEmail = `${parts.join(".").toLowerCase()}@demo.choresnearme.com`;
+      const { data: existing } = await supabase.from("users").select("id").eq("email", fakeEmail).maybeSingle();
+      if (existing) {
+        posterId = existing.id;
+      } else {
+        const fakeId = require("crypto").randomUUID();
+        await supabase.from("users").insert({
+          id: fakeId, email: fakeEmail,
+          first_name: parts[0] || "", last_name: parts.slice(1).join(" ") || "",
+          role: "poster", rating: 4.5 + Math.random() * 0.5, jobs_completed: Math.floor(Math.random() * 10) + 1,
+          identity_verified: true, created_at: new Date().toISOString(),
+        });
+        posterId = fakeId;
+      }
+    }
+    const { data } = await supabase.from("jobs").insert({
+      poster_id: posterId, title: j.title, description: j.description || null,
+      category: j.category || null, pay: parseFloat(j.pay), zip: j.zip || "45056",
+      lat: j.lat || null, lng: j.lng || null,
+      date: j.date || null, date_iso: j.date_iso || null,
+      duration: j.duration || null, address: j.address || null, status: "open", photos: [],
+    }).select().single();
+    if (data) created.push(data.id);
+  }
+  res.json({ success: true, created: created.length });
+});
+
 app.post("/api/admin/backfill-coords", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data: jobs } = await supabase.from("jobs").select("id, address, zip").or("lat.is.null,lng.is.null");
