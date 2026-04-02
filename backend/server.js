@@ -594,6 +594,9 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   if (duration !== undefined) updates.duration = duration;
   if (photos !== undefined) updates.photos = photos;
 
+  const profanityErr = checkJobProfanity(updates.title, updates.description);
+  if (profanityErr) return res.json({ error: profanityErr });
+
   console.log("✏️ Applying updates:", updates);
   const { data, error } = await supabase
     .from("jobs").update(updates).eq("id", req.params.id).select().single();
@@ -606,12 +609,36 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   res.json({ success: true, job: data });
 });
 
+// Profanity filter
+const BANNED_WORDS = new Set([
+  "fuck","shit","ass","bitch","damn","hell","dick","cock","pussy","cunt",
+  "bastard","slut","whore","fag","nigger","nigga","retard","retarded",
+  "stfu","gtfo","lmao","wtf","bullshit","horseshit","dipshit","asshole",
+  "motherfucker","fucker","fucking","shitty","dumbass","jackass","bitchass",
+  "piss","pissed","crackhead","tweaker",
+]);
+
+function containsProfanity(text) {
+  if (!text) return false;
+  const words = text.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/);
+  return words.some(w => BANNED_WORDS.has(w));
+}
+
+function checkJobProfanity(title, description) {
+  if (containsProfanity(title)) return "Job title contains inappropriate language. Please revise.";
+  if (containsProfanity(description)) return "Job description contains inappropriate language. Please revise.";
+  return null;
+}
+
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
   const { title, description, category, pay, zip, lat, lng, date, date_iso, duration, photos, address } = req.body;
   console.log("📋 Creating job:", { title, category, pay, zip, userId: req.user.id });
 
   if (!title || !pay) return res.json({ error: "Title and pay are required" });
+
+  const profanityErr = checkJobProfanity(title, description);
+  if (profanityErr) return res.json({ error: profanityErr });
 
   // Ensure user row exists in our users table (handles stale sessions after DB wipe)
   const { data: existingUser } = await supabase
