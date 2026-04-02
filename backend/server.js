@@ -2467,6 +2467,15 @@ ${description}`);
 
 
 // Backfill missing lat/lng for existing jobs using their address or zip
+app.delete("/api/admin/jobs/:id", requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  await supabase.from("applications").delete().eq("job_id", id);
+  await supabase.from("escrow").delete().eq("job_id", id);
+  await supabase.from("jobs").delete().eq("id", id);
+  console.log("🗑️ Admin deleted job:", id);
+  res.json({ success: true });
+});
+
 app.post("/api/admin/backfill-coords", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data: jobs } = await supabase.from("jobs").select("id, address, zip").or("lat.is.null,lng.is.null");
