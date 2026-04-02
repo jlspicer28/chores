@@ -3962,9 +3962,9 @@ function DiscoveryScreen({ role, onPostJob, onFundEscrow, onCheckout, isGuest, o
         <div style={{ padding:"14px 20px" }}>
           {role==="poster"&&(
             <div style={{ marginBottom:12 }}>
-              <div className="tap card" onClick={onPostJob} style={{ background:`linear-gradient(130deg,${G.green} 0%,${G.greenLight} 100%)`, borderRadius:18, padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 6px 24px rgba(27,67,50,.35)" }}>
-                <div><div style={{ color:"#fff", fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:18 }}>Post a New Job</div><div style={{ color:"rgba(255,255,255,.75)", fontSize:13, marginTop:2 }}>Match with trusted workers nearby</div></div>
-                <div style={{ background:"rgba(255,255,255,.2)", borderRadius:12, width:44, height:44, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>＋</div>
+              <div className="tap card" onClick={onPostJob} style={{ background:`linear-gradient(130deg,${G.green} 0%,${G.greenLight} 100%)`, borderRadius:22, padding:"32px 28px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 8px 32px rgba(27,67,50,.4)" }}>
+                <div><div style={{ color:"#fff", fontFamily:"'Playfair Display',serif", fontWeight:800, fontSize:24 }}>Post a New Job</div><div style={{ color:"rgba(255,255,255,.75)", fontSize:15, marginTop:6 }}>Workers in {userZip||"your area"} will see it instantly</div></div>
+                <div style={{ background:"rgba(255,255,255,.2)", borderRadius:16, width:56, height:56, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28 }}>＋</div>
               </div>
             </div>
           )}
@@ -5324,7 +5324,7 @@ function MapScreen({ role, isGuest, onGuestAction, onCheckout, maxDist, setMaxDi
         <div ref={mapRef} style={{ position:"absolute", inset:0, width:"100%", height:"100%", zIndex:0 }} />
 
         {/* Zoom controls */}
-        <div style={{ position:"absolute", top:10, right:10, display:"flex", flexDirection:"column", gap:4, zIndex:10 }}>
+        <div style={{ position:"absolute", top:30, right:10, display:"flex", flexDirection:"column", gap:4, zIndex:10 }}>
           <button className="btn tap" onClick={()=>leafletRef.current&&leafletRef.current.zoomIn()} style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.95)", border:`1px solid ${G.border}`, fontSize:18, fontWeight:800, color:G.text, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,.15)" }}>+</button>
           <button className="btn tap" onClick={()=>leafletRef.current&&leafletRef.current.zoomOut()} style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.95)", border:`1px solid ${G.border}`, fontSize:18, fontWeight:800, color:G.text, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,.15)" }}>−</button>
         </div>
