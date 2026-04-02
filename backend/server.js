@@ -1876,7 +1876,7 @@ app.post("/api/verify/identity/start", requireAuth, async (req, res) => {
         },
       },
     });
-    res.json({ clientSecret: session.client_secret, sessionId: session.id });
+    res.json({ clientSecret: session.client_secret, sessionId: session.id, url: session.url });
   } catch (err) {
     res.json({ error: err.message });
   }
