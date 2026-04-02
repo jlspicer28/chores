@@ -609,19 +609,85 @@ app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
   res.json({ success: true, job: data });
 });
 
-// Profanity filter
+// Profanity filter — comprehensive list + leet speak / evasion detection
 const BANNED_WORDS = new Set([
-  "fuck","shit","ass","bitch","damn","hell","dick","cock","pussy","cunt",
-  "bastard","slut","whore","fag","nigger","nigga","retard","retarded",
-  "stfu","gtfo","lmao","wtf","bullshit","horseshit","dipshit","asshole",
-  "motherfucker","fucker","fucking","shitty","dumbass","jackass","bitchass",
-  "piss","pissed","crackhead","tweaker",
+  // F-word variants
+  "fuck","fucker","fuckers","fuckin","fucking","fucks","fucked","fuckoff",
+  "fuckhead","fuckface","fuckwit","fuckboy","fuckboi","motherfucker",
+  "motherfucking","motherfuckers","clusterfuck","mindfuck",
+  // S-word variants
+  "shit","shits","shitty","shitting","shitter","shithead","shitface",
+  "shithole","bullshit","horseshit","dipshit","batshit","apeshit",
+  // A-word variants
+  "ass","asses","asshole","assholes","asshat","asswipe","assface",
+  "assclown","badass","dumbass","fatass","jackass","kickass","smartass",
+  "bitchass","lardass",
+  // B-word variants
+  "bitch","bitches","bitchy","bitching","sonofabitch",
+  // C-word variants
+  "cunt","cunts","cuntface",
+  // D-word variants
+  "dick","dicks","dickhead","dickface","dickweed","dickbag",
+  "cock","cocks","cocksucker","cocksucking","cockhead",
+  // P-word variants
+  "pussy","pussies","pussyass",
+  // Slurs — racial
+  "nigger","niggers","nigga","niggas","nigg","nig",
+  "chink","chinks","gook","gooks","spic","spics","spick",
+  "wetback","wetbacks","beaner","beaners","kike","kikes",
+  "coon","coons","darkie","darkies","raghead","ragheads",
+  "towelhead","towelheads","redskin","redskins","injun",
+  "chinaman","jap","japs","paki","pakis",
+  // Slurs — sexuality/gender
+  "fag","fags","faggot","faggots","faggy","dyke","dykes",
+  "tranny","trannies","shemale","shemales","homo","homos",
+  // Slurs — disability
+  "retard","retards","retarded","tard","tards","spaz","spastic",
+  "cripple",
+  // Sexual/crude
+  "slut","sluts","slutty","whore","whores","skank","skanks","skanky",
+  "hoe","thot","milf","dilf","dildo","blowjob","handjob","rimjob",
+  "cumshot","creampie","gangbang","orgy","porn","porno",
+  "jizz","cum","cumming","semen","boner","erection",
+  "tits","titties","titty","boobs","boobies","nudes","nude",
+  "masturbate","masturbation","wank","wanker","wanking","jerkoff",
+  // Drug references
+  "crackhead","tweaker","meth","heroin","cocaine","crack",
+  // Violence
+  "kill","murder","rape","raping","rapist","molest","pedophile",
+  "pedo","kidnap",
+  // General insults
+  "bastard","bastards","douche","douchebag","douchebags",
+  "piss","pissed","pissoff","scumbag","scum","trashy",
+  "stfu","gtfo","kys","ligma","deez",
 ]);
+
+// Normalize leet speak and evasion tricks
+function normalizeLeet(text) {
+  return text
+    .replace(/0/g, "o").replace(/1/g, "i").replace(/3/g, "e")
+    .replace(/4/g, "a").replace(/5/g, "s").replace(/7/g, "t")
+    .replace(/8/g, "b").replace(/9/g, "g").replace(/@/g, "a")
+    .replace(/\$/g, "s").replace(/!/g, "i").replace(/\+/g, "t")
+    .replace(/ph/g, "f")
+    // Remove repeated chars (fuuuck -> fuck, shiiit -> shit)
+    .replace(/(.)\1{2,}/g, "$1$1")
+    // Remove separators used to evade (f.u.c.k, f-u-c-k, f_u_c_k)
+    .replace(/[\.\-_*~`']+/g, "");
+}
 
 function containsProfanity(text) {
   if (!text) return false;
-  const words = text.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/);
-  return words.some(w => BANNED_WORDS.has(w));
+  const normalized = normalizeLeet(text.toLowerCase());
+  // Check whole words
+  const words = normalized.replace(/[^a-z\s]/g, "").split(/\s+/);
+  if (words.some(w => BANNED_WORDS.has(w))) return true;
+  // Check substrings for concatenated slurs (e.g. "fuckthis", "gokillyourself")
+  const stripped = normalized.replace(/[^a-z]/g, "");
+  for (const banned of BANNED_WORDS) {
+    if (banned.length >= 4 && stripped.includes(banned)) return true;
+  }
+  return false;
 }
 
 function checkJobProfanity(title, description) {
