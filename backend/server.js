@@ -840,9 +840,9 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       await supabase.from("users").update({ stripe_customer_id: stripeCustomerId }).eq("id", req.user.id);
     }
 
-    const workerCents = Math.round(job.pay * 100);
-    const feeCents = Math.round(workerCents * 0.08);
-    const amountCents = workerCents + feeCents; // poster pays job.pay * 1.08
+    const totalCents = Math.round(job.pay * 100);       // poster pays exact job price
+    const feeCents = Math.round(totalCents * 0.15);     // 15% platform fee
+    const workerCents = totalCents - feeCents;           // worker gets 85%
 
     // Fetch worker's Connect ID
     const { data: worker } = await supabase
@@ -850,7 +850,7 @@ app.post("/api/charge", requireAuth, async (req, res) => {
 
     // Create PaymentIntent with manual capture (holds funds without charging yet)
     const intent = await stripe.paymentIntents.create({
-      amount: amountCents,
+      amount: totalCents,
       currency: "usd",
       payment_method: paymentMethodId,
       customer: stripeCustomerId,
@@ -880,8 +880,8 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       poster_id: req.user.id,
       worker_id: workerId,
       amount: job.pay,
-      fee: job.pay * 0.08,
-      worker_gets: job.pay,
+      fee: job.pay * 0.15,
+      worker_gets: job.pay * 0.85,
       stripe_intent_id: intent.id,
       status: "held",
     }).select().single();
@@ -1144,9 +1144,9 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
     const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
     if (!job) return res.json({ error: "Job not found" });
 
-    const workerCents = Math.round(job.pay * 100);
-    const feeCents = Math.round(workerCents * 0.08);
-    const totalCents = workerCents + feeCents;
+    const totalCents = Math.round(job.pay * 100);       // poster pays exact job price
+    const feeCents = Math.round(totalCents * 0.15);     // 15% platform fee
+    const workerCents = totalCents - feeCents;           // worker gets 85%
 
     const intent = await stripe.paymentIntents.create({
       amount: totalCents,
@@ -1173,8 +1173,8 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
       poster_id: req.user.id,
       worker_id: workerId || null,
       amount: job.pay,
-      fee: job.pay * 0.08,
-      worker_gets: job.pay,
+      fee: job.pay * 0.15,
+      worker_gets: job.pay * 0.85,
       stripe_intent_id: intent.id,
       status: "held",
     });
