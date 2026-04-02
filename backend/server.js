@@ -636,6 +636,22 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
     }
   }
 
+  // Geocode address server-side if client didn't provide lat/lng
+  let jobLat = lat || null;
+  let jobLng = lng || null;
+  if (!jobLat && !jobLng && address) {
+    try {
+      const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+      const geoRes = await fetch(geoUrl, { headers: { "User-Agent": "ChoresApp/1.0" } });
+      const geoData = await geoRes.json();
+      if (geoData.length > 0) {
+        jobLat = parseFloat(geoData[0].lat);
+        jobLng = parseFloat(geoData[0].lon);
+        console.log("📍 Geocoded address:", address, "→", jobLat, jobLng);
+      }
+    } catch (e) { console.log("⚠️ Geocode failed:", e.message); }
+  }
+
   const { data, error } = await supabase.from("jobs").insert({
     poster_id: req.user.id,
     title: title.trim(),
@@ -643,8 +659,8 @@ app.post("/api/jobs/create", requireAuth, async (req, res) => {
     category: category || null,
     pay: parseFloat(pay),
     zip: zip || null,
-    lat: lat || null,
-    lng: lng || null,
+    lat: jobLat,
+    lng: jobLng,
     date: date || null,
     date_iso: date_iso || null,
     duration: duration || null,
@@ -2313,6 +2329,32 @@ ${description}`);
 });
 
 
+
+// Backfill missing lat/lng for existing jobs using their address or zip
+app.post("/api/admin/backfill-coords", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data: jobs } = await supabase.from("jobs").select("id, address, zip").or("lat.is.null,lng.is.null");
+    if (!jobs || jobs.length === 0) return res.json({ updated: 0 });
+    let updated = 0;
+    for (const job of jobs) {
+      const query = job.address || (job.zip ? `${job.zip}, United States` : null);
+      if (!query) continue;
+      try {
+        const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+        const geoRes = await fetch(geoUrl, { headers: { "User-Agent": "ChoresApp/1.0" } });
+        const geoData = await geoRes.json();
+        if (geoData.length > 0) {
+          await supabase.from("jobs").update({ lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon) }).eq("id", job.id);
+          updated++;
+          console.log(`📍 Backfilled ${job.id}: ${query} → ${geoData[0].lat}, ${geoData[0].lon}`);
+        }
+        // Rate limit: Nominatim requires 1 req/sec
+        await new Promise(r => setTimeout(r, 1100));
+      } catch (e) { console.log(`⚠️ Backfill failed for ${job.id}:`, e.message); }
+    }
+    res.json({ updated, total: jobs.length });
+  } catch (err) { res.json({ error: err.message }); }
+});
 
 // ADMIN STATS
 // ─────────────────────────────────────────────────────────────────────────────
