@@ -693,7 +693,7 @@ app.post("/api/jobs/:id/cancel", requireAuth, async (req, res) => {
   const { data: cancelledJob } = await supabase
     .from("jobs").select("id, title, worker_id, poster_id").eq("id", req.params.id).single();
 
-  await supabase.from("jobs").update({ status: "cancelled" }).eq("id", req.params.id);
+  await supabase.from("jobs").update({ status: "archived", archived_at: new Date().toISOString() }).eq("id", req.params.id);
 
   // Notify worker if they were assigned
   if (cancelledJob?.worker_id) {
@@ -722,6 +722,41 @@ app.post("/api/jobs/:id/cancel", requireAuth, async (req, res) => {
   }
   res.json({ success: true });
 });
+
+// Restore an archived job (within 7 days)
+app.post("/api/jobs/:id/restore", requireAuth, async (req, res) => {
+  const { data: job } = await supabase
+    .from("jobs").select("poster_id, status, archived_at").eq("id", req.params.id).single();
+  if (!job) return res.json({ error: "Job not found" });
+  if (job.poster_id !== req.user.id) return res.json({ error: "Not authorized" });
+  if (job.status !== "archived") return res.json({ error: "Job is not archived" });
+
+  // Check 7-day window
+  if (job.archived_at) {
+    const archivedDate = new Date(job.archived_at);
+    const daysSince = (Date.now() - archivedDate.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince > 7) return res.json({ error: "Archive period expired — job has been permanently deleted" });
+  }
+
+  await supabase.from("jobs").update({ status: "open", archived_at: null }).eq("id", req.params.id);
+  console.log("♻️ Job restored:", req.params.id);
+  res.json({ success: true });
+});
+
+// Permanently delete jobs archived > 7 days (called on any jobs fetch)
+async function purgeExpiredArchives() {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data } = await supabase.from("jobs").select("id").eq("status", "archived").lt("archived_at", cutoff);
+  if (data && data.length > 0) {
+    const ids = data.map(j => j.id);
+    await supabase.from("applications").delete().in("job_id", ids);
+    await supabase.from("jobs").delete().in("id", ids);
+    console.log(`🗑️ Purged ${ids.length} expired archived jobs`);
+  }
+}
+// Run purge on startup and every hour
+purgeExpiredArchives();
+setInterval(purgeExpiredArchives, 60 * 60 * 1000);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PAYMENTS — Escrow hold, release, refund
