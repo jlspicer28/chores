@@ -483,12 +483,15 @@ app.get("/api/jobs/mine", requireAuth, async (req, res) => {
     lat: j.lat,
     lng: j.lng,
     date: j.date,
+    date_iso: j.date_iso,
     duration: j.duration,
     status: j.status,
     worker_id: j.worker_id,
+    poster_id: j.poster_id,
     applicant_count: j.applications?.[0]?.count || 0,
     created_at: j.created_at,
     photos: j.photos || [],
+    address: j.address,
   }));
 
   res.json({ jobs });
