@@ -192,6 +192,10 @@ app.post("/api/auth/register", async (req, res) => {
       refreshToken: authData.session?.refresh_token || null,
       user: { id: userId, email, first_name: firstName, last_name: lastName, firstName, lastName, phone, zip, role: role || "worker" },
     });
+
+    // Send welcome email (non-blocking)
+    sendWelcomeEmail(email, firstName, role || "worker").catch(e => console.warn("Welcome email failed:", e.message));
+
   } catch (err) {
     console.error("Register error:", err.message);
     res.json({ error: err.message });
@@ -742,6 +746,118 @@ function checkJobProfanity(title, description) {
   if (containsProfanity(description)) return "Job description contains inappropriate language. Please revise.";
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTOMATED EMAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function sendEmail(to, subject, html) {
+  if (!process.env.RESEND_API_KEY) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "Chores <noreply@choresnearme.com>", to: [to], subject, html })
+    });
+  } catch (e) { console.warn("Email send failed:", e.message); }
+}
+
+function emailTemplate(content) {
+  return `
+  <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:0;background:#F8F4EF;">
+    <div style="background:#1B4332;padding:28px 32px;text-align:center;">
+      <span style="font-family:Georgia,serif;font-size:28px;font-weight:800;color:#fff;">Chores</span><span style="font-family:Georgia,serif;font-size:28px;font-weight:800;color:#52B788;">.</span>
+    </div>
+    <div style="padding:32px;background:#fff;">
+      ${content}
+    </div>
+    <div style="padding:20px 32px;text-align:center;font-size:11px;color:#9CA3AF;">
+      <p>Chores App LLC · <a href="https://choresnearme.com" style="color:#2D6A4F;">choresnearme.com</a></p>
+      <p style="margin-top:8px;"><a href="https://choresnearme.com/privacy" style="color:#9CA3AF;">Privacy Policy</a> · <a href="https://choresnearme.com/terms" style="color:#9CA3AF;">Terms</a></p>
+    </div>
+  </div>`;
+}
+
+async function sendWelcomeEmail(email, firstName, role) {
+  const name = firstName || "there";
+  const isWorker = role === "worker";
+  const subject = `Welcome to Chores, ${name}! 🎉`;
+  const html = emailTemplate(`
+    <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Welcome to Chores, ${name}!</h2>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+      You're all set. ${isWorker
+        ? "Jobs are being posted every day by people in your area who need help. Browse, apply, and start earning."
+        : "You can now post jobs and connect with trusted workers in your neighborhood. Payments are protected by escrow."}
+    </p>
+    <div style="background:#D8F3DC;border-radius:12px;padding:20px;margin:20px 0;">
+      <p style="font-weight:700;color:#1B4332;margin:0 0 8px;font-size:14px;">Here's how to get started:</p>
+      <p style="color:#2D6A4F;font-size:14px;line-height:1.8;margin:0;">
+        ${isWorker
+          ? "1. Browse jobs on the Home tab<br>2. Apply with a message to the poster<br>3. Get hired and earn money securely"
+          : "1. Tap 'Post a New Job' on the Home tab<br>2. Set your price, date, and details<br>3. Review applicants and hire someone"}
+      </p>
+    </div>
+    <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+      Every payment is held in escrow until the job is done — so ${isWorker ? "you always get paid" : "your money is safe"}.
+    </p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">Open Chores →</a>
+    </div>
+    <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">Questions? Reply to this email or tap Support in the app.</p>
+  `);
+  await sendEmail(email, subject, html);
+  console.log(`📧 Welcome email sent to ${email}`);
+}
+
+// Drip email: sent 3 days after signup to inactive users
+async function sendDripEmails() {
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+
+  // Find users who signed up 3-4 days ago
+  const { data: users } = await supabase
+    .from("users")
+    .select("id, email, first_name, role, jobs_completed")
+    .lt("created_at", threeDaysAgo)
+    .gt("created_at", fourDaysAgo);
+
+  if (!users || users.length === 0) return;
+
+  for (const user of users) {
+    // Skip if they've already completed a job
+    if (user.jobs_completed > 0) continue;
+
+    const name = user.first_name || "there";
+    const isWorker = user.role === "worker";
+
+    const subject = isWorker
+      ? `${name}, jobs are waiting for you 👀`
+      : `${name}, post your first job — it takes 30 seconds`;
+
+    const html = emailTemplate(`
+      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${name},</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        ${isWorker
+          ? "People in your area are posting jobs right now — lawn care, cleaning, moving, pet care, and more. Don't miss out on earning opportunities."
+          : "Need something done around the house? Post a job in 30 seconds and get applications from workers in your area. Payments are protected by escrow — you only pay when the job is done."}
+      </p>
+      <div style="text-align:center;margin:24px 0;">
+        <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">${isWorker ? "Browse Jobs →" : "Post a Job →"}</a>
+      </div>
+      <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">You're receiving this because you signed up for Chores. <a href="https://choresnearme.com" style="color:#9CA3AF;">Unsubscribe</a></p>
+    `);
+
+    await sendEmail(user.email, subject, html);
+    console.log(`📧 Drip email sent to ${user.email}`);
+    // Rate limit
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// Run drip emails daily at ~9am
+setInterval(sendDripEmails, 24 * 60 * 60 * 1000);
+// Also run once on startup (checks for eligible users)
+setTimeout(sendDripEmails, 30000);
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
