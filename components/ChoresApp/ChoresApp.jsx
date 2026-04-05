@@ -203,7 +203,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
   const [payMethod, setPayMethod] = useState("new");
   const [processing, setProcessing] = useState(false);
   const [pmCards, setPmCards] = useState([]);
-  const fee = +(job.pay * 0.08).toFixed(2);
+  const fee = +(job.pay * 0.15).toFixed(2);
   const total = +(job.pay + fee).toFixed(2);
   const workerGets = +job.pay.toFixed(2);
 
@@ -228,7 +228,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:800, color:G.green }}>Escrow Created!</div>
         <div style={{ fontSize:14, color:G.muted, marginTop:8, lineHeight:1.5 }}><strong>${job.pay.toFixed(2)}</strong> is held securely until<br/><strong>{job.title}</strong> is completed.</div>
         <div style={{ background:G.greenPale, borderRadius:14, padding:14, marginTop:20, textAlign:"left" }}>
-          {[["Held amount",`$${job.pay.toFixed(2)}`],["Platform fee (8%)",`$${fee.toFixed(2)}`]].map(([l,v])=>(
+          {[["Held amount",`$${job.pay.toFixed(2)}`],["Service fee (15%)",`$${fee.toFixed(2)}`]].map(([l,v])=>(
             <div key={l} style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}><span style={{ color:G.muted }}>{l}</span><span style={{ fontWeight:700 }}>{v}</span></div>
           ))}
           <div style={{ height:1, background:G.greenLight, opacity:.3, margin:"6px 0" }} />
@@ -262,7 +262,7 @@ function EscrowHoldModal({ job, onClose, onConfirm }) {
           </div>
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Price Breakdown</div>
-            {[["Job payment",`$${job.pay.toFixed(2)}`],["Platform fee (8%)",`$${fee.toFixed(2)}`]].map(([l,v])=>(
+            {[["Job payment",`$${job.pay.toFixed(2)}`],["Service fee (15%)",`$${fee.toFixed(2)}`]].map(([l,v])=>(
               <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:`1px solid ${G.border}`, fontSize:14 }}><span style={{ color:G.muted }}>{l}</span><span style={{ fontWeight:600 }}>{v}</span></div>
             ))}
             <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0" }}>
@@ -380,7 +380,7 @@ function EscrowDetailModal({ txn, role, onClose, onConfirmSide, onDispute }) {
 
         <div style={{ background:G.white, borderRadius:16, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:14 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Payment</div>
-          {[["Job amount",`$${txn.amount.toFixed(2)}`],["Platform fee (8%)",`+$${(txn.fee||txn.amount*0.08).toFixed(2)}`],["Poster charged",`$${(txn.amount+(txn.fee||txn.amount*0.08)).toFixed(2)}`],["Worker receives",`$${txn.workerGets.toFixed(2)}`]].map(([l,v],i)=>(
+          {[["Job amount",`$${txn.amount.toFixed(2)}`],["Service fee (15%)",`+$${(txn.fee||txn.amount*0.15).toFixed(2)}`],["Poster charged",`$${(txn.amount+(txn.fee||txn.amount*0.15)).toFixed(2)}`],["Worker receives",`$${txn.workerGets.toFixed(2)}`]].map(([l,v],i)=>(
             <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"9px 0", borderBottom:`1px solid ${G.border}`, fontSize:13 }}>
               <span style={{ color:G.muted }}>{l}</span><span style={{ fontWeight:i===2?800:600, color:i===2?G.greenMid:G.text }}>{v}</span>
             </div>
@@ -507,7 +507,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
   const [paymentMethodId, setPaymentMethodId] = useState(null);
   const [cardBrand, setCardBrand] = useState("");
   const [cardLast4, setCardLast4] = useState("");
-  const fee = +(job.pay * 0.08).toFixed(2);
+  const fee = +(job.pay * 0.15).toFixed(2);
   const tip = +(job.pay * tipPct / 100).toFixed(2);
   const total = +(job.pay + fee + tip).toFixed(2);
   const workerGets = +(job.pay + tip).toFixed(2);
@@ -616,7 +616,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
         </div>
         <div style={{ background:G.greenPale, borderRadius:14, padding:14, marginTop:16, textAlign:"left" }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.greenMid, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Receipt</div>
-          {[["Job",job.title],["Worker",selectedWorker?.name||"Worker"],["Amount",`$${job.pay.toFixed(2)}`],["Platform fee (8%)",`+$${fee.toFixed(2)}`],["Tip",`$${tip.toFixed(2)}`],["Total charged",`$${total}`]].map(([l,v])=>(
+          {[["Job",job.title],["Worker",selectedWorker?.name||"Worker"],["Amount",`$${job.pay.toFixed(2)}`],["Service fee (15%)",`+$${fee.toFixed(2)}`],["Tip",`$${tip.toFixed(2)}`],["Total charged",`$${total}`]].map(([l,v])=>(
             <div key={l} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"4px 0", borderBottom:`1px solid ${G.greenLight}20` }}><span style={{ color:G.greenMid }}>{l}</span><span style={{ fontWeight:700, color:G.text }}>{v}</span></div>
           ))}
         </div>
@@ -711,7 +711,7 @@ function CheckoutModal({ job, onClose, onComplete }) {
           {/* Price breakdown */}
           <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.06)", marginBottom:14 }}>
             <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:10 }}>Order Summary</div>
-            {[["Job payment",`$${job.pay.toFixed(2)}`],["Platform fee (8%)",`$${fee.toFixed(2)}`],["Tip",`$${tip.toFixed(2)}`]].map(([l,v])=>(
+            {[["Job payment",`$${job.pay.toFixed(2)}`],["Service fee (15%)",`$${fee.toFixed(2)}`],["Tip",`$${tip.toFixed(2)}`]].map(([l,v])=>(
               <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:`1px solid ${G.border}`, fontSize:14 }}><span style={{ color:G.muted }}>{l}</span><span style={{ fontWeight:600 }}>{v}</span></div>
             ))}
             <div style={{ display:"flex", justifyContent:"space-between", padding:"14px 0 0" }}>
@@ -1655,7 +1655,7 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       { title:"2. Eligibility", body:"You must be at least 18 years old to use Chores. By using the app, you confirm that you are 18 or older and legally capable of entering into binding agreements. We may require identity verification to confirm eligibility." },
       { title:"3. User Accounts", body:"You are responsible for maintaining the confidentiality of your account credentials. You agree to provide accurate, current, and complete information during registration and to update it as needed. You may not share your account or use another person's account." },
       { title:"4. The Chores Platform", body:"Chores is a marketplace that connects people who need tasks done (posters) with people willing to do them (workers). Chores is not an employer of any worker. Workers are independent contractors solely responsible for their own taxes, insurance, and compliance with applicable laws." },
-      { title:"5. Escrow & Payments", body:"All payments between posters and workers are held in escrow by Chores until both parties confirm job completion. Chores charges a 8% platform fee on all transactions, deducted from worker payouts. Poster payments are non-refundable once a job begins unless a dispute is successfully resolved in the poster's favor." },
+      { title:"5. Escrow & Payments", body:"All payments between posters and workers are held in escrow by Chores until both parties confirm job completion. Chores charges a 15% service fee on all transactions, deducted from worker payouts. Posters pay the listed price with no additional charges. Poster payments are non-refundable once a job begins unless a dispute is successfully resolved in the poster's favor." },
       { title:"6. Disputes", body:"In the event of a dispute, both parties must submit evidence through the app within 48 hours. Chores will review the evidence and make a final, binding determination on escrow release within 24–72 hours. Chores reserves the right to refund, withhold, or split escrow based on its review." },
       { title:"7. Prohibited Conduct", body:"Users may not: post false or misleading job listings; harass, threaten, or discriminate against other users; use the platform for illegal activities; create fake accounts or manipulate ratings; solicit payments outside the Chores platform to avoid fees. Violations may result in immediate account suspension." },
       { title:"8. Safety", body:"Chores does not conduct background checks on all users. You interact with other users at your own risk. We strongly recommend meeting in public first for large jobs, trusting your instincts, and reporting any safety concerns immediately. Chores is not liable for personal injury, property damage, or theft arising from jobs arranged through the platform." },
