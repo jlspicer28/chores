@@ -423,10 +423,28 @@ app.get("/api/jobs/applied", async (req, res) => {
 
 // Get all open jobs filtered by real distance from worker's zip
 app.get("/api/jobs", async (req, res) => {
-  const { zip, maxDist = 10, category, limit = 200 } = req.query;
+  const { zip, maxDist = 25, category, limit = 200 } = req.query;
   const maxDistMiles = parseFloat(maxDist);
 
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // Resolve the worker's zip to lat/lng for distance filtering
+  let workerLat = null, workerLng = null;
+  if (zip && zip.length === 5) {
+    const cached = zipCache[zip];
+    if (cached) { workerLat = cached.lat; workerLng = cached.lng; }
+    else {
+      try {
+        const r = await fetch(`https://api.zippopotam.us/us/${zip}`);
+        if (r.ok) {
+          const d = await r.json();
+          workerLat = parseFloat(d.places[0].latitude);
+          workerLng = parseFloat(d.places[0].longitude);
+          zipCache[zip] = { lat: workerLat, lng: workerLng };
+        }
+      } catch {}
+    }
+  }
 
   let query = supabase
     .from("jobs")
@@ -438,26 +456,55 @@ app.get("/api/jobs", async (req, res) => {
 
   if (category) query = query.eq("category", category);
 
-  // Only show jobs in the worker's exact zip code
-  if (zip && zip.length === 5) {
-    query = query.eq("zip", zip);
-  }
-
   const { data, error } = await query;
   if (error) return res.json({ error: error.message });
 
-  const jobs = (data || []).map(j => ({
-    ...j,
-    address: undefined, // never expose address to public feed — only shared after hiring
-    poster_name: j.poster ? `${j.poster.first_name} ${j.poster.last_name}`.trim() : "Anonymous",
-    poster_rating: j.poster?.rating || 5.0,
-    poster_jobs_count: j.poster?.jobs_completed || 0,
-    poster_since: j.poster?.created_at ? new Date(j.poster.created_at).toLocaleDateString("en-US", { month:"short", year:"numeric" }) : "",
-    poster_verified: j.poster?.identity_verified || false,
-    poster_exact_loc: j.poster?.preferences?.exactLoc === true,
-    applicant_count: j.applications?.[0]?.count || 0,
-    dist: 0,
-  }));
+  // Calculate distance and filter
+  function haversine(lat1, lng1, lat2, lng2) {
+    const R = 3959; // miles
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  let filtered = (data || []);
+
+  // If we have worker coordinates, filter by actual distance
+  if (workerLat && workerLng) {
+    filtered = filtered.filter(j => {
+      if (j.lat && j.lng) {
+        return haversine(workerLat, workerLng, j.lat, j.lng) <= maxDistMiles;
+      }
+      // No job coords — fall back to zip match
+      return j.zip === zip;
+    });
+  } else if (zip) {
+    // No worker coords — fall back to exact zip match
+    filtered = filtered.filter(j => j.zip === zip);
+  }
+
+  const jobs = filtered.map(j => {
+    let dist = 0;
+    if (workerLat && workerLng && j.lat && j.lng) {
+      dist = Math.round(haversine(workerLat, workerLng, j.lat, j.lng) * 10) / 10;
+    }
+    return {
+      ...j,
+      address: undefined, // never expose address to public feed
+      poster_name: j.poster ? `${j.poster.first_name} ${j.poster.last_name}`.trim() : "Anonymous",
+      poster_rating: j.poster?.rating || 5.0,
+      poster_jobs_count: j.poster?.jobs_completed || 0,
+      poster_since: j.poster?.created_at ? new Date(j.poster.created_at).toLocaleDateString("en-US", { month:"short", year:"numeric" }) : "",
+      poster_verified: j.poster?.identity_verified || false,
+      poster_exact_loc: j.poster?.preferences?.exactLoc === true,
+      applicant_count: j.applications?.[0]?.count || 0,
+      dist,
+    };
+  });
+
+  // Sort by distance (closest first)
+  jobs.sort((a, b) => a.dist - b.dist);
 
   res.json({ jobs });
 });
