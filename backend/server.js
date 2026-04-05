@@ -2153,6 +2153,7 @@ app.get("/api/jobs/:id/applicants", requireAuth, async (req, res) => {
     jobsDone: a.worker?.jobs_completed || 0,
     message: a.message || "",
     availability: a.availability || "",
+    proposedPay: a.proposed_pay || null,
     appliedAt: new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
   }));
 
@@ -2160,7 +2161,7 @@ app.get("/api/jobs/:id/applicants", requireAuth, async (req, res) => {
 });
 
 app.post("/api/jobs/:id/apply", async (req, res) => {
-  const { message, availability, workerId, workerName } = req.body;
+  const { message, availability, workerId, workerName, proposedPay } = req.body;
   const jobId = req.params.id;
   console.log("📝 Application:", { jobId, workerId, workerName });
 
@@ -2199,6 +2200,7 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
       worker_id: workerId,
       message,
       availability: Array.isArray(availability) ? availability.join(", ") : (availability || null),
+      proposed_pay: proposedPay ? parseFloat(proposedPay) : null,
       status: "pending",
       created_at: new Date().toISOString(),
     });
@@ -2222,7 +2224,7 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
         sender_id: workerId,
         recipient_id: job.poster_id,
         job_id: jobId,
-        body: message,
+        body: proposedPay ? `${message}\n\n💰 Proposed price: $${parseFloat(proposedPay).toFixed(0)} (listed at $${job.pay})` : message,
         read: false,
         created_at: new Date().toISOString(),
       };
