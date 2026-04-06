@@ -2894,6 +2894,29 @@ app.post("/api/subscribe", async (req, res) => {
       return res.status(500).json({ error: "Failed to save subscriber" });
     }
 
+    // Send welcome email via Resend
+    const welcomeHtml = emailTemplate(`
+      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Welcome to the Chores community!</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        Thanks for signing up. Chores connects people in St. Charles, Geneva, Batavia, and the Fox Valley who need everyday tasks done with neighbors happy to help.
+      </p>
+      <div style="background:#D8F3DC;border-radius:12px;padding:20px;margin:20px 0;">
+        <p style="font-weight:700;color:#1B4332;margin:0 0 8px;font-size:14px;">What you can do with Chores:</p>
+        <p style="color:#2D6A4F;font-size:14px;line-height:1.8;margin:0;">
+          <strong>Need help?</strong> Post a task — lawn care, cleaning, moving, errands — and get matched with someone nearby.<br><br>
+          <strong>Want to earn?</strong> Browse open jobs, set your own rates, and get paid securely through escrow.
+        </p>
+      </div>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+        Download the app to get started — it's free and takes two minutes.
+      </p>
+      <div style="text-align:center;margin:24px 0;">
+        <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">Download Chores →</a>
+      </div>
+      <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">You're receiving this because you signed up at choresnearme.com. <a href="https://choresnearme.com" style="color:#9CA3AF;">Unsubscribe</a></p>
+    `);
+    sendEmail(cleanEmail, "Welcome to Chores! 🏡", welcomeHtml).catch(e => console.warn("Subscriber welcome email failed:", e.message));
+
     console.log(`[subscribe] New subscriber: ${cleanEmail}`);
     res.json({ success: true });
   } catch (err) {
