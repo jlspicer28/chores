@@ -2868,6 +2868,40 @@ app.post("/api/push/test", async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Email Subscriber (landing page popup) ────────────────────────────────────
+app.post("/api/subscribe", async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || typeof email !== "string" || !emailRegex.test(email.trim())) {
+      return res.status(400).json({ error: "Invalid email address" });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Upsert into subscribers table (no error on duplicate)
+    const { error } = await supabase
+      .from("subscribers")
+      .upsert(
+        { email: cleanEmail, source: "website_popup" },
+        { onConflict: "email" }
+      );
+
+    if (error) {
+      console.error("[subscribe] Supabase error:", error);
+      return res.status(500).json({ error: "Failed to save subscriber" });
+    }
+
+    console.log(`[subscribe] New subscriber: ${cleanEmail}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[subscribe] Unexpected error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 
 // Ensure address column exists on users table (safe to run repeatedly)
