@@ -101,6 +101,17 @@ async function zipToCoords(zip) {
   } catch { return null; }
 }
 
+// ── Referral code generator ──────────────────────────────────────────────────
+function generateReferralCode(firstName) {
+  const prefix = (firstName || "USER").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I to avoid confusion
+  let suffix = "";
+  for (let i = 0; i < 8 - prefix.length; i++) {
+    suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return prefix + suffix;
+}
+
 // ── Auth middleware — verifies Supabase JWT on protected routes ───────────────
 async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
@@ -165,6 +176,14 @@ app.post("/api/auth/register", async (req, res) => {
     const userId = authData.user.id;
 
     // 3. Write profile to our custom users table (NOT Supabase's auth.users)
+    // Generate a unique referral code (retry on collision)
+    let referralCode = generateReferralCode(firstName);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: existing } = await supabase.from("users").select("id").eq("referral_code", referralCode).maybeSingle();
+      if (!existing) break;
+      referralCode = generateReferralCode(firstName);
+    }
+
     const { error: dbError } = await supabase.from("users").insert({
       id: userId,
       email: email.toLowerCase().trim(),
@@ -177,6 +196,7 @@ app.post("/api/auth/register", async (req, res) => {
       jobs_completed: 0,
       identity_verified: false,
       skills: Array.isArray(skills) && skills.length > 0 ? skills : [],
+      referral_code: referralCode,
       created_at: new Date().toISOString(),
     });
 
@@ -398,6 +418,108 @@ app.post("/api/auth/delete-account", requireAuth, async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERRAL PROGRAM
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Apply a referral code (during/after signup)
+app.post("/api/referral/apply", requireAuth, async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.json({ error: "Referral code is required" });
+
+  try {
+    // Check if user already has a referrer
+    const { data: currentUser } = await supabase
+      .from("users").select("id, referred_by").eq("id", req.user.id).single();
+    if (currentUser?.referred_by) return res.json({ error: "You have already applied a referral code" });
+
+    // Look up the referrer by code
+    const { data: referrer } = await supabase
+      .from("users").select("id, first_name").eq("referral_code", code.toUpperCase().trim()).maybeSingle();
+    if (!referrer) return res.json({ error: "Invalid referral code" });
+
+    // Can't refer yourself
+    if (referrer.id === req.user.id) return res.json({ error: "You cannot use your own referral code" });
+
+    // Check if a referral record already exists for this user
+    const { data: existingReferral } = await supabase
+      .from("referrals").select("id").eq("referred_id", req.user.id).maybeSingle();
+    if (existingReferral) return res.json({ error: "You have already applied a referral code" });
+
+    // Create referral record
+    await supabase.from("referrals").insert({
+      referrer_id: referrer.id,
+      referred_id: req.user.id,
+      status: "pending",
+      credit_amount: 10,
+    });
+
+    // Set referred_by on the user
+    await supabase.from("users").update({ referred_by: referrer.id }).eq("id", req.user.id);
+
+    console.log(`🤝 Referral applied: ${req.user.id} referred by ${referrer.id} (${referrer.first_name})`);
+    res.json({ success: true, referrerName: referrer.first_name });
+  } catch (err) {
+    console.error("Referral apply error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+// Get current user's referral info
+app.get("/api/referral/info", requireAuth, async (req, res) => {
+  try {
+    const { data: user } = await supabase
+      .from("users").select("referral_code, referral_credit, referrals_count").eq("id", req.user.id).single();
+    if (!user) return res.json({ error: "User not found" });
+
+    // Fetch referral list
+    const { data: referrals } = await supabase
+      .from("referrals")
+      .select("id, referred_id, status, credit_amount, created_at, completed_at")
+      .eq("referrer_id", req.user.id)
+      .order("created_at", { ascending: false });
+
+    // Get names for referred users
+    const referralList = [];
+    for (const ref of (referrals || [])) {
+      const { data: referred } = await supabase
+        .from("users").select("first_name").eq("id", ref.referred_id).maybeSingle();
+      referralList.push({
+        id: ref.id,
+        name: referred?.first_name || "User",
+        status: ref.status,
+        creditAmount: ref.credit_amount,
+        createdAt: ref.created_at,
+        completedAt: ref.completed_at,
+      });
+    }
+
+    res.json({
+      referralCode: user.referral_code,
+      referralCredit: parseFloat(user.referral_credit) || 0,
+      referralsCount: user.referrals_count || 0,
+      referrals: referralList,
+    });
+  } catch (err) {
+    console.error("Referral info error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
+// Get shareable referral message
+app.get("/api/referral/share", requireAuth, async (req, res) => {
+  try {
+    const { data: user } = await supabase
+      .from("users").select("referral_code").eq("id", req.user.id).single();
+    if (!user?.referral_code) return res.json({ error: "No referral code found" });
+
+    const message = `Join me on Chores and we both get $10! Use my code: ${user.referral_code} — Download at choresnearme.com/download`;
+    res.json({ message, code: user.referral_code });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JOBS — Create, list, apply, book
@@ -1083,7 +1205,7 @@ app.post("/api/charge", requireAuth, async (req, res) => {
 
     // Fetch poster — create Stripe customer on first payment if needed
     const { data: poster } = await supabase
-      .from("users").select("stripe_customer_id, email, first_name, last_name").eq("id", req.user.id).single();
+      .from("users").select("stripe_customer_id, email, first_name, last_name, referral_credit").eq("id", req.user.id).single();
 
     let stripeCustomerId = poster.stripe_customer_id;
     if (!stripeCustomerId) {
@@ -1096,9 +1218,57 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       await supabase.from("users").update({ stripe_customer_id: stripeCustomerId }).eq("id", req.user.id);
     }
 
-    const totalCents = Math.round(job.pay * 100);       // poster pays exact job price
-    const feeCents = Math.round(totalCents * 0.15);     // 15% platform fee
-    const workerCents = totalCents - feeCents;           // worker gets 85%
+    // Apply referral credit if available
+    const availableCredit = parseFloat(poster.referral_credit) || 0;
+    const jobPayDollars = job.pay;
+    const creditApplied = Math.min(availableCredit, jobPayDollars); // never exceed job price or available credit
+    const chargeAmount = jobPayDollars - creditApplied;             // amount to charge via Stripe
+
+    const totalCents = Math.round(chargeAmount * 100);              // poster pays reduced amount
+    const feeCents = Math.round(Math.round(jobPayDollars * 100) * 0.15);  // 15% fee on full job price
+    const workerCents = Math.round(jobPayDollars * 100) - feeCents;       // worker gets 85% of full price
+
+    // Deduct credit from user's balance
+    if (creditApplied > 0) {
+      await supabase.from("users").update({
+        referral_credit: Math.max(0, availableCredit - creditApplied),
+      }).eq("id", req.user.id);
+      console.log(`💳 Applied $${creditApplied.toFixed(2)} referral credit to job ${jobId}`);
+    }
+
+    // If credit covers the full amount, skip Stripe entirely
+    if (totalCents <= 0) {
+      // Create escrow record with no Stripe intent
+      const { data: escrow } = await supabase.from("escrow").insert({
+        job_id: jobId,
+        poster_id: req.user.id,
+        worker_id: workerId,
+        amount: jobPayDollars,
+        fee: jobPayDollars * 0.15,
+        worker_gets: jobPayDollars * 0.85,
+        stripe_intent_id: "credit_covered",
+        status: "held",
+      }).select().single();
+
+      await supabase.from("jobs").update({ status: "booked", worker_id: workerId }).eq("id", jobId);
+
+      const { data: posterUser } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+      const posterName = posterUser ? `${posterUser.first_name} ${posterUser.last_name}`.trim() : "The poster";
+      await notify(workerId, {
+        type: "accepted", category: "job", icon: "✅",
+        title: "Application accepted!",
+        body: `${posterName} hired you for "${job.title}" · $${job.pay}`,
+        jobId, relatedUserId: req.user.id,
+      });
+      await notify(req.user.id, {
+        type: "payment", category: "payment", icon: "🎁",
+        title: "Paid with referral credit",
+        body: `$${creditApplied.toFixed(2)} credit applied · "${job.title}"`,
+        jobId,
+      });
+
+      return res.json({ success: true, intentId: null, escrowId: escrow.id, creditApplied });
+    }
 
     // Fetch worker's Connect ID
     const { data: worker } = await supabase
@@ -1118,15 +1288,22 @@ app.post("/api/charge", requireAuth, async (req, res) => {
         posterId: req.user.id,
         workerConnectId: worker?.stripe_connect_id || "",
         workerAmountCents: workerCents.toString(),
+        creditApplied: creditApplied.toFixed(2),
       },
       return_url: process.env.FRONTEND_URL || "https://choresnearme.com",
     });
 
     if (intent.status === "requires_action") {
-      return res.json({ requiresAction: true, clientSecret: intent.client_secret, intentId: intent.id });
+      return res.json({ requiresAction: true, clientSecret: intent.client_secret, intentId: intent.id, creditApplied });
     }
 
     if (intent.status !== "requires_capture") {
+      // Refund the credit if Stripe payment failed
+      if (creditApplied > 0) {
+        await supabase.from("users").update({
+          referral_credit: availableCredit,
+        }).eq("id", req.user.id);
+      }
       return res.json({ error: "Payment failed — please try a different card." });
     }
 
@@ -1135,9 +1312,9 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       job_id: jobId,
       poster_id: req.user.id,
       worker_id: workerId,
-      amount: job.pay,
-      fee: job.pay * 0.15,
-      worker_gets: job.pay * 0.85,
+      amount: jobPayDollars,
+      fee: jobPayDollars * 0.15,
+      worker_gets: jobPayDollars * 0.85,
       stripe_intent_id: intent.id,
       status: "held",
     }).select().single();
@@ -1162,7 +1339,7 @@ app.post("/api/charge", requireAuth, async (req, res) => {
       jobId,
     });
 
-    res.json({ success: true, intentId: intent.id, escrowId: escrow.id });
+    res.json({ success: true, intentId: intent.id, escrowId: escrow.id, creditApplied });
   } catch (err) {
     console.error("Charge error:", err.message);
     res.json({ error: err.message });
@@ -1326,6 +1503,92 @@ app.post("/api/escrow/:id/confirm", requireAuth, async (req, res) => {
         consecutive_five_star: consecutiveFiveStar,
       }).eq("id", escrow.worker_id);
 
+      // ── Referral credit trigger: check if this is someone's first completed job ──
+      // Check both the worker and poster — either one completing their first job triggers referral credit
+      for (const participantId of [escrow.worker_id, escrow.poster_id]) {
+        try {
+          const { data: participant } = await supabase
+            .from("users").select("id, referred_by, email, first_name").eq("id", participantId).single();
+          if (!participant?.referred_by) continue;
+
+          // Check if their referral is still pending
+          const { data: referral } = await supabase
+            .from("referrals")
+            .select("id, referrer_id, status, credit_amount")
+            .eq("referred_id", participantId)
+            .eq("status", "pending")
+            .maybeSingle();
+          if (!referral) continue;
+
+          // This is their first job completion with a pending referral — award credit to both
+          const creditAmount = referral.credit_amount || 10;
+
+          // Credit the referred user
+          const { data: referredUser } = await supabase
+            .from("users").select("referral_credit").eq("id", participantId).single();
+          await supabase.from("users").update({
+            referral_credit: (parseFloat(referredUser?.referral_credit) || 0) + creditAmount,
+          }).eq("id", participantId);
+
+          // Credit the referrer and increment their count
+          const { data: referrerUser } = await supabase
+            .from("users").select("referral_credit, referrals_count, email, first_name").eq("id", referral.referrer_id).single();
+          await supabase.from("users").update({
+            referral_credit: (parseFloat(referrerUser?.referral_credit) || 0) + creditAmount,
+            referrals_count: (referrerUser?.referrals_count || 0) + 1,
+          }).eq("id", referral.referrer_id);
+
+          // Mark referral as completed
+          await supabase.from("referrals").update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+          }).eq("id", referral.id);
+
+          console.log(`🎁 Referral credit awarded: $${creditAmount} each to ${referral.referrer_id} and ${participantId}`);
+
+          // Send email to the referrer
+          const referrerName = referrerUser?.first_name || "there";
+          const referredName = participant?.first_name || "Your referral";
+          if (referrerUser?.email) {
+            const referralEmailHtml = emailTemplate(`
+              <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">You earned $${creditAmount} credit!</h2>
+              <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+                Hey ${referrerName}, great news — ${referredName} just completed their first job on Chores! You both earned <strong>$${creditAmount} credit</strong>.
+              </p>
+              <div style="background:#D8F3DC;border-radius:12px;padding:20px;margin:20px 0;">
+                <p style="font-weight:700;color:#1B4332;margin:0 0 8px;font-size:14px;">Your referral credit: $${(parseFloat(referrerUser?.referral_credit) || 0) + creditAmount}</p>
+                <p style="color:#2D6A4F;font-size:14px;line-height:1.8;margin:0;">
+                  This credit will be applied automatically the next time you pay for a job.
+                </p>
+              </div>
+              <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                Keep sharing your referral code to earn more!
+              </p>
+              <div style="text-align:center;margin:24px 0;">
+                <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">Open Chores →</a>
+              </div>
+            `);
+            sendEmail(referrerUser.email, `${referredName} completed their first job — you earned $${creditAmount}!`, referralEmailHtml).catch(e => console.warn("Referral email failed:", e.message));
+          }
+
+          // Notify both in-app
+          await notify(referral.referrer_id, {
+            type: "referral", category: "payment", icon: "🎁",
+            title: "Referral bonus earned!",
+            body: `${referredName} completed their first job — you both earned $${creditAmount} credit`,
+            relatedUserId: participantId,
+          });
+          await notify(participantId, {
+            type: "referral", category: "payment", icon: "🎁",
+            title: "Referral bonus earned!",
+            body: `You completed your first job — you and your referrer both earned $${creditAmount} credit`,
+            relatedUserId: referral.referrer_id,
+          });
+        } catch (refErr) {
+          console.error("Referral credit error (non-fatal):", refErr.message);
+        }
+      }
+
       // Fetch job title for notifications
       const { data: completedJob } = await supabase.from("jobs").select("title").eq("id", escrow.job_id).maybeSingle();
       const jobTitle = completedJob?.title || "the job";
@@ -1393,16 +1656,54 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
   const { paymentMethodId, amountCents, jobId, jobTitle, workerId } = req.body;
   try {
     const { data: user } = await supabase
-      .from("users").select("stripe_customer_id").eq("id", req.user.id).single();
+      .from("users").select("stripe_customer_id, referral_credit").eq("id", req.user.id).single();
     if (!user?.stripe_customer_id) return res.json({ error: "No saved payment method found." });
 
     // Fetch job for pay amount
     const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).single();
     if (!job) return res.json({ error: "Job not found" });
 
-    const totalCents = Math.round(job.pay * 100);       // poster pays exact job price
-    const feeCents = Math.round(totalCents * 0.15);     // 15% platform fee
-    const workerCents = totalCents - feeCents;           // worker gets 85%
+    // Apply referral credit if available
+    const availableCredit = parseFloat(user.referral_credit) || 0;
+    const creditApplied = Math.min(availableCredit, job.pay);
+    const chargeAmount = job.pay - creditApplied;
+
+    if (creditApplied > 0) {
+      await supabase.from("users").update({
+        referral_credit: Math.max(0, availableCredit - creditApplied),
+      }).eq("id", req.user.id);
+      console.log(`💳 Applied $${creditApplied.toFixed(2)} referral credit to job ${jobId} (charge-saved)`);
+    }
+
+    const totalCents = Math.round(chargeAmount * 100);
+    const feeCents = Math.round(Math.round(job.pay * 100) * 0.15);
+    const workerCents = Math.round(job.pay * 100) - feeCents;
+
+    // If credit covers the full amount, skip Stripe
+    if (totalCents <= 0) {
+      await supabase.from("escrow").insert({
+        job_id: jobId,
+        poster_id: req.user.id,
+        worker_id: workerId || null,
+        amount: job.pay,
+        fee: job.pay * 0.15,
+        worker_gets: job.pay * 0.85,
+        stripe_intent_id: "credit_covered",
+        status: "held",
+      });
+      if (workerId) {
+        await supabase.from("jobs").update({ status: "booked", worker_id: workerId }).eq("id", jobId);
+        const { data: posterUser } = await supabase.from("users").select("first_name,last_name").eq("id", req.user.id).maybeSingle();
+        const posterName = posterUser ? `${posterUser.first_name} ${posterUser.last_name}`.trim() : "The poster";
+        await notify(workerId, {
+          type: "accepted", category: "job", icon: "✅",
+          title: "You've been hired!",
+          body: `${posterName} hired you for "${job.title}" · $${job.pay} in escrow`,
+          jobId, relatedUserId: req.user.id,
+        });
+      }
+      return res.json({ success: true, intentId: null, creditApplied });
+    }
 
     const intent = await stripe.paymentIntents.create({
       amount: totalCents,
@@ -1412,14 +1713,18 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
       confirm: true,
       capture_method: "manual",
       off_session: true,
-      metadata: { jobId, posterId: req.user.id, workerId: workerId || "" },
+      metadata: { jobId, posterId: req.user.id, workerId: workerId || "", creditApplied: creditApplied.toFixed(2) },
       return_url: process.env.FRONTEND_URL || "https://choresnearme.com",
     });
 
     if (intent.status === "requires_action") {
-      return res.json({ requiresAction: true, clientSecret: intent.client_secret, intentId: intent.id });
+      return res.json({ requiresAction: true, clientSecret: intent.client_secret, intentId: intent.id, creditApplied });
     }
     if (intent.status !== "requires_capture") {
+      // Refund credit if Stripe failed
+      if (creditApplied > 0) {
+        await supabase.from("users").update({ referral_credit: availableCredit }).eq("id", req.user.id);
+      }
       return res.json({ error: "Payment failed — please try a different card." });
     }
 
@@ -1452,7 +1757,7 @@ app.post("/api/charge-saved", requireAuth, async (req, res) => {
       });
     }
 
-    res.json({ success: true, intentId: intent.id });
+    res.json({ success: true, intentId: intent.id, creditApplied });
   } catch (err) {
     console.error("charge-saved error:", err.message);
     res.json({ error: err.message });
