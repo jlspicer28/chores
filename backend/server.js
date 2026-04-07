@@ -976,10 +976,67 @@ async function sendDripEmails() {
   }
 }
 
+// Referral drip: 2 days after signup, nudge users who haven't completed a job
+async function sendReferralDrip() {
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: users } = await supabase
+    .from("users")
+    .select("id, email, first_name, referral_code, jobs_completed")
+    .lt("created_at", twoDaysAgo)
+    .gt("created_at", threeDaysAgo)
+    .not("referral_code", "is", null);
+
+  if (!users || users.length === 0) return;
+
+  for (const user of users) {
+    if (user.jobs_completed > 0) continue;
+
+    const name = user.first_name || "there";
+    const code = user.referral_code || "";
+
+    const subject = `${name}, invite a neighbor and earn $10`;
+    const html = emailTemplate(`
+      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${name},</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        Know someone who could use help around the house — or someone looking to earn extra money? Share your referral code and you'll both get <strong>$10 credit</strong> when they complete their first job.
+      </p>
+      <div style="background:#D8F3DC;border-radius:12px;padding:20px;margin:20px 0;text-align:center;">
+        <p style="font-size:12px;font-weight:700;color:#2D6A4F;margin:0 0 8px;text-transform:uppercase;letter-spacing:1px;">Your referral code</p>
+        <p style="font-family:monospace;font-size:28px;font-weight:900;color:#1B4332;margin:0;letter-spacing:3px;">${code}</p>
+      </div>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+        Just share your code with a friend or neighbor. When they sign up and complete their first job, you both earn $10 — it's that simple.
+      </p>
+      <div style="text-align:center;margin:24px 0;">
+        <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">Open Chores →</a>
+      </div>
+      <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">You're receiving this because you signed up for Chores. <a href="https://choresnearme.com" style="color:#9CA3AF;">Unsubscribe</a></p>
+    `);
+
+    await sendEmail(user.email, subject, html);
+
+    // Also send push notification
+    notify(user.id, {
+      type: "referral",
+      category: "referral",
+      icon: "gift.fill",
+      title: "Invite a neighbor, earn $10",
+      body: `Share your code ${code} with a friend. You both get $10 credit when they complete their first job.`
+    }).catch(() => {});
+
+    console.log(`📧 Referral drip sent to ${user.email} (code: ${code})`);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
 // Run drip emails daily at ~9am
 setInterval(sendDripEmails, 24 * 60 * 60 * 1000);
+setInterval(sendReferralDrip, 24 * 60 * 60 * 1000);
 // Also run once on startup (checks for eligible users)
 setTimeout(sendDripEmails, 30000);
+setTimeout(sendReferralDrip, 35000);
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
