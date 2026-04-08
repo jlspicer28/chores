@@ -2385,54 +2385,32 @@ app.post("/api/customer/detach-card", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IDENTITY VERIFICATION
-// ─────────────────────────────────────────────────────────────────────────────
-app.post("/api/verify/identity/start", requireAuth, async (req, res) => {
-  try {
-    const session = await stripe.identity.verificationSessions.create({
-      type: "document",
-      metadata: { userId: req.user.id },
-      options: {
-        document: {
-          allowed_types: ["driving_license", "passport", "id_card"],
-          require_id_number: true,
-          require_live_capture: true,
-          require_matching_selfie: true,
-        },
-      },
-    });
-    res.json({ clientSecret: session.client_secret, sessionId: session.id, url: session.url });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-app.post("/api/verify/identity/check", requireAuth, async (req, res) => {
-  const { sessionId } = req.body;
-  try {
-    const session = await stripe.identity.verificationSessions.retrieve(sessionId);
-    const verified = session.status === "verified";
-
-    if (verified) {
-      await supabase.from("users")
-        .update({ identity_verified: true }).eq("id", req.user.id);
-    }
-
-    res.json({ status: session.status, verified });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // EMAIL VERIFICATION
 // ─────────────────────────────────────────────────────────────────────────────
-const emailCodes = new Map(); // In production use Redis or Supabase table
+// Codes are persisted in Supabase (table: email_verification_codes) so they
+// survive backend restarts/redeploys/scaling. Email keys are normalized to
+// lowercase + trimmed so casing/whitespace can never cause a lookup miss.
+const normalizeEmail = (e) => (e || "").trim().toLowerCase();
 
 app.post("/api/verify/email/send", async (req, res) => {
-  const { email, name } = req.body;
+  const email = normalizeEmail(req.body.email);
+  const { name } = req.body;
+  if (!email) return res.json({ error: "Email is required" });
+
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  emailCodes.set(email, { code, expires: Date.now() + 10 * 60 * 1000 });
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+  const { error: dbError } = await supabase
+    .from("email_verification_codes")
+    .upsert(
+      { email, code, expires_at: expiresAt, created_at: new Date().toISOString() },
+      { onConflict: "email" }
+    );
+
+  if (dbError) {
+    console.error("Failed to store verification code:", dbError);
+    return res.json({ error: "Could not generate code — please try again" });
+  }
 
   console.log(`📧 Email code for ${email}: ${code}`);
 
@@ -2474,14 +2452,29 @@ app.post("/api/verify/email/send", async (req, res) => {
 });
 
 app.post("/api/verify/email/check", async (req, res) => {
-  const { email, code } = req.body;
-  const record = emailCodes.get(email);
+  const email = normalizeEmail(req.body.email);
+  const code = (req.body.code || "").toString().trim();
+  if (!email || !code) return res.json({ error: "Email and code are required" });
+
+  const { data: record, error: dbError } = await supabase
+    .from("email_verification_codes")
+    .select("code, expires_at")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (dbError) {
+    console.error("Failed to fetch verification code:", dbError);
+    return res.json({ error: "Could not verify code — please try again" });
+  }
 
   if (!record) return res.json({ error: "No code found — request a new one" });
-  if (Date.now() > record.expires) return res.json({ error: "Code expired" });
+  if (new Date() > new Date(record.expires_at)) {
+    await supabase.from("email_verification_codes").delete().eq("email", email);
+    return res.json({ error: "Code expired" });
+  }
   if (record.code !== code) return res.json({ error: "Incorrect code" });
 
-  emailCodes.delete(email);
+  await supabase.from("email_verification_codes").delete().eq("email", email);
   res.json({ success: true, verified: true });
 });
 
@@ -3022,7 +3015,7 @@ app.post("/api/admin/seed-jobs", requireAuth, requireAdmin, async (req, res) => 
           id: fakeId, email: fakeEmail,
           first_name: parts[0] || "", last_name: parts.slice(1).join(" ") || "",
           role: "poster", rating: 4.5 + Math.random() * 0.5, jobs_completed: Math.floor(Math.random() * 10) + 1,
-          identity_verified: true, created_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
         });
         posterId = fakeId;
       }
@@ -3186,15 +3179,6 @@ app.post("/api/webhook", async (req, res) => {
     case "charge.refunded": {
       const charge = event.data.object;
       console.log("↩️ Charge refunded:", charge.id);
-      break;
-    }
-    case "identity.verification_session.verified": {
-      const session = event.data.object;
-      const userId = session.metadata?.userId;
-      if (userId) {
-        await supabase.from("users")
-          .update({ identity_verified: true }).eq("id", userId);
-      }
       break;
     }
     default:

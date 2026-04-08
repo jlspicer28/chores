@@ -1342,7 +1342,6 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
         <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:24 }}>
           <div style={{ fontSize:11, fontWeight:700, color:G.muted, textTransform:"uppercase", letterSpacing:.8, marginBottom:12 }}>Verification</div>
           {[
-            { label:"Identity Verified", sub:"Government ID confirmed", status:"Verified" },
             { label:"Background Check", sub:"Optional — builds trust with posters", soon:true },
             { label:"CPR Certification", sub:"Upload your certificate", soon:true },
           ].map((v,i,a)=>(
@@ -1447,7 +1446,6 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       { q:"How do I apply for a job?", a:"Tap any job listing on the Home screen, then tap 'Quick Apply'. You can add a short message to introduce yourself. The poster will review applications and either accept or decline. You'll get a notification either way." },
       { q:"What happens if a poster cancels?", a:"If a poster cancels within 24 hours of the scheduled time, you receive a $5 cancellation credit. If they cancel after you've already arrived, you're entitled to 50% of the agreed pay, released automatically from escrow." },
       { q:"Can I cancel a job I accepted?", a:"Yes, but repeated cancellations will affect your rating and may result in a strike. Cancel at least 24 hours in advance when possible. Three strikes in 90 days can lead to account suspension. You can see your strike count on your Profile tab." },
-      { q:"How does identity verification work?", a:"We use Stripe Identity to verify government-issued IDs. This protects everyone on the platform. Verified workers get a badge on their profile which increases their chances of being hired. Verification takes 1–3 minutes and your ID is never stored by Chores." },
       { q:"What if there's a dispute?", a:"If you and the poster disagree about whether a job was completed, either party can open a dispute from the Payments screen. Our team reviews evidence (photos, messages) within 24 hours and makes a final decision on escrow release." },
       { q:"How are ratings calculated?", a:"Your rating is the average of all reviews you've received, rounded to one decimal. Posters rate workers after job completion, and workers can rate posters too. You need at least 3 reviews before a public rating appears on your profile." },
       { q:"Is my personal information safe?", a:"Yes. We never sell your data or share it with advertisers. Your exact address is never shown to other users — only your general neighborhood. See our Privacy Policy for full details." },
@@ -1744,13 +1742,12 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
       { title:"2. How We Use Your Information", body:"We use your information to: match you with nearby jobs or workers; process payments and maintain escrow; send notifications about jobs, applications, and payments; improve our platform and detect fraud; comply with legal obligations. We never use your data to serve third-party ads." },
       { title:"3. Location Data", body:"We use your zip code to show you nearby jobs. If you enable 'Show Exact Location' in Privacy settings, your precise GPS coordinates are used for more accurate matching and map display. Exact location is never shown to other users — only approximate neighborhood. You can revoke location permissions at any time in your device settings." },
       { title:"4. Data Sharing", body:"We do not sell your personal data. We share data only with: Stripe (payment processing), Resend (transactional email), and where required by law. We may share aggregated, anonymized data with partners. Workers' names and ratings are visible to posters; posters' names and ratings are visible to workers." },
-      { title:"5. Identity Verification", body:"If you complete identity verification, your government ID is processed by Stripe Identity and is not stored by Chores. Stripe retains this data per their privacy policy. We only receive a verification status (verified/not verified) and the name on your ID." },
-      { title:"6. Data Retention", body:"We retain your account data for as long as your account is active. If you delete your account, we permanently delete your personal data within 30 days, except where retention is required by law (e.g., financial transaction records, which are kept for 7 years)." },
-      { title:"7. Your Rights", body:"You have the right to: access your personal data (request via Support); correct inaccurate data (edit in your profile); delete your data (Settings → Account → Delete Account); opt out of marketing emails (Settings → Privacy); request a copy of your data (Settings → Privacy → Download My Data)." },
-      { title:"8. Security", body:"We use industry-standard encryption (TLS/HTTPS) for all data in transit. Passwords are hashed using bcrypt. Payment data is tokenized via Stripe. We conduct regular security audits. However, no system is 100% secure — report any suspected breaches to support@choresnearme.com." },
-      { title:"9. Children's Privacy", body:"Chores is not intended for users under 18. We do not knowingly collect data from minors. If we discover a minor has created an account, we will immediately delete the account and all associated data." },
-      { title:"10. Changes to This Policy", body:"We may update this Privacy Policy periodically. We will notify you via email or in-app notification before material changes take effect. Continued use of the app constitutes acceptance of the updated policy." },
-      { title:"11. Contact", body:"For privacy-related questions or to exercise your rights, contact us at support@choresnearme.com or through the Contact Support page in this app. We respond to all privacy requests within 30 days." },
+      { title:"5. Data Retention", body:"We retain your account data for as long as your account is active. If you delete your account, we permanently delete your personal data within 30 days, except where retention is required by law (e.g., financial transaction records, which are kept for 7 years)." },
+      { title:"6. Your Rights", body:"You have the right to: access your personal data (request via Support); correct inaccurate data (edit in your profile); delete your data (Settings → Account → Delete Account); opt out of marketing emails (Settings → Privacy); request a copy of your data (Settings → Privacy → Download My Data)." },
+      { title:"7. Security", body:"We use industry-standard encryption (TLS/HTTPS) for all data in transit. Passwords are hashed using bcrypt. Payment data is tokenized via Stripe. We conduct regular security audits. However, no system is 100% secure — report any suspected breaches to support@choresnearme.com." },
+      { title:"8. Children's Privacy", body:"Chores is not intended for users under 18. We do not knowingly collect data from minors. If we discover a minor has created an account, we will immediately delete the account and all associated data." },
+      { title:"9. Changes to This Policy", body:"We may update this Privacy Policy periodically. We will notify you via email or in-app notification before material changes take effect. Continued use of the app constitutes acceptance of the updated policy." },
+      { title:"10. Contact", body:"For privacy-related questions or to exercise your rights, contact us at support@choresnearme.com or through the Contact Support page in this app. We respond to all privacy requests within 30 days." },
     ];
     return (
       <div className="fade" style={{ padding:"16px 20px", paddingBottom:100 }}>
@@ -2979,7 +2976,6 @@ function SettingsScreen({ role, escrowData=[], reviewedJobIds=[], onConfirmSide,
               <div style={{ color:G.muted, fontSize:12, marginTop:2 }}>{[profile.zip && `Zip ${profile.zip}`, storedUser?.createdAt && `Joined ${new Date(storedUser.createdAt).toLocaleDateString("en-US",{month:"short",year:"numeric"})}`].filter(Boolean).join(" · ") || "Complete your profile"}</div>
               <div style={{ display:"flex", gap:6, marginTop:8 }}>
                 {storedUser?.rating != null && <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill={G.gold} stroke={G.gold} strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> {Number(storedUser.rating).toFixed(1)}</span></Tag>}
-                {storedUser?.identity_verified && <Tag><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.greenMid} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Verified</span></Tag>}
                 <Tag bg="#EBF8FF" color={G.blue}><span style={{ display:"flex", alignItems:"center", gap:4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={G.blue} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> 0 Strikes</span></Tag>
               </div>
             </div>
@@ -4684,7 +4680,7 @@ function OnboardingFlow({ onComplete, onShowLogin, darkMode }) {
         const data = await res.json();
         if (data.error) { setEmailError(data.error); } else { setEmailSent(true); }
       } catch(e) {
-        setEmailError("Could not reach server — make sure your backend is deployed and RESEND_API_KEY is set in Railway.");
+        setEmailError("Could not reach server — make sure your backend is deployed and RESEND_API_KEY is set in Render.");
       }
       setEmailSending(false);
     };
@@ -6069,17 +6065,6 @@ function PublicProfileScreen({ userId, onBack, token=null }) {
 
       {!loading && !error && user && !user.isPrivate && (
         <div style={{ padding:"0 16px", marginTop:-16 }}>
-          {/* Verification badge */}
-          {user.identityVerified && (
-            <div style={{ background:G.white, borderRadius:14, padding:"12px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:10, boxShadow:"0 2px 10px rgba(0,0,0,.06)" }}>
-              <div style={{ width:32, height:32, borderRadius:"50%", background:G.greenPale, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>✓</div>
-              <div>
-                <div style={{ fontWeight:700, fontSize:13, color:G.green }}>Identity Verified</div>
-                <div style={{ fontSize:11, color:G.muted }}>Government ID confirmed</div>
-              </div>
-            </div>
-          )}
-
           {/* Bio */}
           {user.bio ? (
             <div style={{ background:G.white, borderRadius:18, padding:16, boxShadow:"0 2px 10px rgba(0,0,0,.06)", marginBottom:12 }}>

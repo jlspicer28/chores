@@ -1292,46 +1292,6 @@ app.post("/api/customer/detach-card", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IDENTITY VERIFICATION
-// ─────────────────────────────────────────────────────────────────────────────
-app.post("/api/verify/identity/start", requireAuth, async (req, res) => {
-  try {
-    const session = await stripe.identity.verificationSessions.create({
-      type: "document",
-      metadata: { userId: req.user.id },
-      options: {
-        document: {
-          allowed_types: ["driving_license", "passport", "id_card"],
-          require_id_number: true,
-          require_live_capture: true,
-          require_matching_selfie: true,
-        },
-      },
-    });
-    res.json({ clientSecret: session.client_secret, sessionId: session.id });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-app.post("/api/verify/identity/check", requireAuth, async (req, res) => {
-  const { sessionId } = req.body;
-  try {
-    const session = await stripe.identity.verificationSessions.retrieve(sessionId);
-    const verified = session.status === "verified";
-
-    if (verified) {
-      await supabase.from("users")
-        .update({ identity_verified: true }).eq("id", req.user.id);
-    }
-
-    res.json({ status: session.status, verified });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // EMAIL VERIFICATION
 // ─────────────────────────────────────────────────────────────────────────────
 const emailCodes = new Map(); // In production use Redis or Supabase table
@@ -1936,15 +1896,6 @@ app.post("/api/webhook", async (req, res) => {
         await supabase.from("users")
           .update({ stripe_connect_id: account.id })
           .eq("stripe_connect_id", account.id);
-      }
-      break;
-    }
-    case "identity.verification_session.verified": {
-      const session = event.data.object;
-      const userId = session.metadata?.userId;
-      if (userId) {
-        await supabase.from("users")
-          .update({ identity_verified: true }).eq("id", userId);
       }
       break;
     }
