@@ -2425,7 +2425,7 @@ app.post("/api/verify/email/send", async (req, res) => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          from: "Chores <hello@choresnearme.com>",
+          from: "Chores <onboarding@resend.dev>",
           to: [email],
           subject: "Your Chores verification code",
           html: `
