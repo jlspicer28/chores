@@ -879,7 +879,7 @@ async function sendEmail(to, subject, html) {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: "Chores <noreply@choresnearme.com>", to: [to], subject, html })
+      body: JSON.stringify({ from: "Chores <hello@choresnearme.com>", to: [to], subject, html })
     });
   } catch (e) { console.warn("Email send failed:", e.message); }
 }
@@ -2425,7 +2425,7 @@ app.post("/api/verify/email/send", async (req, res) => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          from: "Chores <noreply@choresnearme.com>",
+          from: "Chores <hello@choresnearme.com>",
           to: [email],
           subject: "Your Chores verification code",
           html: `
@@ -2938,7 +2938,7 @@ async function sendSupportEmail(subject, body) {
       method: "POST",
       headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Chores App <noreply@choresnearme.com>",
+        from: "Chores <hello@choresnearme.com>",
         to: [process.env.SUPPORT_EMAIL || "support@choresnearme.com"],
         subject,
         html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${body}</pre>`
