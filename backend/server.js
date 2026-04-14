@@ -2986,6 +2986,115 @@ ${description}`);
 
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// REPORTS & BLOCKING (Apple Guideline 1.2 — User-Generated Content Safety)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Report objectionable content or abusive user
+app.post("/api/reports/create", requireAuth, async (req, res) => {
+  try {
+    const { reportedUserId, reason, details, contentType } = req.body;
+    if (!reportedUserId || !reason) return res.status(400).json({ error: "reportedUserId and reason are required" });
+
+    const reporterId = req.user.id;
+
+    // Store the report
+    const { error } = await supabase.from("reports").insert({
+      reporter_id: reporterId,
+      reported_user_id: reportedUserId,
+      reason,
+      details: details || "",
+      content_type: contentType || "user",
+      status: "pending",
+      created_at: new Date().toISOString()
+    });
+    if (error) console.error("Report insert error:", error);
+
+    // Email the admin about the report
+    const reporter = await supabase.from("users").select("email, first_name, last_name").eq("id", reporterId).maybeSingle();
+    const reported = await supabase.from("users").select("email, first_name, last_name").eq("id", reportedUserId).maybeSingle();
+    const reporterName = reporter?.data ? `${reporter.data.first_name || ""} ${reporter.data.last_name || ""}`.trim() : reporterId;
+    const reportedName = reported?.data ? `${reported.data.first_name || ""} ${reported.data.last_name || ""}`.trim() : reportedUserId;
+
+    await sendSupportEmail(
+      `🚨 [Report] ${reason} — ${reportedName}`,
+      `Reporter: ${reporterName} (${reporter?.data?.email || reporterId})
+Reported User: ${reportedName} (${reported?.data?.email || reportedUserId})
+Reason: ${reason}
+Content Type: ${contentType || "user"}
+Details: ${details || "None provided"}
+Time: ${new Date().toISOString()}
+
+⚠️ Apple requires action within 24 hours. Review and take appropriate action.`
+    );
+
+    console.log(`🚨 Report: ${reporterName} reported ${reportedName} for ${reason}`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Report error:", e);
+    res.json({ success: true }); // Don't fail the client even if storage fails
+  }
+});
+
+// Block a user
+app.post("/api/users/:id/block", requireAuth, async (req, res) => {
+  try {
+    const blockerId = req.user.id;
+    const blockedId = req.params.id;
+
+    // Upsert to avoid duplicates
+    const { error } = await supabase.from("blocked_users").upsert({
+      blocker_id: blockerId,
+      blocked_id: blockedId,
+      created_at: new Date().toISOString()
+    }, { onConflict: "blocker_id,blocked_id" });
+    if (error) console.error("Block insert error:", error);
+
+    // Notify admin
+    const blocker = await supabase.from("users").select("email, first_name, last_name").eq("id", blockerId).maybeSingle();
+    const blocked = await supabase.from("users").select("email, first_name, last_name").eq("id", blockedId).maybeSingle();
+    const blockerName = blocker?.data ? `${blocker.data.first_name || ""} ${blocker.data.last_name || ""}`.trim() : blockerId;
+    const blockedName = blocked?.data ? `${blocked.data.first_name || ""} ${blocked.data.last_name || ""}`.trim() : blockedId;
+
+    await sendSupportEmail(
+      `🚫 [Block] ${blockerName} blocked ${blockedName}`,
+      `${blockerName} (${blocker?.data?.email || blockerId}) blocked ${blockedName} (${blocked?.data?.email || blockedId}).
+Time: ${new Date().toISOString()}
+
+This may indicate abusive behavior. Consider reviewing the blocked user's activity.`
+    );
+
+    console.log(`🚫 Block: ${blockerName} blocked ${blockedName}`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Block error:", e);
+    res.json({ success: true });
+  }
+});
+
+// Unblock a user
+app.post("/api/users/:id/unblock", requireAuth, async (req, res) => {
+  try {
+    const blockerId = req.user.id;
+    const blockedId = req.params.id;
+
+    await supabase.from("blocked_users")
+      .delete()
+      .eq("blocker_id", blockerId)
+      .eq("blocked_id", blockedId);
+
+    console.log(`✅ Unblock: ${blockerId} unblocked ${blockedId}`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Unblock error:", e);
+    res.json({ success: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Backfill missing lat/lng for existing jobs using their address or zip
 app.delete("/api/admin/jobs/:id", requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
