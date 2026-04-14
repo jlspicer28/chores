@@ -333,6 +333,11 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
 
   if (Object.keys(updates).length === 0) return res.json({ success: true });
 
+  // Filter objectionable content in bio
+  if (updates.bio && containsProfanity(updates.bio)) {
+    return res.json({ error: "Your bio contains inappropriate language. Please revise." });
+  }
+
   const { error } = await supabase.from("users").update(updates).eq("id", req.user.id);
 
   console.log("📝 update-profile result:", error ? error.message : "success");
@@ -2484,6 +2489,11 @@ app.post("/api/verify/email/check", async (req, res) => {
 app.post("/api/reviews/create", requireAuth, async (req, res) => {
   const { jobId, revieweeId, rating, comment, tags } = req.body;
 
+  // Filter objectionable content in reviews
+  if (containsProfanity(comment)) {
+    return res.json({ error: "Your review contains inappropriate language. Please revise." });
+  }
+
   // Prevent duplicate reviews for same job
   const { data: existing } = await supabase.from("reviews")
     .select("id").eq("job_id", jobId).eq("reviewer_id", req.user.id).maybeSingle();
@@ -2685,6 +2695,11 @@ app.post("/api/jobs/:id/apply", async (req, res) => {
 
   if (!jobId || !workerId) return res.json({ error: "jobId and workerId are required" });
   if (!message) return res.json({ error: "Message is required" });
+
+  // Filter objectionable content
+  if (containsProfanity(message)) {
+    return res.json({ error: "Your message contains inappropriate language. Please revise." });
+  }
 
   try {
     // Check for duplicate application
@@ -2889,6 +2904,11 @@ app.post("/api/messages/send", requireAuth, async (req, res) => {
   const uid = req.user.id;
 
   if (!recipientId || !body?.trim()) return res.json({ error: "recipientId and body are required" });
+
+  // Filter objectionable content
+  if (containsProfanity(body)) {
+    return res.json({ error: "Your message contains inappropriate language. Please revise." });
+  }
 
   // Get sender name
   const { data: sender } = await supabase.from("users").select("first_name,last_name").eq("id", uid).maybeSingle();
