@@ -3056,12 +3056,32 @@ app.post("/api/users/:id/block", requireAuth, async (req, res) => {
     const blockerName = blocker?.data ? `${blocker.data.first_name || ""} ${blocker.data.last_name || ""}`.trim() : blockerId;
     const blockedName = blocked?.data ? `${blocked.data.first_name || ""} ${blocked.data.last_name || ""}`.trim() : blockedId;
 
+    // Pull the blocked user's recent content for review
+    const { data: recentJobs } = await supabase.from("jobs").select("id, title, description").eq("poster_id", blockedId).order("created_at", { ascending: false }).limit(3);
+    const { data: recentMessages } = await supabase.from("messages").select("id, body, created_at").eq("sender_id", blockedId).order("created_at", { ascending: false }).limit(5);
+    const { data: recentReviews } = await supabase.from("reviews").select("id, comment, rating").eq("reviewer_id", blockedId).order("created_at", { ascending: false }).limit(3);
+
+    const jobsSummary = (recentJobs || []).map(j => "  - \"" + (j.title || "") + "\" — " + (j.description || "(no description)")).join("\n") || "  (none)";
+    const msgsSummary = (recentMessages || []).map(m => "  - [" + m.created_at + "] \"" + (m.body || "") + "\"").join("\n") || "  (none)";
+    const reviewsSummary = (recentReviews || []).map(r => "  - " + r.rating + "* \"" + (r.comment || "(no comment)") + "\"").join("\n") || "  (none)";
+
     await sendSupportEmail(
       `🚫 [Block] ${blockerName} blocked ${blockedName}`,
       `${blockerName} (${blocker?.data?.email || blockerId}) blocked ${blockedName} (${blocked?.data?.email || blockedId}).
 Time: ${new Date().toISOString()}
 
-This may indicate abusive behavior. Consider reviewing the blocked user's activity.`
+— BLOCKED USER'S RECENT CONTENT (for review) —
+
+Recent Jobs:
+${jobsSummary}
+
+Recent Messages:
+${msgsSummary}
+
+Recent Reviews:
+${reviewsSummary}
+
+⚠️ Apple requires action within 24 hours. Review the above content and remove anything objectionable. Consider ejecting the user if warranted.`
     );
 
     console.log(`🚫 Block: ${blockerName} blocked ${blockedName}`);
