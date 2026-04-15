@@ -554,14 +554,15 @@ app.get("/api/jobs/applied", async (req, res) => {
 
 // Get all open jobs filtered by real distance from worker's zip
 app.get("/api/jobs", async (req, res) => {
-  const { zip, maxDist = 25, category, limit = 200 } = req.query;
+  const { zip, lat, lng, maxDist = 25, category, limit = 200 } = req.query;
   const maxDistMiles = parseFloat(maxDist);
 
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-  // Resolve the worker's zip to lat/lng for distance filtering
-  let workerLat = null, workerLng = null;
-  if (zip && zip.length === 5) {
+  // Resolve the worker's location: prefer explicit lat/lng, fall back to zip geocoding
+  let workerLat = lat ? parseFloat(lat) : null;
+  let workerLng = lng ? parseFloat(lng) : null;
+  if (!workerLat && !workerLng && zip && zip.length === 5) {
     const cached = zipCache[zip];
     if (cached) { workerLat = cached.lat; workerLng = cached.lng; }
     else {
