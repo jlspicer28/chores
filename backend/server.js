@@ -477,8 +477,8 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 
 // Update profile
 app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
-  const { firstName, lastName, phone, zip, age, bio, skills, address } = req.body;
-  console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age, address });
+  const { firstName, lastName, phone, zip, age, bio, skills, address, role } = req.body;
+  console.log("📝 update-profile:", { userId: req.user.id, bio, skills, age, address, role });
 
   // Only update fields explicitly provided — never wipe other fields with undefined
   const updates = {};
@@ -489,6 +489,7 @@ app.post("/api/auth/update-profile", requireAuth, async (req, res) => {
   if (age !== undefined) updates.age = age ? parseInt(age) : null;
   if (bio !== undefined) updates.bio = (bio && bio.trim()) ? bio.trim() : null;
   if (skills !== undefined) updates.skills = skills || [];
+  if (role !== undefined && (role === "worker" || role === "poster")) updates.role = role;
   if (address !== undefined) updates.address = (address && address.trim()) ? address.trim() : null;
 
   if (Object.keys(updates).length === 0) return res.json({ success: true });
