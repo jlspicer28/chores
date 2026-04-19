@@ -216,6 +216,15 @@ app.post("/api/auth/register", async (req, res) => {
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email, firstName, role || "worker").catch(e => console.warn("Welcome email failed:", e.message));
 
+    // Mark the Supabase Auth email as confirmed — our custom code-verification
+    // flow already proved the user controls this inbox, and having this flag
+    // set is what lets future social sign-ins (Apple / Google / Facebook) for
+    // the same email auto-link into the existing account instead of colliding
+    // on the users_email_key unique constraint.
+    supabase.auth.admin.updateUserById(userId, { email_confirm: true }).catch(e =>
+      console.warn("Email confirm sync failed for " + userId + ":", e.message)
+    );
+
   } catch (err) {
     console.error("Register error:", err.message);
     res.json({ error: err.message });
@@ -306,6 +315,27 @@ app.post("/api/auth/apple", async (req, res) => {
         .single();
 
       if (insertError) {
+        // Email collision: existing password-based account already owns this email.
+        // Supabase doesn't auto-link because the original user's email isn't marked
+        // confirmed in auth.users (custom code-verification path skipped that step).
+        // Clean up the orphan Apple auth user we just created so they don't pile up,
+        // then ask the user to sign in with password.
+        const msg = insertError.message || "";
+        const isEmailCollision =
+          msg.includes("users_email_key") ||
+          (msg.toLowerCase().includes("duplicate") && msg.toLowerCase().includes("email"));
+
+        if (isEmailCollision) {
+          try {
+            await supabase.auth.admin.deleteUser(userId);
+          } catch (delErr) {
+            console.warn("Failed to clean up orphan Apple auth user:", delErr.message);
+          }
+          return res.json({
+            error: "An account with this email already exists. Please sign in with your password — you'll be able to link Apple from settings later.",
+          });
+        }
+
         console.error("Apple profile insert error:", insertError.message);
         return res.json({
           error: "Account created but profile save failed: " + insertError.message,
