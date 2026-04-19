@@ -222,6 +222,136 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SOCIAL AUTH — Apple
+// iOS client performs Sign In with Apple, receives an identityToken + nonce,
+// and POSTs them here. Supabase verifies the JWT and returns a session.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/api/auth/apple", async (req, res) => {
+  const { identityToken, nonce, fullName, zip, role } = req.body;
+  if (!identityToken) return res.json({ error: "Missing identityToken" });
+
+  try {
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider: "apple",
+      token: identityToken,
+      nonce, // raw nonce; Supabase hashes and compares to Apple's c_hash claim
+    });
+
+    if (error) {
+      console.error("Apple signInWithIdToken error:", error.message);
+      return res.json({ error: error.message });
+    }
+
+    const userId = data.user.id;
+    const email = (data.user.email || "").toLowerCase().trim();
+
+    // Check if a profile row exists in our users table
+    const { data: existingProfile } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+
+    let isNewUser = false;
+    let profile = existingProfile;
+
+    if (!existingProfile) {
+      // First-time sign-in — create profile row
+      isNewUser = true;
+
+      // Apple sends name only on the VERY FIRST sign-in; use it if present,
+      // otherwise fall back to user_metadata on the Supabase user.
+      const meta = data.user.user_metadata || {};
+      const firstName =
+        fullName?.firstName ||
+        meta.given_name ||
+        (meta.name ? String(meta.name).split(" ")[0] : "") ||
+        "";
+      const lastName =
+        fullName?.lastName ||
+        meta.family_name ||
+        (meta.name ? String(meta.name).split(" ").slice(1).join(" ") : "") ||
+        "";
+
+      // Generate a unique referral code
+      let referralCode = generateReferralCode(firstName);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data: existing } = await supabase
+          .from("users")
+          .select("id")
+          .eq("referral_code", referralCode)
+          .maybeSingle();
+        if (!existing) break;
+        referralCode = generateReferralCode(firstName);
+      }
+
+      const { data: newProfile, error: insertError } = await supabase
+        .from("users")
+        .insert({
+          id: userId,
+          email,
+          first_name: firstName,
+          last_name: lastName,
+          zip: zip || null,
+          role: role || "worker",
+          rating: 5.0,
+          jobs_completed: 0,
+          identity_verified: false,
+          skills: [],
+          referral_code: referralCode,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Apple profile insert error:", insertError.message);
+        return res.json({
+          error: "Account created but profile save failed: " + insertError.message,
+        });
+      }
+
+      profile = newProfile;
+
+      // Welcome email (non-blocking). Private relay addresses still forward.
+      if (email) {
+        sendWelcomeEmail(email, firstName, role || "worker").catch((e) =>
+          console.warn("Welcome email failed:", e.message)
+        );
+      }
+    }
+
+    return res.json({
+      success: true,
+      isNewUser,
+      token: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      user: {
+        id: userId,
+        email: profile.email,
+        first_name: profile.first_name,
+        last_name: profile.last_name,
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        phone: profile.phone || "",
+        zip: profile.zip || "",
+        role: profile.role || "worker",
+        rating: profile.rating || 5.0,
+        jobs_completed: profile.jobs_completed || 0,
+        jobsCompleted: profile.jobs_completed || 0,
+        avatar_url: profile.avatar_url || null,
+        bio: profile.bio || "",
+        skills: profile.skills || [],
+        identity_verified: profile.identity_verified || false,
+      },
+    });
+  } catch (err) {
+    console.error("Apple auth error:", err.message);
+    res.json({ error: err.message });
+  }
+});
+
 // Login
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
