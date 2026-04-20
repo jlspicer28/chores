@@ -315,24 +315,82 @@ app.post("/api/auth/apple", async (req, res) => {
         .single();
 
       if (insertError) {
-        // Email collision: existing password-based account already owns this email.
-        // Supabase doesn't auto-link because the original user's email isn't marked
-        // confirmed in auth.users (custom code-verification path skipped that step).
-        // Clean up the orphan Apple auth user we just created so they don't pile up,
-        // then ask the user to sign in with password.
         const msg = insertError.message || "";
         const isEmailCollision =
           msg.includes("users_email_key") ||
           (msg.toLowerCase().includes("duplicate") && msg.toLowerCase().includes("email"));
 
         if (isEmailCollision) {
+          // Auto-link flow: an existing password account owns this email.
+          // 1. Delete the orphan Apple auth user we just created.
+          // 2. Look up the existing profile.
+          // 3. Mint a fresh session for the existing user via magiclink/verifyOtp.
+          // 4. Return the existing profile + session so the user lands in their real account.
           try {
             await supabase.auth.admin.deleteUser(userId);
           } catch (delErr) {
             console.warn("Failed to clean up orphan Apple auth user:", delErr.message);
           }
+
+          try {
+            const { data: existingProfile } = await supabase
+              .from("users")
+              .select("*")
+              .eq("email", email)
+              .maybeSingle();
+
+            if (existingProfile) {
+              const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+                type: "magiclink",
+                email: existingProfile.email,
+              });
+
+              if (!linkErr && linkData?.properties?.hashed_token) {
+                const { data: sessionData, error: otpErr } = await supabase.auth.verifyOtp({
+                  type: "magiclink",
+                  token_hash: linkData.properties.hashed_token,
+                });
+
+                if (!otpErr && sessionData?.session) {
+                  console.log("✓ Auto-linked Apple sign-in to existing account:", existingProfile.email);
+                  return res.json({
+                    success: true,
+                    isNewUser: false,
+                    linkedToExistingAccount: true,
+                    token: sessionData.session.access_token,
+                    refreshToken: sessionData.session.refresh_token,
+                    user: {
+                      id: existingProfile.id,
+                      email: existingProfile.email,
+                      first_name: existingProfile.first_name,
+                      last_name: existingProfile.last_name,
+                      firstName: existingProfile.first_name,
+                      lastName: existingProfile.last_name,
+                      phone: existingProfile.phone || "",
+                      zip: existingProfile.zip || "",
+                      role: existingProfile.role || "worker",
+                      rating: existingProfile.rating || 5.0,
+                      jobs_completed: existingProfile.jobs_completed || 0,
+                      jobsCompleted: existingProfile.jobs_completed || 0,
+                      avatar_url: existingProfile.avatar_url || null,
+                      bio: existingProfile.bio || "",
+                      skills: existingProfile.skills || [],
+                      identity_verified: existingProfile.identity_verified || false,
+                    },
+                  });
+                }
+                console.warn("Apple auto-link verifyOtp failed:", otpErr?.message);
+              } else {
+                console.warn("Apple auto-link generateLink failed:", linkErr?.message);
+              }
+            }
+          } catch (linkErr) {
+            console.warn("Apple auto-link threw:", linkErr.message);
+          }
+
+          // Fallback if auto-link couldn't complete
           return res.json({
-            error: "An account with this email already exists. Please sign in with your password — you'll be able to link Apple from settings later.",
+            error: "An account with this email already exists. Please sign in with your password.",
           });
         }
 
@@ -466,13 +524,71 @@ app.post("/api/auth/google", async (req, res) => {
           (msg.toLowerCase().includes("duplicate") && msg.toLowerCase().includes("email"));
 
         if (isEmailCollision) {
+          // Auto-link flow — see Apple endpoint for commentary
           try {
             await supabase.auth.admin.deleteUser(userId);
           } catch (delErr) {
             console.warn("Failed to clean up orphan Google auth user:", delErr.message);
           }
+
+          try {
+            const { data: existingProfile } = await supabase
+              .from("users")
+              .select("*")
+              .eq("email", email)
+              .maybeSingle();
+
+            if (existingProfile) {
+              const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+                type: "magiclink",
+                email: existingProfile.email,
+              });
+
+              if (!linkErr && linkData?.properties?.hashed_token) {
+                const { data: sessionData, error: otpErr } = await supabase.auth.verifyOtp({
+                  type: "magiclink",
+                  token_hash: linkData.properties.hashed_token,
+                });
+
+                if (!otpErr && sessionData?.session) {
+                  console.log("✓ Auto-linked Google sign-in to existing account:", existingProfile.email);
+                  return res.json({
+                    success: true,
+                    isNewUser: false,
+                    linkedToExistingAccount: true,
+                    token: sessionData.session.access_token,
+                    refreshToken: sessionData.session.refresh_token,
+                    user: {
+                      id: existingProfile.id,
+                      email: existingProfile.email,
+                      first_name: existingProfile.first_name,
+                      last_name: existingProfile.last_name,
+                      firstName: existingProfile.first_name,
+                      lastName: existingProfile.last_name,
+                      phone: existingProfile.phone || "",
+                      zip: existingProfile.zip || "",
+                      role: existingProfile.role || "worker",
+                      rating: existingProfile.rating || 5.0,
+                      jobs_completed: existingProfile.jobs_completed || 0,
+                      jobsCompleted: existingProfile.jobs_completed || 0,
+                      avatar_url: existingProfile.avatar_url || null,
+                      bio: existingProfile.bio || "",
+                      skills: existingProfile.skills || [],
+                      identity_verified: existingProfile.identity_verified || false,
+                    },
+                  });
+                }
+                console.warn("Google auto-link verifyOtp failed:", otpErr?.message);
+              } else {
+                console.warn("Google auto-link generateLink failed:", linkErr?.message);
+              }
+            }
+          } catch (linkErr) {
+            console.warn("Google auto-link threw:", linkErr.message);
+          }
+
           return res.json({
-            error: "An account with this email already exists. Please sign in with your password — you'll be able to link Google from settings later.",
+            error: "An account with this email already exists. Please sign in with your password.",
           });
         }
 
