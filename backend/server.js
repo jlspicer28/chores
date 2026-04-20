@@ -232,6 +232,71 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SOCIAL AUTH — helper: pre-link provider identity to existing user by email
+//
+// Before calling supabase.auth.signInWithIdToken, we decode the incoming ID
+// token to extract the provider's stable user id (`sub`) and the email. If a
+// Supabase auth.users row already exists with that email, we INSERT a row into
+// auth.identities linking the new (provider, sub) pair to that existing user.
+//
+// Then when signInWithIdToken runs, Supabase resolves the identity natively
+// and returns the existing user's session — no collision path, no session-
+// minting required. First-time social sign-in with a new email: preLink does
+// nothing and signInWithIdToken creates a fresh user as normal.
+//
+// Requires a DB function `public.link_social_identity` (security definer) to
+// bypass PostgREST's public-schema-only exposure.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function decodeJwtPayload(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    // JWT uses base64url; Buffer supports it directly
+    const payload = Buffer.from(parts[1], "base64url").toString("utf8");
+    return JSON.parse(payload);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function preLinkSocialIdentity(idToken, provider) {
+  const payload = decodeJwtPayload(idToken);
+  if (!payload?.sub || !payload?.email) return { linked: false, reason: "missing_claims" };
+
+  const email = String(payload.email).toLowerCase().trim();
+  const sub = String(payload.sub);
+
+  const { data: existingProfile } = await supabase
+    .from("users")
+    .select("id, email")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!existingProfile?.id) {
+    return { linked: false, reason: "no_existing_user" };
+  }
+
+  try {
+    const { error } = await supabase.rpc("link_social_identity", {
+      p_user_id: existingProfile.id,
+      p_provider: provider,
+      p_provider_id: sub,
+      p_email: email,
+    });
+    if (error) {
+      console.warn(`Pre-link ${provider} rpc returned error:`, error.message);
+      return { linked: false, reason: "rpc_error", error: error.message };
+    }
+    console.log(`✓ Pre-linked ${provider} sub=${sub} to existing user ${existingProfile.id} (${email})`);
+    return { linked: true, userId: existingProfile.id };
+  } catch (e) {
+    console.warn(`Pre-link ${provider} threw:`, e.message);
+    return { linked: false, reason: "rpc_exception", error: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SOCIAL AUTH — Apple
 // iOS client performs Sign In with Apple, receives an identityToken + nonce,
 // and POSTs them here. Supabase verifies the JWT and returns a session.
@@ -241,6 +306,11 @@ app.post("/api/auth/apple", async (req, res) => {
   if (!identityToken) return res.json({ error: "Missing identityToken" });
 
   try {
+    // If an auth.users row already exists with this email, link the Apple
+    // identity to it *before* signInWithIdToken runs — so Supabase resolves
+    // natively to the existing user instead of creating a parallel one.
+    await preLinkSocialIdentity(identityToken, "apple");
+
     const { data, error } = await supabase.auth.signInWithIdToken({
       provider: "apple",
       token: identityToken,
@@ -322,16 +392,11 @@ app.post("/api/auth/apple", async (req, res) => {
 
         if (isEmailCollision) {
           // Auto-link flow: an existing password account owns this email.
-          // 1. Delete the orphan Apple auth user we just created.
-          // 2. Look up the existing profile.
-          // 3. Mint a fresh session for the existing user via magiclink/verifyOtp.
-          // 4. Return the existing profile + session so the user lands in their real account.
-          try {
-            await supabase.auth.admin.deleteUser(userId);
-          } catch (delErr) {
-            console.warn("Failed to clean up orphan Apple auth user:", delErr.message);
-          }
-
+          // Previously we deleted the orphan Apple auth user here, but that call
+          // was capable of nuking the WRONG user under edge conditions where
+          // Supabase auto-linked the identity. Letting orphans accumulate is
+          // strictly safer than risking user-data loss — they're cheap rows
+          // and can be reaped in a scheduled job.
           try {
             const { data: existingProfile } = await supabase
               .from("users")
@@ -456,6 +521,9 @@ app.post("/api/auth/google", async (req, res) => {
   if (!idToken) return res.json({ error: "Missing idToken" });
 
   try {
+    // Pre-link Google identity to any existing user with matching email.
+    await preLinkSocialIdentity(idToken, "google");
+
     const { data, error } = await supabase.auth.signInWithIdToken({
       provider: "google",
       token: idToken,
@@ -530,13 +598,8 @@ app.post("/api/auth/google", async (req, res) => {
           (msg.toLowerCase().includes("duplicate") && msg.toLowerCase().includes("email"));
 
         if (isEmailCollision) {
-          // Auto-link flow — see Apple endpoint for commentary
-          try {
-            await supabase.auth.admin.deleteUser(userId);
-          } catch (delErr) {
-            console.warn("Failed to clean up orphan Google auth user:", delErr.message);
-          }
-
+          // Auto-link flow — see Apple endpoint for commentary on why the
+          // admin.deleteUser call was removed.
           try {
             const { data: existingProfile } = await supabase
               .from("users")
