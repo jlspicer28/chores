@@ -345,10 +345,14 @@ app.post("/api/auth/apple", async (req, res) => {
                 email: existingProfile.email,
               });
 
-              if (!linkErr && linkData?.properties?.hashed_token) {
+              if (!linkErr && linkData?.properties?.email_otp) {
+                // Use the email + OTP code variant of verifyOtp (not token_hash) —
+                // Supabase treats admin-generated hashed_tokens as "already-consumed"
+                // in server-to-server flows, but the email_otp path works.
                 const { data: sessionData, error: otpErr } = await supabase.auth.verifyOtp({
+                  email: existingProfile.email,
+                  token: linkData.properties.email_otp,
                   type: "magiclink",
-                  token_hash: linkData.properties.hashed_token,
                 });
 
                 if (!otpErr && sessionData?.session) {
@@ -544,10 +548,14 @@ app.post("/api/auth/google", async (req, res) => {
                 email: existingProfile.email,
               });
 
-              if (!linkErr && linkData?.properties?.hashed_token) {
+              if (!linkErr && linkData?.properties?.email_otp) {
+                // Use the email + OTP code variant of verifyOtp (not token_hash) —
+                // Supabase treats admin-generated hashed_tokens as "already-consumed"
+                // in server-to-server flows, but the email_otp path works.
                 const { data: sessionData, error: otpErr } = await supabase.auth.verifyOtp({
+                  email: existingProfile.email,
+                  token: linkData.properties.email_otp,
                   type: "magiclink",
-                  token_hash: linkData.properties.hashed_token,
                 });
 
                 if (!otpErr && sessionData?.session) {
