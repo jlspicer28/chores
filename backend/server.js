@@ -341,18 +341,20 @@ app.post("/api/auth/apple", async (req, res) => {
 
             if (existingProfile) {
               const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-                type: "magiclink",
+                type: "recovery",
                 email: existingProfile.email,
               });
 
               if (!linkErr && linkData?.properties?.email_otp) {
-                // Use the email + OTP code variant of verifyOtp (not token_hash) —
-                // Supabase treats admin-generated hashed_tokens as "already-consumed"
-                // in server-to-server flows, but the email_otp path works.
+                // Use type 'recovery' rather than 'magiclink' — recovery tokens are
+                // designed for programmatic verifyOtp consumption (password-reset
+                // flows), while magiclink tokens are only reliably consumed by URL
+                // clicks. Same session-minting outcome, different path Supabase
+                // accepts server-to-server.
                 const { data: sessionData, error: otpErr } = await supabase.auth.verifyOtp({
                   email: existingProfile.email,
                   token: linkData.properties.email_otp,
-                  type: "magiclink",
+                  type: "recovery",
                 });
 
                 if (!otpErr && sessionData?.session) {
@@ -544,18 +546,20 @@ app.post("/api/auth/google", async (req, res) => {
 
             if (existingProfile) {
               const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-                type: "magiclink",
+                type: "recovery",
                 email: existingProfile.email,
               });
 
               if (!linkErr && linkData?.properties?.email_otp) {
-                // Use the email + OTP code variant of verifyOtp (not token_hash) —
-                // Supabase treats admin-generated hashed_tokens as "already-consumed"
-                // in server-to-server flows, but the email_otp path works.
+                // Use type 'recovery' rather than 'magiclink' — recovery tokens are
+                // designed for programmatic verifyOtp consumption (password-reset
+                // flows), while magiclink tokens are only reliably consumed by URL
+                // clicks. Same session-minting outcome, different path Supabase
+                // accepts server-to-server.
                 const { data: sessionData, error: otpErr } = await supabase.auth.verifyOtp({
                   email: existingProfile.email,
                   token: linkData.properties.email_otp,
-                  type: "magiclink",
+                  type: "recovery",
                 });
 
                 if (!otpErr && sessionData?.session) {
