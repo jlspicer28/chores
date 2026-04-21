@@ -1615,12 +1615,13 @@ async function sendDripEmails() {
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
   const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Find users who signed up 3-4 days ago
+  // Find users who signed up 3-4 days ago and haven't been dripped yet
   const { data: users } = await supabase
     .from("users")
-    .select("id, email, first_name, role, jobs_completed")
+    .select("id, email, first_name, role, jobs_completed, drip_sent_at")
     .lt("created_at", threeDaysAgo)
-    .gt("created_at", fourDaysAgo);
+    .gt("created_at", fourDaysAgo)
+    .is("drip_sent_at", null);
 
   if (!users || users.length === 0) return;
 
@@ -1649,6 +1650,10 @@ async function sendDripEmails() {
     `);
 
     await sendEmail(user.email, subject, html);
+    await supabase.from("users")
+      .update({ drip_sent_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .then(() => {}, () => {});
     console.log(`📧 Drip email sent to ${user.email}`);
     // Rate limit
     await new Promise(r => setTimeout(r, 1000));
@@ -1662,9 +1667,10 @@ async function sendReferralDrip() {
 
   const { data: users } = await supabase
     .from("users")
-    .select("id, email, first_name, referral_code, jobs_completed")
+    .select("id, email, first_name, referral_code, jobs_completed, referral_drip_sent_at")
     .lt("created_at", twoDaysAgo)
     .gt("created_at", threeDaysAgo)
+    .is("referral_drip_sent_at", null)
     .not("referral_code", "is", null);
 
   if (!users || users.length === 0) return;
@@ -1695,6 +1701,13 @@ async function sendReferralDrip() {
     `);
 
     await sendEmail(user.email, subject, html);
+    // Stamp immediately so a concurrent/retry invocation can't re-send.
+    // Silent-fail if the column doesn't exist yet — user needs to run the
+    // migration below. Once stamped, the .is() filter above skips them.
+    await supabase.from("users")
+      .update({ referral_drip_sent_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .then(() => {}, () => {});
 
     // Also send push notification
     notify(user.id, {
@@ -1710,12 +1723,18 @@ async function sendReferralDrip() {
   }
 }
 
-// Run drip emails daily at ~9am
+// Run drip emails daily (~every 24 hours of uptime).
+//
+// IMPORTANT: we deliberately do NOT fire these on startup anymore. Render's
+// free tier cold-cycles the instance whenever it's idle; with a startup
+// setTimeout the drip used to re-fire for every user in the "2–3 day since
+// signup" window on every cold-start, producing 4+ emails to the same
+// recipient inside a half-hour. Dedup via a `drip_sent_at` column is still
+// TODO; until then, rely only on long-lived uptime to schedule these. On a
+// paid always-on backend the interval fires daily. On free tier they rarely
+// fire — which is better than the spam alternative.
 setInterval(sendDripEmails, 24 * 60 * 60 * 1000);
 setInterval(sendReferralDrip, 24 * 60 * 60 * 1000);
-// Also run once on startup (checks for eligible users)
-setTimeout(sendDripEmails, 30000);
-setTimeout(sendReferralDrip, 35000);
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
