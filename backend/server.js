@@ -463,6 +463,26 @@ async function preLinkSocialIdentity(idToken, provider) {
 // iOS client performs Sign In with Apple, receives an identityToken + nonce,
 // and POSTs them here. Supabase verifies the JWT and returns a session.
 // ─────────────────────────────────────────────────────────────────────────────
+// Apple web OAuth → Android deep link
+//
+// Apple's "Sign In with Apple" web flow sends its response via HTTP POST
+// (form_post) to redirect_uri — Android can't intercept a POST-to-app-link,
+// so we accept the POST here, extract the identity token + raw nonce that
+// the client tucked into `state`, and 302-redirect back to the app via a
+// custom `chores://` scheme. MainActivity's intent-filter picks that up
+// and calls /api/auth/apple with the id_token.
+app.post("/api/auth/apple/android-callback", express.urlencoded({ extended: false }), (req, res) => {
+  const idToken = req.body?.id_token || "";
+  const code = req.body?.code || "";
+  const state = req.body?.state || "";
+  // `state` is opaque to Apple — our Android client packs "nonce|deeplink" so
+  // we can reflect the original nonce back without storing anything server-side.
+  const [nonce, deeplinkRaw] = String(state).split("|");
+  const deeplink = deeplinkRaw || "chores://auth/apple";
+  const params = new URLSearchParams({ id_token: idToken, code, nonce: nonce || "" });
+  res.redirect(302, `${deeplink}?${params.toString()}`);
+});
+
 app.post("/api/auth/apple", async (req, res) => {
   const { identityToken, nonce, fullName, zip, role } = req.body;
   if (!identityToken) return res.json({ error: "Missing identityToken" });
