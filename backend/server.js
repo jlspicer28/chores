@@ -67,50 +67,101 @@ function sendPush(deviceToken, title, body, data = {}) {
 // the FCM HTTP v1 API. Service-account JSON lives in the
 // FIREBASE_SERVICE_ACCOUNT env var (stringified). If unset, sendFcm() is a
 // no-op — push simply won't deliver to Android until credentials are wired.
+//
+// All fetches carry 15s AbortController timeouts and every branch logs with
+// an [FCM] prefix so Render tail can tell us exactly where a push died.
 
 let fcmAccessToken = null;
 let fcmAccessTokenExpiry = 0;
+let fcmProjectId = null;
+
+function parseServiceAccount() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) {
+    console.log("[FCM] FIREBASE_SERVICE_ACCOUNT not set");
+    return null;
+  }
+  try {
+    const sa = JSON.parse(raw);
+    // Render UIs sometimes strip the real newlines inside the PEM body and
+    // store them as literal backslash-n. Undo that so crypto.sign works.
+    if (sa.private_key && sa.private_key.indexOf("\\n") !== -1) {
+      sa.private_key = sa.private_key.replace(/\\n/g, "\n");
+    }
+    return sa;
+  } catch (e) {
+    console.log("[FCM] FIREBASE_SERVICE_ACCOUNT parse failed:", e.message);
+    return null;
+  }
+}
+
+async function fetchWithTimeout(url, options, ms = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function getFcmAccessToken() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) return null;
   if (fcmAccessToken && Date.now() < fcmAccessTokenExpiry - 60_000) return fcmAccessToken;
 
-  const sa = JSON.parse(raw);
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
-  const claims = Buffer.from(JSON.stringify({
-    iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  })).toString("base64url");
-  const signer = crypto.createSign("RSA-SHA256");
-  signer.update(`${header}.${claims}`);
-  const jwt = `${header}.${claims}.${signer.sign(sa.private_key, "base64url")}`;
+  const sa = parseServiceAccount();
+  if (!sa) return null;
+  fcmProjectId = sa.project_id;
 
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  const body = await resp.json();
-  if (!body.access_token) return null;
-  fcmAccessToken = body.access_token;
-  fcmAccessTokenExpiry = Date.now() + (body.expires_in || 3600) * 1000;
-  return fcmAccessToken;
+  let jwt;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+    const claims = Buffer.from(JSON.stringify({
+      iss: sa.client_email,
+      scope: "https://www.googleapis.com/auth/firebase.messaging",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+    })).toString("base64url");
+    const signer = crypto.createSign("RSA-SHA256");
+    signer.update(`${header}.${claims}`);
+    jwt = `${header}.${claims}.${signer.sign(sa.private_key, "base64url")}`;
+  } catch (e) {
+    console.log("[FCM] JWT sign failed:", e.message);
+    return null;
+  }
+
+  try {
+    const resp = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+    });
+    const body = await resp.json();
+    if (!body.access_token) {
+      console.log("[FCM] OAuth response missing access_token:", JSON.stringify(body));
+      return null;
+    }
+    fcmAccessToken = body.access_token;
+    fcmAccessTokenExpiry = Date.now() + (body.expires_in || 3600) * 1000;
+    console.log("[FCM] Access token minted");
+    return fcmAccessToken;
+  } catch (e) {
+    console.log("[FCM] OAuth fetch failed:", e.message);
+    return null;
+  }
 }
 
 async function sendFcm(deviceToken, title, body, data = {}) {
   const access = await getFcmAccessToken();
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!access || !raw) return;
-  const sa = JSON.parse(raw);
-  const url = `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
+  if (!access || !fcmProjectId) {
+    console.log("[FCM] skipping send — no access token or project id");
+    return;
+  }
+  const url = `https://fcm.googleapis.com/v1/projects/${fcmProjectId}/messages:send`;
 
   // Flatten data to strings — FCM v1 rejects non-string data values.
   const stringData = {};
@@ -121,7 +172,7 @@ async function sendFcm(deviceToken, title, body, data = {}) {
   stringData.body = body;
 
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", authorization: `Bearer ${access}` },
       body: JSON.stringify({
@@ -132,8 +183,9 @@ async function sendFcm(deviceToken, title, body, data = {}) {
         },
       }),
     });
+    const respBody = await resp.text();
     if (resp.ok) console.log(`[FCM] Sent to ${deviceToken.substring(0, 8)}...`);
-    else console.log(`[FCM] Error ${resp.status} for ${deviceToken.substring(0, 8)}...`);
+    else console.log(`[FCM] Error ${resp.status} for ${deviceToken.substring(0, 8)}... body=${respBody.substring(0, 200)}`);
   } catch (e) {
     console.log("[FCM] send failed:", e.message);
   }
@@ -3938,8 +3990,15 @@ app.post("/api/push/register", requireAuth, async (req, res) => {
 app.post("/api/push/test", async (req, res) => {
   const { userId, title, body } = req.body;
   if (!userId) return res.json({ error: "userId required" });
-  await pushToUser(userId, title || "Test", body || "This is a test push notification", { type: "test" });
-  res.json({ success: true });
+  console.log(`[Push] /api/push/test fired for ${userId.substring(0, 8)}...`);
+  try {
+    await pushToUser(userId, title || "Test", body || "This is a test push notification", { type: "test" });
+    console.log(`[Push] /api/push/test completed for ${userId.substring(0, 8)}...`);
+    res.json({ success: true });
+  } catch (e) {
+    console.log(`[Push] /api/push/test threw:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Email Subscriber (landing page popup) ────────────────────────────────────
