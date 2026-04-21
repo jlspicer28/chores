@@ -62,10 +62,97 @@ function sendPush(deviceToken, title, body, data = {}) {
   });
 }
 
+// ── Firebase Cloud Messaging (Android) ─────────────────────────────────────
+// Token minted with a Google service-account JWT, then used to POST against
+// the FCM HTTP v1 API. Service-account JSON lives in the
+// FIREBASE_SERVICE_ACCOUNT env var (stringified). If unset, sendFcm() is a
+// no-op — push simply won't deliver to Android until credentials are wired.
+
+let fcmAccessToken = null;
+let fcmAccessTokenExpiry = 0;
+
+async function getFcmAccessToken() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  if (fcmAccessToken && Date.now() < fcmAccessTokenExpiry - 60_000) return fcmAccessToken;
+
+  const sa = JSON.parse(raw);
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const claims = Buffer.from(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  })).toString("base64url");
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(`${header}.${claims}`);
+  const jwt = `${header}.${claims}.${signer.sign(sa.private_key, "base64url")}`;
+
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+  const body = await resp.json();
+  if (!body.access_token) return null;
+  fcmAccessToken = body.access_token;
+  fcmAccessTokenExpiry = Date.now() + (body.expires_in || 3600) * 1000;
+  return fcmAccessToken;
+}
+
+async function sendFcm(deviceToken, title, body, data = {}) {
+  const access = await getFcmAccessToken();
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!access || !raw) return;
+  const sa = JSON.parse(raw);
+  const url = `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
+
+  // Flatten data to strings — FCM v1 rejects non-string data values.
+  const stringData = {};
+  for (const [k, v] of Object.entries(data || {})) stringData[k] = String(v);
+  // Include title/body in the data payload as well so the Android service can
+  // build its own notification (letting us route by `channel`, etc).
+  stringData.title = title;
+  stringData.body = body;
+
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", authorization: `Bearer ${access}` },
+      body: JSON.stringify({
+        message: {
+          token: deviceToken,
+          data: stringData,
+          android: { priority: "HIGH" },
+        },
+      }),
+    });
+    if (resp.ok) console.log(`[FCM] Sent to ${deviceToken.substring(0, 8)}...`);
+    else console.log(`[FCM] Error ${resp.status} for ${deviceToken.substring(0, 8)}...`);
+  } catch (e) {
+    console.log("[FCM] send failed:", e.message);
+  }
+}
+
 async function pushToUser(userId, title, body, data = {}) {
-  const { data: tokens } = await supabase.from("device_tokens").select("device_token").eq("user_id", userId);
+  // Include platform so we can route APNs vs FCM.
+  const { data: tokens } = await supabase
+    .from("device_tokens")
+    .select("device_token, platform")
+    .eq("user_id", userId);
   if (!tokens || tokens.length === 0) return;
-  for (const row of tokens) await sendPush(row.device_token, title, body, data);
+  for (const row of tokens) {
+    if ((row.platform || "ios") === "android") {
+      await sendFcm(row.device_token, title, body, data);
+    } else {
+      await sendPush(row.device_token, title, body, data);
+    }
+  }
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
