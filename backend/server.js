@@ -1610,131 +1610,179 @@ async function sendWelcomeEmail(email, firstName, role) {
   console.log(`📧 Welcome email sent to ${email}`);
 }
 
-// Drip email: sent 3 days after signup to inactive users
-async function sendDripEmails() {
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-  const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+// ─── Drip sequence ───────────────────────────────────────────────────────────
+//
+// 4-step founder-voice nurture for users who signed up but haven't completed
+// a job yet. Each step has its own day-since-signup window and is tracked on
+// the users table via `drip_step` (integer — 0 = none sent, 1 = step 1 sent,
+// and so on). Every recipient gets each step at most once, ever. If a user
+// completes a job, the sequence stops (no point nurturing active users).
+//
+// Columns expected:
+//   users.drip_step INTEGER DEFAULT 0
+//   users.referral_drip_sent_at TIMESTAMPTZ   -- legacy, kept for backfill
+//   users.drip_sent_at TIMESTAMPTZ            -- legacy, kept for backfill
+//
+// Migration in Supabase SQL editor (idempotent):
+//   alter table users
+//     add column if not exists drip_step integer default 0,
+//     add column if not exists drip_sent_at timestamptz,
+//     add column if not exists referral_drip_sent_at timestamptz;
+//   update users set drip_step = 4 where drip_sent_at is not null
+//                                     or referral_drip_sent_at is not null;
 
-  // Find users who signed up 3-4 days ago and haven't been dripped yet
-  const { data: users } = await supabase
-    .from("users")
-    .select("id, email, first_name, role, jobs_completed, drip_sent_at")
-    .lt("created_at", threeDaysAgo)
-    .gt("created_at", fourDaysAgo)
-    .is("drip_sent_at", null);
+const FOUNDER_SIGNATURE = `
+  <p style="color:#374151;font-size:15px;line-height:1.7;margin:20px 0 0;">
+    — Johnny<br/>
+    <span style="color:#9CA3AF;font-size:13px;">Founder, Chores · St. Charles, IL</span>
+  </p>`;
 
-  if (!users || users.length === 0) return;
+const UNSUB_FOOTER = `
+  <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">
+    You're hearing from me because you signed up for Chores. Hit reply anytime — I read every message.
+    <br/><a href="https://choresnearme.com" style="color:#9CA3AF;">Unsubscribe</a>
+  </p>`;
 
-  for (const user of users) {
-    // Skip if they've already completed a job
-    if (user.jobs_completed > 0) continue;
-
-    const name = user.first_name || "there";
-    const isWorker = user.role === "worker";
-
-    const subject = isWorker
-      ? `${name}, jobs are waiting for you 👀`
-      : `${name}, post your first job — it takes 30 seconds`;
-
-    const html = emailTemplate(`
-      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${name},</h2>
+// Each drip describes the window (days since signup) + the subject + the
+// body. Sent in sequence — a user at step N only becomes eligible for step
+// N+1 once they're past its `daysAfterSignup` window.
+const DRIPS = [
+  {
+    step: 1,
+    daysAfter: 2,
+    subject: (u) => `${u.first_name || "Hey"} — Johnny here`,
+    html: (u) => emailTemplate(`
+      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${u.first_name || "there"},</h2>
       <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
-        ${isWorker
-          ? "People in your area are posting jobs right now — lawn care, cleaning, moving, pet care, and more. Don't miss out on earning opportunities."
-          : "Need something done around the house? Post a job in 30 seconds and get applications from workers in your area. Payments are protected by escrow — you only pay when the job is done."}
+        It's Johnny — I built Chores. I just wanted to personally welcome you.
       </p>
-      <div style="text-align:center;margin:24px 0;">
-        <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">${isWorker ? "Browse Jobs →" : "Post a Job →"}</a>
-      </div>
-      <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">You're receiving this because you signed up for Chores. <a href="https://choresnearme.com" style="color:#9CA3AF;">Unsubscribe</a></p>
-    `);
-
-    await sendEmail(user.email, subject, html);
-    await supabase.from("users")
-      .update({ drip_sent_at: new Date().toISOString() })
-      .eq("id", user.id)
-      .then(() => {}, () => {});
-    console.log(`📧 Drip email sent to ${user.email}`);
-    // Rate limit
-    await new Promise(r => setTimeout(r, 1000));
-  }
-}
-
-// Referral drip: 2 days after signup, nudge users who haven't completed a job
-async function sendReferralDrip() {
-  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-
-  const { data: users } = await supabase
-    .from("users")
-    .select("id, email, first_name, referral_code, jobs_completed, referral_drip_sent_at")
-    .lt("created_at", twoDaysAgo)
-    .gt("created_at", threeDaysAgo)
-    .is("referral_drip_sent_at", null)
-    .not("referral_code", "is", null);
-
-  if (!users || users.length === 0) return;
-
-  for (const user of users) {
-    if (user.jobs_completed > 0) continue;
-
-    const name = user.first_name || "there";
-    const code = user.referral_code || "";
-
-    const subject = `${name}, invite a neighbor and earn $10`;
-    const html = emailTemplate(`
-      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${name},</h2>
       <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
-        Know someone who could use help around the house — or someone looking to earn extra money? Share your referral code and you'll both get <strong>$10 credit</strong> when they complete their first job.
+        I started this because I watched my neighbors in St. Charles struggle to find reliable help for small things — mowing, moving a couch, watching the dog for a weekend — and at the same time watched college kids and parents-at-home who just wanted a flexible way to earn an extra hundred bucks that week. There was no way to bridge those two. So I made one.
+      </p>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        If you ever hit something confusing, or you have an idea, or Chores just doesn't work for you — <strong>reply to this email</strong>. It's me on the other end. No support team, no bot.
+      </p>
+      ${FOUNDER_SIGNATURE}
+      ${UNSUB_FOOTER}
+    `),
+  },
+  {
+    step: 2,
+    daysAfter: 4,
+    subject: (u) => `${u.first_name || "hey"} — here's what's worked for early users`,
+    html: (u) => {
+      const isWorker = u.role === "worker";
+      return emailTemplate(`
+        <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${u.first_name || "there"},</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+          Johnny again. I noticed you haven't ${isWorker ? "applied to your first job" : "posted your first job"} yet — totally fine, I know life gets in the way. But if you have 60 seconds, here's what's worked for the people who've had the best Chores experience so far:
+        </p>
+        <ul style="color:#374151;font-size:15px;line-height:1.8;padding-left:20px;margin:0 0 16px;">
+          ${isWorker
+            ? `<li><strong>Fill out your skills.</strong> Posters filter by skill — lawn/cleaning/pet-care listings go fast.</li>
+               <li><strong>Apply with a real message.</strong> Even one sentence about your availability beats "interested".</li>
+               <li><strong>Flip on location.</strong> You'll see 3–4× more jobs within driving distance.</li>`
+            : `<li><strong>Title matters.</strong> "Mow my lawn this Saturday, 30 min" gets applications in under an hour. Vague titles sit for days.</li>
+               <li><strong>Add a photo.</strong> Workers are 3× more likely to apply to listings with one.</li>
+               <li><strong>Price honestly.</strong> Under-pricing kills applications faster than over-pricing.</li>`}
+        </ul>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">${isWorker ? "Open Chores →" : "Post your first job →"}</a>
+        </div>
+        ${FOUNDER_SIGNATURE}
+        ${UNSUB_FOOTER}
+      `);
+    },
+  },
+  {
+    step: 3,
+    daysAfter: 7,
+    subject: (u) => `${u.first_name || "hey"} — asking a real favor`,
+    html: (u) => emailTemplate(`
+      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${u.first_name || "there"},</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        Real talk — I'm bootstrapping Chores. No VC, no marketing budget. Every user I have right now is someone who told a friend, a neighbor, or posted it to a local Facebook group. That's the whole playbook.
+      </p>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        If Chores has even seemed useful to you, I'd be massively grateful if you shared it with <strong>one person</strong>. A neighbor, a family member, a college roommate who could use beer money — anyone. Your code:
       </p>
       <div style="background:#D8F3DC;border-radius:12px;padding:20px;margin:20px 0;text-align:center;">
         <p style="font-size:12px;font-weight:700;color:#2D6A4F;margin:0 0 8px;text-transform:uppercase;letter-spacing:1px;">Your referral code</p>
-        <p style="font-family:monospace;font-size:28px;font-weight:900;color:#1B4332;margin:0;letter-spacing:3px;">${code}</p>
+        <p style="font-family:monospace;font-size:28px;font-weight:900;color:#1B4332;margin:0;letter-spacing:3px;">${u.referral_code || ""}</p>
       </div>
-      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
-        Just share your code with a friend or neighbor. When they sign up and complete their first job, you both earn $10 — it's that simple.
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        When they sign up and complete their first job, you both get $10 credit. But honestly — the help with word-of-mouth matters way more to me than the $10 does.
       </p>
-      <div style="text-align:center;margin:24px 0;">
-        <a href="https://choresnearme.com/download" style="background:#1B4332;color:#fff;padding:14px 32px;border-radius:50px;text-decoration:none;font-weight:600;font-size:15px;">Open Chores →</a>
-      </div>
-      <p style="color:#9CA3AF;font-size:12px;margin-top:24px;">You're receiving this because you signed up for Chores. <a href="https://choresnearme.com" style="color:#9CA3AF;">Unsubscribe</a></p>
-    `);
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        Seriously, thank you.
+      </p>
+      ${FOUNDER_SIGNATURE}
+      ${UNSUB_FOOTER}
+    `),
+  },
+  {
+    step: 4,
+    daysAfter: 14,
+    subject: (u) => `${u.first_name || "hey"} — what's blocking you?`,
+    html: (u) => emailTemplate(`
+      <h2 style="color:#1B4332;font-family:Georgia,serif;font-size:22px;margin:0 0 16px;">Hey ${u.first_name || "there"},</h2>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        I promise this is the last one for a while. Just wanted to check in genuinely: you signed up a couple weeks ago and haven't ${u.role === "worker" ? "taken a job" : "posted anything"}. That tells me one of two things — either life got busy (totally fair, no worries), or something about Chores didn't click for you.
+      </p>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        If it's the second one, I really want to hear about it. Reply to this email and tell me what felt off — the app, the people, the pricing, the zip code coverage, whatever. Every piece of feedback I get genuinely shapes what I fix next.
+      </p>
+      <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        And if you're just busy — no stress, Chores isn't going anywhere. Come back when it's useful.
+      </p>
+      ${FOUNDER_SIGNATURE}
+      ${UNSUB_FOOTER}
+    `),
+  },
+];
 
-    await sendEmail(user.email, subject, html);
-    // Stamp immediately so a concurrent/retry invocation can't re-send.
-    // Silent-fail if the column doesn't exist yet — user needs to run the
-    // migration below. Once stamped, the .is() filter above skips them.
-    await supabase.from("users")
-      .update({ referral_drip_sent_at: new Date().toISOString() })
-      .eq("id", user.id)
-      .then(() => {}, () => {});
+// Single orchestrator for all drips. Walks the sequence in order; for each
+// step, queries users in that day-since-signup window who haven't received
+// it yet, sends + stamps drip_step.
+async function sendDrips() {
+  for (const drip of DRIPS) {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const upperBound = new Date(now - drip.daysAfter * oneDay).toISOString();
+    const lowerBound = new Date(now - (drip.daysAfter + 1) * oneDay).toISOString();
 
-    // Also send push notification
-    notify(user.id, {
-      type: "referral",
-      category: "referral",
-      icon: "gift.fill",
-      title: "Invite a neighbor, earn $10",
-      body: `Share your code ${code} with a friend. You both get $10 credit when they complete their first job.`
-    }).catch(() => {});
+    const { data: users } = await supabase
+      .from("users")
+      .select("id, email, first_name, role, referral_code, jobs_completed, drip_step")
+      .gt("created_at", lowerBound)
+      .lt("created_at", upperBound);
 
-    console.log(`📧 Referral drip sent to ${user.email} (code: ${code})`);
-    await new Promise(r => setTimeout(r, 1000));
+    if (!users || users.length === 0) continue;
+
+    for (const u of users) {
+      if ((u.drip_step || 0) >= drip.step) continue;      // already got this one
+      if (u.jobs_completed > 0) continue;                 // stop nurturing actives
+      if (!u.email) continue;
+
+      const subject = drip.subject(u);
+      const html = drip.html(u);
+
+      await sendEmail(u.email, subject, html);
+      await supabase.from("users")
+        .update({ drip_step: drip.step })
+        .eq("id", u.id)
+        .then(() => {}, () => {});
+
+      console.log(`📧 Drip step ${drip.step} sent to ${u.email}`);
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
 }
 
-// Run drip emails daily (~every 24 hours of uptime).
-//
-// IMPORTANT: we deliberately do NOT fire these on startup anymore. Render's
-// free tier cold-cycles the instance whenever it's idle; with a startup
-// setTimeout the drip used to re-fire for every user in the "2–3 day since
-// signup" window on every cold-start, producing 4+ emails to the same
-// recipient inside a half-hour. Dedup via a `drip_sent_at` column is still
-// TODO; until then, rely only on long-lived uptime to schedule these. On a
-// paid always-on backend the interval fires daily. On free tier they rarely
-// fire — which is better than the spam alternative.
-setInterval(sendDripEmails, 24 * 60 * 60 * 1000);
-setInterval(sendReferralDrip, 24 * 60 * 60 * 1000);
+// Run drip emails on a long interval. See feedback_no_cold_start_drips in
+// project memory: on Render free tier cold-cycles spamming users was a real
+// outage. Use setInterval only, never setTimeout-on-boot.
+setInterval(sendDrips, 24 * 60 * 60 * 1000);
 
 // Post a new job (poster only)
 app.post("/api/jobs/create", requireAuth, async (req, res) => {
