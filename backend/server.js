@@ -3092,9 +3092,19 @@ app.post("/api/customer/setup-intent", requireAuth, async (req, res) => {
       await supabase.from("users").update({ stripe_customer_id: customerId }).eq("id", req.user.id);
     }
 
+    // Restrict to card-only. Without `payment_method_types` Stripe offers
+    // every method enabled in the dashboard (Link / Bank / Cash App Pay /
+    // Klarna / Amazon Pay) — most of those don't support off_session
+    // reuse, which is exactly what escrow charges on hire require. A
+    // buy-now-pay-later method like Klarna can't silently be re-charged
+    // later when the poster taps "Hire", so saving it would confuse the
+    // user and then fail at charge time. Card (+ Link autofill, which
+    // saves a card under the hood) is the only method compatible with
+    // this app's flow.
     const intent = await stripe.setupIntents.create({
       customer: customerId,
       usage: "off_session",
+      payment_method_types: ["card"],
     });
     res.json({ clientSecret: intent.client_secret });
   } catch (err) {
