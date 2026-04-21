@@ -191,19 +191,42 @@ async function sendFcm(deviceToken, title, body, data = {}) {
   }
 }
 
+// Hard budget for any single device send. APNs's HTTP/2 and FCM's HTTP v1
+// are both normally < 2s, but Render's free tier has bitten us with silent
+// hangs (request goes out, response never arrives, promise never settles).
+// This race guarantees pushToUser finishes in a bounded time even when a
+// downstream provider is unhealthy.
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => {
+      console.log(`[Push] ${label} TIMEOUT after ${ms}ms`);
+      resolve();
+    }, ms)),
+  ]);
+}
+
 async function pushToUser(userId, title, body, data = {}) {
-  // Include platform so we can route APNs vs FCM.
-  const { data: tokens } = await supabase
+  console.log(`[Push] pushToUser querying tokens for ${userId.substring(0, 8)}...`);
+  const { data: tokens, error } = await supabase
     .from("device_tokens")
     .select("device_token, platform")
     .eq("user_id", userId);
+  if (error) {
+    console.log(`[Push] pushToUser supabase error:`, error.message);
+    return;
+  }
+  console.log(`[Push] pushToUser found ${tokens ? tokens.length : 0} token(s) for ${userId.substring(0, 8)}...`);
   if (!tokens || tokens.length === 0) return;
   for (const row of tokens) {
-    if ((row.platform || "ios") === "android") {
-      await sendFcm(row.device_token, title, body, data);
+    const plat = row.platform || "ios";
+    console.log(`[Push]   → dispatch platform=${plat} token=${row.device_token.substring(0, 8)}...`);
+    if (plat === "android") {
+      await withTimeout(sendFcm(row.device_token, title, body, data), 20_000, "sendFcm");
     } else {
-      await sendPush(row.device_token, title, body, data);
+      await withTimeout(sendPush(row.device_token, title, body, data), 20_000, "sendPush");
     }
+    console.log(`[Push]   ← dispatch done for token=${row.device_token.substring(0, 8)}...`);
   }
 }
 
