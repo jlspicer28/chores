@@ -305,7 +305,20 @@ app.get("/ping", (req, res) => res.json({ ok: true }));
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Register a new user
+//
+// DISCONTINUED (2026-10-08): this app's database was rebuilt for a
+// different, newer product and this endpoint's profile-insert step has
+// been silently failing ever since — every signup attempt here was
+// creating a Supabase Auth identity with no matching profile, a broken
+// half-account, with no clear error shown to the person signing up.
+// Refusing immediately, before ever touching Supabase Auth, stops that
+// from happening again. Not reviving this app — see the new multi-
+// district chores product instead.
 app.post("/api/auth/register", async (req, res) => {
+  return res.json({ error: "This app is no longer accepting new signups. Please check back later." });
+});
+
+app.post("/api/auth/register__disabled", async (req, res) => {
   const { email, password, firstName, lastName, phone, zip, role, skills } = req.body;
 
   try {
