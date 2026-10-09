@@ -496,7 +496,20 @@ app.post("/api/auth/apple/android-callback", express.urlencoded({ extended: fals
   res.redirect(302, `${deeplink}?${params.toString()}`);
 });
 
+// DISCONTINUED (2026-10-09): same root cause as register/login above, a
+// second door into it that was missed on 2026-10-08 — signInWithIdToken
+// creates a brand-new Supabase Auth identity on first sign-in with no
+// profile-existence check at all, same as register did. Confirmed this
+// was still actively happening: real new Apple/Google identities kept
+// appearing after the register fix, including one
+// @privaterelay.appleid.com address created at 2026-10-08T19:44 — well
+// after register was disabled. Refusing immediately, before ever calling
+// signInWithIdToken, closes this the same way. Not reviving this app.
 app.post("/api/auth/apple", async (req, res) => {
+  return res.json({ error: "This app is no longer available. Please check back later." });
+});
+
+app.post("/api/auth/apple__disabled", async (req, res) => {
   const { identityToken, nonce, fullName, zip, role } = req.body;
   if (!identityToken) return res.json({ error: "Missing identityToken" });
 
@@ -711,7 +724,12 @@ app.post("/api/auth/apple", async (req, res) => {
 // iOS client uses GoogleSignIn-iOS to get an idToken, then POSTs it here.
 // Supabase verifies the JWT against Google's JWKS and returns a session.
 // ─────────────────────────────────────────────────────────────────────────────
+// DISCONTINUED (2026-10-09): same fix as apple above, same reason.
 app.post("/api/auth/google", async (req, res) => {
+  return res.json({ error: "This app is no longer available. Please check back later." });
+});
+
+app.post("/api/auth/google__disabled", async (req, res) => {
   const { idToken, fullName, zip, role } = req.body;
   if (!idToken) return res.json({ error: "Missing idToken" });
 
