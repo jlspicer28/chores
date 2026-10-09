@@ -908,7 +908,25 @@ app.post("/api/auth/google", async (req, res) => {
 });
 
 // Login
+//
+// DISCONTINUED (2026-10-09): same root cause as register above — this
+// app's database was rebuilt for a different, newer product, so no
+// Supabase Auth identity created on this app has a matching profile row
+// any more. Unlike register, this route never actually checked that: it
+// silently returned `success: true` with a fabricated blank profile
+// (empty name, default role, a fake 5.0 rating) whenever auth succeeded
+// but no profile existed — which, by definition, is every login attempt
+// here now. Confirmed via last_sign_in_at that at least 6 real people hit
+// this broken-blank-profile path between Oct 1-8, 2026, after the schema
+// reset. Refusing immediately, before ever touching Supabase Auth,
+// matches the register fix instead of leaving this one quietly broken.
+// Not reviving this app — see the new multi-district chores product
+// instead.
 app.post("/api/auth/login", async (req, res) => {
+  return res.json({ error: "This app is no longer available. Please check back later." });
+});
+
+app.post("/api/auth/login__disabled", async (req, res) => {
   const { email, password } = req.body;
 
   try {
